@@ -7,13 +7,19 @@ interface
 
 uses
   Classes, SysUtils, fgl, fpjson,
-  DeltaAPISchema, DeltaSerialization, DeltaModelMessages;
+  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator;
 
 type
 
  { TDeltaModel }
 
  TDeltaModel = class
+ private
+   FValidator: TValidator;
+   procedure AfterConstruction; override;
+   procedure BeforeDestruction; override;
+ protected
+   property Validator: TValidator read FValidator;
  public
    procedure FromJson(JsonStr: string);
    function ToJson: string;
@@ -52,6 +58,18 @@ type
 implementation
 
 { TDeltaModel }
+
+procedure TDeltaModel.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  FValidator := TValidator.Create;
+end;
+
+procedure TDeltaModel.BeforeDestruction;
+begin
+  inherited BeforeDestruction;
+  FValidator.Free;
+end;
 
 procedure TDeltaModel.FromJson(JsonStr: string);
 begin

@@ -79,11 +79,6 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
-  TValidatorCNPJCPF = class(TInterfacedObject, IDeltaValidatorItem)
-  public
-    function Validate(Value: Variant): TValid;
-  end;
-
   { TValidatorEmail }
 
   TValidatorEmail = class(TInterfacedObject, IDeltaValidatorItem)

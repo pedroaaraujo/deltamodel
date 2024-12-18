@@ -3,13 +3,11 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Language: pt_BR\n"
 
-# Model
 msgid "DeltaModelClass not assigned to DeltaModelList."
 msgstr "DeltaModelClass não atribuída ao DeltaModelList."
 
-# Validator
-msgid "Validation failed for field %s: %s"
-msgstr "Validação falhou para o campo %s: %s"
+msgid "Validation failed for field "%s": %s"
+msgstr "Validação falhou para o campo "%s": %s"
 
 msgid "Value cannot be empty."
 msgstr "O valor não pode estar vazio."
