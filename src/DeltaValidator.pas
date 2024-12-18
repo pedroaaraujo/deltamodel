@@ -5,7 +5,7 @@ unit DeltaValidator;
 interface
 
 uses
-  Classes, SysUtils, fgl, Variants, RegExpr, fpjson,
+  Classes, SysUtils, fgl, Variants, RegExpr, fpjson, LazUTF8,
   DeltaModelMessages;
 
 type
@@ -276,8 +276,12 @@ begin
 end;
 
 function TValidatorItemMinLength.Validate(Value: Variant): TValid;
+var
+  Str: string;
 begin
-  Result.OK := Length(VarToStr(Value)) >= FMinLength;
+  Str := VarToStr(Value);
+
+  Result.OK := Utf8Length(Str) >= FMinLength;
   if not Result.OK then
     Result.Message := Format(MinimumLenght, [FMinLength]);
 end;
@@ -288,8 +292,12 @@ begin
 end;
 
 function TValidatorItemMaxLength.Validate(Value: Variant): TValid;
+var
+  Str: string;
 begin
-  Result.OK := Length(VarToStr(Value)) <= FMaxLength;
+  Str := VarToStr(Value);
+
+  Result.OK := Utf8Length(Str) <= FMaxLength;
   if not Result.OK then
     Result.Message := Format(MaximumLenght, [FMaxLength]);
 end;
