@@ -1,6 +1,6 @@
 # DeltaModel
 
-**DeltaModel** é um microframework leve para Lazarus/FreePascal, inspirado no `BaseModel` do Python. Ele facilita a criação de modelos de dados com validação, serialização e integração simplificada com JSON. Ideal para projetos que necessitam de organização e estrutura, sem adicionar complexidade desnecessária.
+**DeltaModel** é um microframework leve para Lazarus/FreePascal que facilita a criação de modelos de dados com validação, serialização e integração simplificada com JSON. Ideal para projetos que necessitam de organização e estrutura, sem adicionar complexidade desnecessária.
 
 ---
 
