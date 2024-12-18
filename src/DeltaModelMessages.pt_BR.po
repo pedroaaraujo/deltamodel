@@ -1,0 +1,40 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: pt_BR\n"
+
+# Model
+msgid "DeltaModelClass not assigned to DeltaModelList."
+msgstr "DeltaModelClass não atribuída ao DeltaModelList."
+
+# Validator
+msgid "Validation failed for field %s: %s"
+msgstr "Validação falhou para o campo %s: %s"
+
+msgid "Value cannot be empty."
+msgstr "O valor não pode estar vazio."
+
+msgid "Minimum length: %d characters."
+msgstr "Comprimento mínimo: %d caracteres."
+
+msgid "Maximum length: %d characters."
+msgstr "Comprimento máximo: %d caracteres."
+
+msgid "Value does not match the expected pattern."
+msgstr "O valor não corresponde ao padrão esperado."
+
+msgid "Invalid email."
+msgstr "E-mail inválido."
+
+msgid "Minimum allowed value: %.2f."
+msgstr "Valor mínimo permitido: %.2f."
+
+msgid "Maximum allowed value: %.2f."
+msgstr "Valor máximo permitido: %.2f."
+
+msgid "Value must be greater than zero."
+msgstr "O valor deve ser maior que zero."
+
+msgid "Allowed range: %s to %s."
+msgstr "Intervalo permitido: %s a %s."
+
