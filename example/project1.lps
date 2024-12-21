@@ -7,7 +7,7 @@
       <Unit>
         <Filename Value="project1.lpr"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="3"/>
+        <EditorIndex Value="4"/>
         <CursorPos Y="24"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
@@ -18,17 +18,15 @@
         <ComponentName Value="Form1"/>
         <ResourceBaseClass Value="Form"/>
         <UnitName Value="Unit1"/>
-        <IsVisibleTab Value="True"/>
         <TopLine Value="109"/>
         <CursorPos X="19" Y="142"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
-        <LoadedDesigner Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="../src/DeltaModel.pas"/>
         <IsPartOfProject Value="True"/>
-        <EditorIndex Value="2"/>
+        <EditorIndex Value="3"/>
         <CursorPos X="18" Y="71"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
@@ -37,10 +35,9 @@
         <Filename Value="../src/deltamodelmessages.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="DeltaModelMessages"/>
-        <EditorIndex Value="4"/>
-        <CursorPos X="57" Y="21"/>
+        <EditorIndex Value="-1"/>
+        <CursorPos X="36" Y="3"/>
         <UsageCount Value="20"/>
-        <Loaded Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="/usr/share/fpcsrc/rtl/inc/objpash.inc"/>
@@ -59,26 +56,21 @@
       </Unit>
       <Unit>
         <Filename Value="../src/DeltaValidator.pas"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="2"/>
+        <CursorPos X="62" Y="8"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="../src/DeltaModelMessages.pas"/>
         <EditorIndex Value="1"/>
-        <TopLine Value="58"/>
-        <CursorPos X="7" Y="80"/>
+        <CursorPos X="60" Y="20"/>
         <UsageCount Value="10"/>
         <Loaded Value="True"/>
       </Unit>
     </Units>
     <JumpHistory HistoryIndex="29">
-      <Position>
-        <Filename Value="../src/deltamodelmessages.pas"/>
-        <Caret Line="37" Column="108" TopLine="4"/>
-      </Position>
-      <Position>
-        <Filename Value="../src/deltamodelmessages.pas"/>
-        <Caret Line="33" Column="70" TopLine="4"/>
-      </Position>
-      <Position>
-        <Filename Value="../src/deltamodelmessages.pas"/>
-        <Caret Line="42" Column="17" TopLine="4"/>
-      </Position>
       <Position>
         <Filename Value="unit1.pas"/>
         <Caret Line="74" Column="71" TopLine="52"/>
@@ -186,6 +178,18 @@
       <Position>
         <Filename Value="unit1.pas"/>
         <Caret Line="96" Column="31" TopLine="55"/>
+      </Position>
+      <Position>
+        <Filename Value="../src/DeltaValidator.pas"/>
+        <Caret Line="63" Column="20" TopLine="40"/>
+      </Position>
+      <Position>
+        <Filename Value="../src/DeltaValidator.pas"/>
+        <Caret Line="282" TopLine="274"/>
+      </Position>
+      <Position>
+        <Filename Value="../src/DeltaValidator.pas"/>
+        <Caret Line="300" Column="31" TopLine="274"/>
       </Position>
     </JumpHistory>
     <RunParams>
