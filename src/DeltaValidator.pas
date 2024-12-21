@@ -281,10 +281,12 @@ end;
 function TValidatorItemMinLength.Validate(Value: Variant): TValid;
 var
   Str: string;
+  ActualLenght: Integer;
 begin
   Str := VarToStr(Value);
+  ActualLenght := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF};
 
-  Result.OK := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF} >= FMinLength;
+  Result.OK := ActualLenght >= FMinLength;
   if not Result.OK then
     Result.Message := Format(MinimumLenght, [FMinLength]);
 end;
@@ -297,10 +299,12 @@ end;
 function TValidatorItemMaxLength.Validate(Value: Variant): TValid;
 var
   Str: string;
+  ActualLenght: Integer;
 begin
   Str := VarToStr(Value);
+  ActualLenght := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF};
 
-  Result.OK := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF} >= FMinLength;
+  Result.OK := ActualLenght >= FMaxLength;
   if not Result.OK then
     Result.Message := Format(MaximumLenght, [FMaxLength]);
 end;
