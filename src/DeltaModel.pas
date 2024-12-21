@@ -128,8 +128,24 @@ begin
 end;
 
 function TDeltaModelList.ToJson: string;
+var
+  JsonArr: TJSONArray;
+  I: Integer;
 begin
-  Result := Serialize(Self);
+  JsonArr := TJSONArray.Create();
+  try
+    for I := 0 to Pred(Self.Records.Count) do
+    begin
+      JsonArr.Add(
+        SerializeToJsonObj(
+          Self.Records.Items[I]
+        )
+      );
+    end;
+    Result := JsonArr.AsJSON;
+  finally
+    JsonArr.Free;
+  end;
 end;
 
 function TDeltaModelList.ToJsonObj: TJSONObject;
