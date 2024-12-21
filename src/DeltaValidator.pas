@@ -5,7 +5,10 @@ unit DeltaValidator;
 interface
 
 uses
-  Classes, SysUtils, fgl, Variants, RegExpr, fpjson, LazUTF8,
+  {$IFDEF UNIX}
+  LazUTF8,
+  {$ENDIF}
+  Classes, SysUtils, fgl, Variants, RegExpr, fpjson,
   DeltaModelMessages;
 
 type
@@ -281,7 +284,7 @@ var
 begin
   Str := VarToStr(Value);
 
-  Result.OK := Utf8Length(Str) >= FMinLength;
+  Result.OK := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF} >= FMinLength;
   if not Result.OK then
     Result.Message := Format(MinimumLenght, [FMinLength]);
 end;
@@ -297,7 +300,7 @@ var
 begin
   Str := VarToStr(Value);
 
-  Result.OK := Utf8Length(Str) <= FMaxLength;
+  Result.OK := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF} >= FMinLength;
   if not Result.OK then
     Result.Message := Format(MaximumLenght, [FMaxLength]);
 end;
