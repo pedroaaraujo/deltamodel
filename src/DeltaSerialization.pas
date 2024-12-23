@@ -3,7 +3,7 @@ unit DeltaSerialization;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Types;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);
@@ -75,6 +75,12 @@ begin
              JsonData.Find(LowerCase(PropInfo^.Name), PropValue) then
           begin
             PropObj := GetObjectProp(Obj, PropInfo^.Name);
+
+            if PropObj is TIntNull then
+            begin
+              (PropObj as TIntNull).Value := PropValue.Value;
+            end
+            else
             if Assigned(PropObj) then
             begin
               DeserializeObj(PropObj, TJSONObject(PropValue));
@@ -170,6 +176,15 @@ begin
                 begin
                   ObjectItem := TObject(TFPSList(NestedObj).Items[Item]^);
                   JsonArr.Add(SerializeToJsonObj(ObjectItem));
+                end;
+              end
+              else
+              if NestedObj is TIntNull then
+              begin
+                try
+                  JsonData.Add(PropName, Int64(TIntNull(NestedObj).Value));
+                except
+                  JsonData.Add(PropInfo^.Name, TJSONNull.Create);
                 end;
               end
               else

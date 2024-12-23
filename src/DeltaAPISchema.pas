@@ -3,7 +3,7 @@ unit DeltaAPISchema;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Types;
 
 function GenerateSchema(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): TJSONObject;
 function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): string;
@@ -89,8 +89,17 @@ begin
             NestedObj := GetObjectProp(Obj, PropInfo^.Name);
             if Assigned(NestedObj) then
             begin
-              SchemaObj.Add('type', 'object');
-              SchemaObj.Add('properties', GenerateSchema(NestedObj, AddExamples, False).Find('properties'));
+              if NestedObj is TIntNull then
+              begin
+                SchemaObj.Add('type', 'integer');
+                if AddExamples then
+                  SchemaObj.Add('example', Int64((NestedObj as TIntNull).Value));
+              end
+              else
+              begin
+                SchemaObj.Add('type', 'object');
+                SchemaObj.Add('properties', GenerateSchema(NestedObj, AddExamples, False).Find('properties'));
+              end;
             end
             else
               SchemaObj.Add('type', 'null');

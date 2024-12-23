@@ -304,7 +304,7 @@ begin
   Str := VarToStr(Value);
   ActualLenght := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF};
 
-  Result.OK := ActualLenght >= FMaxLength;
+  Result.OK := ActualLenght <= FMaxLength;
   if not Result.OK then
     Result.Message := Format(MaximumLenght, [FMaxLength]);
 end;

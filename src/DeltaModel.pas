@@ -6,8 +6,8 @@ unit DeltaModel;
 interface
 
 uses
-  Classes, SysUtils, fgl, fpjson,
-  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator;
+  Classes, SysUtils, fgl, fpjson, TypInfo,
+  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator, DeltaModel.Types;
 
 type
 
@@ -16,6 +16,7 @@ type
  TDeltaModel = class
  private
    FValidator: TValidator;
+   procedure CreateFields;
    procedure AfterConstruction; override;
    procedure BeforeDestruction; override;
  protected
@@ -59,10 +60,47 @@ implementation
 
 { TDeltaModel }
 
+procedure TDeltaModel.CreateFields;
+var
+  PropList: PPropList;
+  PropInfo: PPropInfo;
+  PropType: PTypeInfo;
+  I, PropCount: integer;
+  PropObj: TObject;
+  PropClass: TClass;
+begin
+  PropCount := GetPropList(Self.ClassInfo, tkProperties, nil);
+  GetMem(PropList, PropCount * SizeOf(Pointer));
+  try
+    GetPropList(Self.ClassInfo, tkProperties, PropList);
+    for I := 0 to PropCount - 1 do
+    begin
+      PropInfo := PropList^[I];
+      PropType := PropInfo^.PropType;
+      if (PropType^.Kind = tkClass) then
+      begin
+        PropObj := GetObjectProp(Self, PropInfo^.Name);
+        if (PropObj = nil) then
+        begin
+          PropClass := GetTypeData(PropInfo^.PropType)^.ClassType;
+          if Supports(PropClass, INullableValue) then
+          begin
+            PropObj := PropClass.Create;
+            SetObjectProp(Self, PropInfo, PropObj);
+          end;
+        end;
+      end;
+    end;
+  finally
+    FreeMem(PropList, PropCount * SizeOf(Pointer));
+  end;
+end;
+
 procedure TDeltaModel.AfterConstruction;
 begin
   inherited AfterConstruction;
   FValidator := TValidator.Create;
+  CreateFields();
 end;
 
 procedure TDeltaModel.BeforeDestruction;
