@@ -1,27 +1,27 @@
 object Form1: TForm1
-  Left = 1036
-  Height = 583
-  Top = 329
-  Width = 808
+  Left = 943
+  Height = 666
+  Top = 192
+  Width = 968
   Align = alClient
   Caption = 'Form1'
-  ClientHeight = 583
-  ClientWidth = 808
+  ClientHeight = 666
+  ClientWidth = 968
   OnCreate = FormCreate
   LCLVersion = '3.6.0.0'
   object pgcBase: TPageControl
     Left = 0
-    Height = 583
+    Height = 666
     Top = 0
-    Width = 808
+    Width = 968
     ActivePage = tbsValidation
     Align = alClient
     TabIndex = 2
     TabOrder = 0
     object tbsSerialize: TTabSheet
       Caption = 'Serialization'
-      ClientHeight = 550
-      ClientWidth = 798
+      ClientHeight = 633
+      ClientWidth = 958
       object mmoSerialization: TMemo
         Left = 8
         Height = 552
@@ -73,8 +73,8 @@ object Form1: TForm1
     end
     object tbsDeserialization: TTabSheet
       Caption = 'Deserialization'
-      ClientHeight = 550
-      ClientWidth = 798
+      ClientHeight = 633
+      ClientWidth = 958
       object Label3: TLabel
         Left = 8
         Height = 19
@@ -128,8 +128,8 @@ object Form1: TForm1
     end
     object tbsValidation: TTabSheet
       Caption = 'Validation'
-      ClientHeight = 550
-      ClientWidth = 798
+      ClientHeight = 633
+      ClientWidth = 958
       object Label5: TLabel
         Left = 8
         Height = 19

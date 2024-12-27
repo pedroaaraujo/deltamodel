@@ -10,8 +10,7 @@ function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: 
 
 implementation
 
-function GenerateSchema(Obj: TObject; AddExamples: Boolean; IsArray: Boolean
-  ): TJSONObject;
+function GenerateSchema(Obj: TObject; AddExamples: Boolean; IsArray: Boolean): TJSONObject;
 var
   JsonData: TJSONObject;
   JsonArray: TJSONObject;
@@ -22,6 +21,8 @@ var
   PropName: string;
   SchemaObj: TJSONObject;
   PropValue: Variant;
+  ListObj: TFPSList;
+  FirstItem: TObject;
 begin
   if not Assigned(Obj) then Exit(nil);
 
@@ -89,11 +90,27 @@ begin
             NestedObj := GetObjectProp(Obj, PropInfo^.Name);
             if Assigned(NestedObj) then
             begin
-              if NestedObj is TIntNull then
+              if NestedObj is TDeltaField then
               begin
-                SchemaObj.Add('type', 'integer');
-                if AddExamples then
-                  SchemaObj.Add('example', Int64((NestedObj as TIntNull).Value));
+                SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
+              end
+              else
+              if NestedObj is TFPSList then
+              begin
+                SchemaObj.Add('type', 'array');
+                ListObj := TFPSList(NestedObj);
+                if ListObj.Count > 0 then
+                begin
+                  FirstItem := TObject(ListObj.Items[0]^);
+                  if Assigned(FirstItem) then
+                  begin
+                    SchemaObj.Add('items', GenerateSchema(FirstItem, AddExamples, False));
+                  end;
+                end
+                else
+                begin
+                  SchemaObj.Add('items', TJSONObject.Create);
+                end;
               end
               else
               begin
@@ -121,6 +138,7 @@ begin
     FreeMem(PropList, PropCount * SizeOf(Pointer));
   end;
 end;
+
 
 function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean; IsArray: Boolean
   ): string;

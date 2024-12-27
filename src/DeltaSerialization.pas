@@ -36,6 +36,7 @@ var
   PropValue: TJSONData;
   PropObj: TObject;
   Value: string;
+  IDeltaFieldObj: TDeltaField;
 begin
   PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
   GetMem(PropList, PropCount * SizeOf(Pointer));
@@ -76,14 +77,40 @@ begin
           begin
             PropObj := GetObjectProp(Obj, PropInfo^.Name);
 
-            if PropObj is TIntNull then
+            if (PropObj is TDeltaField) then
             begin
-              (PropObj as TIntNull).Value := PropValue.Value;
+              try
+                case PropValue.JSONType of
+                  jtNumber:
+                    (PropObj as TDeltaField).Value := PropValue.AsFloat;
+                  jtString:
+                    (PropObj as TDeltaField).Value := PropValue.AsString;
+                  jtBoolean:
+                    (PropObj as TDeltaField).Value := PropValue.AsBoolean;
+                  jtNull:
+                    (PropObj as TDeltaField).Value := Null
+                else
+                  raise Exception.Create('Incompatible type');
+                end;
+              except
+                on E: Exception do
+                begin
+                  raise Exception.CreateFmt('Invalid value for "%s.%s". %s', [Obj.ClassName, PropInfo^.Name, E.Message]);
+                end;
+              end;
             end
             else
             if Assigned(PropObj) then
             begin
-              DeserializeObj(PropObj, TJSONObject(PropValue));
+              if PropValue is TJSONObject then
+                DeserializeObj(PropObj, TJSONObject(PropValue));
+            end
+            else
+            begin
+              PropObj := GetTypeData(PropInfo^.PropType)^.ClassType.Create;
+              SetObjectProp(Obj, PropInfo^.Name, PropObj);
+              if PropValue is TJSONObject then
+                DeserializeObj(PropObj, TJSONObject(PropValue));
             end;
           end;
         end;
@@ -121,6 +148,7 @@ var
   NestedObj: TObject;
   ObjectItem: TObject;
   PropName: string;
+  IDeltaFieldObj: TDeltaField;
 begin
   if (not Assigned(@Obj)) or (Obj = nil) then 
     Exit(nil);
@@ -167,6 +195,29 @@ begin
             NestedObj := GetObjectProp(Obj, PropInfo^.Name);
             if Assigned(NestedObj) then
             begin
+              if NestedObj is TDeltaField then
+              begin
+                try
+                  PropValue := (NestedObj as TDeltaField).Value;
+                  case VarType(PropValue) of
+                    varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
+                      JsonData.Add(PropName, Integer(PropValue));
+                    varSingle, varDouble, varCurrency:
+                      JsonData.Add(PropName, Double(PropValue));
+                    varUString, varString, varOleStr:
+                      JsonData.Add(PropName, string(PropValue));
+                    varBoolean:
+                      JsonData.Add(PropName, Boolean(PropValue));
+                    varNull, varEmpty:
+                      JsonData.Add(PropName, TJSONNull.Create);
+                  else
+                    raise Exception.CreateFmt('Unsupported type for property "%s".', [PropName]);
+                  end;
+                except
+                  JsonData.Add(PropName, TJSONNull.Create);
+                end;
+              end
+              else
               if NestedObj is TFPSList then
               begin
                 JsonArr := TJSONArray.Create();
@@ -176,15 +227,6 @@ begin
                 begin
                   ObjectItem := TObject(TFPSList(NestedObj).Items[Item]^);
                   JsonArr.Add(SerializeToJsonObj(ObjectItem));
-                end;
-              end
-              else
-              if NestedObj is TIntNull then
-              begin
-                try
-                  JsonData.Add(PropName, Int64(TIntNull(NestedObj).Value));
-                except
-                  JsonData.Add(PropInfo^.Name, TJSONNull.Create);
                 end;
               end
               else

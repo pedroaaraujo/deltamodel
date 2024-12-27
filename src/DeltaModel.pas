@@ -11,17 +11,23 @@ uses
 
 type
 
+ TFieldList = specialize TFPGObjectList<TDeltaField>;
+
  { TDeltaModel }
 
  TDeltaModel = class
  private
+   FTableName: string;
    FValidator: TValidator;
+   FFieldList: TFieldList;
    procedure CreateFields;
    procedure AfterConstruction; override;
    procedure BeforeDestruction; override;
+   procedure SetTableName(AValue: string);
  protected
    property Validator: TValidator read FValidator;
  public
+   property TableName: string read FTableName write SetTableName;
    procedure FromJson(JsonStr: string);
    function ToJson: string;
    function ToJsonObj: TJSONObject;
@@ -83,10 +89,12 @@ begin
         if (PropObj = nil) then
         begin
           PropClass := GetTypeData(PropInfo^.PropType)^.ClassType;
-          if Supports(PropClass, INullableValue) then
+          if PropClass.InheritsFrom(TDeltaField) then
           begin
             PropObj := PropClass.Create;
+            (PropObj as TDeltaField).FieldName := PropInfo^.Name;
             SetObjectProp(Self, PropInfo, PropObj);
+            FFieldList.Add(PropObj as TDeltaField);
           end;
         end;
       end;
@@ -100,13 +108,23 @@ procedure TDeltaModel.AfterConstruction;
 begin
   inherited AfterConstruction;
   FValidator := TValidator.Create;
+  FFieldList := TFieldList.Create();
+
   CreateFields();
+  FTableName := Copy(Self.ClassName, 2, Length(Self.ClassName));
 end;
 
 procedure TDeltaModel.BeforeDestruction;
 begin
   inherited BeforeDestruction;
   FValidator.Free;
+  FFieldList.Free;
+end;
+
+procedure TDeltaModel.SetTableName(AValue: string);
+begin
+  if FTableName = AValue then Exit;
+  FTableName := AValue;
 end;
 
 procedure TDeltaModel.FromJson(JsonStr: string);

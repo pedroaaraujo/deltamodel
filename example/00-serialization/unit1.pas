@@ -5,10 +5,10 @@ unit Unit1;
 interface
 
 uses
-  DeltaModel, DeltaValidator,
+  DeltaModel, DeltaModel.Types, DeltaValidator,
 
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
-  ExtCtrls, Spin, DeltaModel.Types;
+  ExtCtrls, Spin, Variants;
 
 type
 
@@ -16,11 +16,11 @@ type
 
   TUser = class(TDeltaModel)
   private
-    Fage: TIntNull;
-    Fname: string;
+    Fage: TDFIntNull;
+    Fname: TDFStringRequired;
   published
-    property name: string read Fname write Fname;
-    property age: TIntNull read Fage write Fage;
+    property name: TDFStringRequired read Fname write Fname;
+    property age: TDFIntNull read Fage write Fage;
   public
     procedure Validate;
   end;
@@ -77,7 +77,7 @@ begin
   Self.Validator.Clear;
 
   Self.Validator
-    .AddField('name', Self.name)
+    .AddField('name', Self.name.Value)
     .AddValidator(TValidatorItemMinLength.Create(2))
     .AddValidator(TValidatorItemMaxLength.Create(60));
 
@@ -109,7 +109,7 @@ var
 begin
   User := TUser.Create;
   try
-    User.name := edtSerializationName.Text;
+    User.name.Value := edtSerializationName.Text;
     User.age.Value  := edtSerializationAge.Value;
     mmoSerialization.Lines.Text := User.ToJson;
   finally
@@ -124,7 +124,7 @@ begin
   User := TUser.Create;
   try
     User.FromJson(mmoDeserialization.Lines.Text);
-    edtDeserializationName.Text := User.name;
+    edtDeserializationName.Text := User.name.Value;
     edtDeserializationAge.Value := User.age.Value;
   finally
     User.Free;
@@ -137,7 +137,7 @@ var
 begin
   User := TUser.Create;
   try
-    User.name := edtValidationName.Text;
+    User.name.Value := edtValidationName.Text;
     User.age.Value  := edtValidationAge.Value;
     User.Validate;
   finally
