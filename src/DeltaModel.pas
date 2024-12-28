@@ -7,7 +7,7 @@ interface
 
 uses
   Classes, SysUtils, fgl, fpjson, TypInfo,
-  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator, DeltaModel.Types;
+  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator, DeltaModel.Fields;
 
 type
 
@@ -21,7 +21,6 @@ type
    FValidator: TValidator;
    FFieldList: TFieldList;
    procedure CreateFields;
-   procedure AfterConstruction; override;
    procedure BeforeDestruction; override;
    procedure SetTableName(AValue: string);
  protected
@@ -32,6 +31,7 @@ type
    function ToJson: string;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
+   constructor Create;
  end;
 
  TDeltaModelClass = class of TDeltaModel;
@@ -104,16 +104,6 @@ begin
   end;
 end;
 
-procedure TDeltaModel.AfterConstruction;
-begin
-  inherited AfterConstruction;
-  FValidator := TValidator.Create;
-  FFieldList := TFieldList.Create();
-
-  CreateFields();
-  FTableName := Copy(Self.ClassName, 2, Length(Self.ClassName));
-end;
-
 procedure TDeltaModel.BeforeDestruction;
 begin
   inherited BeforeDestruction;
@@ -152,6 +142,18 @@ begin
   finally
     Obj.Free;
   end;
+end;
+
+constructor TDeltaModel.Create;
+begin
+  FValidator := TValidator.Create;
+  FFieldList := TFieldList.Create();
+
+  CreateFields();
+  FTableName := Copy(Self.ToString, 2, Length(Self.ToString));
+  FTableName := FTableName.ToLower;
+
+  AfterConstruction;
 end;
 
 { TDeltaModelList }

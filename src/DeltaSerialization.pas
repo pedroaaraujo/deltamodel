@@ -3,7 +3,7 @@ unit DeltaSerialization;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Types;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Fields;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);

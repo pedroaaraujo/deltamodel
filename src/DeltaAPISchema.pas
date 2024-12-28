@@ -3,7 +3,7 @@ unit DeltaAPISchema;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Types;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Fields;
 
 function GenerateSchema(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): TJSONObject;
 function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): string;
