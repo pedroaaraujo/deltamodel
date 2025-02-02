@@ -6,7 +6,8 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
-  DeltaModel, DeltaModel.Fields, DeltaModel.SQLBuilder, Variants, DeltaModel.ORM.Connection;
+  DeltaModel, DeltaModel.Fields, DeltaModel.SQLBuilder, Variants,
+  DeltaModel.ORM.Connection, DeltaModel.ORM.Types, DeltaModel.ORM.Schema;
 
 type
 
@@ -22,7 +23,7 @@ type
     property id: TDFIntNull read Fid write Fid;
     property name: TDFStringRequired read Fname write Fname;
     property age: TDFIntRequired read Fage write Fage;
-    property limit: TDFCurrencyRequired read Flimit write Flimit;
+    property creditLimit: TDFCurrencyRequired read Flimit write Flimit;
   public
     procedure AfterConstruction; override;
   end;
@@ -30,14 +31,14 @@ type
   { TForm1 }
 
   TForm1 = class(TForm)
-    Button1: TButton;
+    Button2: TButton;
     Edit1: TEdit;
     Label1: TLabel;
     Label2: TLabel;
     Label3: TLabel;
     Label4: TLabel;
     Label5: TLabel;
-    mmoDBParams: TMemo;
+    mmoDDL: TMemo;
     mmoDelete: TMemo;
     mmoInsert: TMemo;
     mmoSelect: TMemo;
@@ -45,7 +46,7 @@ type
     PageControl1: TPageControl;
     tbsSQL: TTabSheet;
     TabSheet2: TTabSheet;
-    procedure Button1Click(Sender: TObject);
+    procedure Button2Click(Sender: TObject);
     procedure FormShow(Sender: TObject);
   private
     procedure BuildSQL;
@@ -76,12 +77,31 @@ begin
   BuildSQL;
 end;
 
-procedure TForm1.Button1Click(Sender: TObject);
+procedure TForm1.Button2Click(Sender: TObject);
 var
   Con: TDeltaORMEngine;
+  Schema: TDeltaORMSchema;
 begin
   Con := TDeltaORMEngine.Create(Edit1.Text);
-  mmoDBParams.Lines.Assign(Con.Connection.Params);
+  Schema := TDeltaORMSchema.Create(Con);
+  try
+    try
+      Con.Connection.Open;
+      ShowMessage('Connected');
+
+
+      Schema.RegisterModel(TPerson.Create);
+      Schema.PrepareDB(True);
+      mmoDDL.Lines.Text := Schema.SQL.Text;
+    finally
+      Schema.Free;
+    end;
+  except
+    on E: Exception do
+    begin
+      ShowMessageFmt('Failed.%s%s', [sLineBreak, E.Message]) ;
+    end;
+  end;
 end;
 
 procedure TForm1.BuildSQL;
@@ -98,7 +118,7 @@ begin
 
     Person.name.Value := 'No '' Name';
     Person.age.Value := 30;
-    Person.limit.Value := 39.9999;
+    Person.creditLimit.Value := 39.9999;
     mmoInsert.Lines.Text := TDMSQLBuilder.CreateInsert(
       Person,
       ddFirebird

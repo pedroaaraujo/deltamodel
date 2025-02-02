@@ -14,7 +14,8 @@ uses
   DeltaModel.DataSetConverter, DeltaValidator, DeltaSerialization,
   DeltaModelMessages, DeltaModel.Fields, DeltaAPISchema, DeltaModel.ORM.DML
   { you can add units after this },
-  SQLite3Conn
+  SQLite3Conn, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Types,
+DeltaModel.ORM.DDL, DeltaModel.ORM.Schema
   //IBConnection,
   //PQConnection,
   ;

@@ -5,16 +5,10 @@ unit DeltaModel.SQLBuilder;
 interface
 
 uses
-  Classes, SysUtils, TypInfo, Variants, DeltaModel, DeltaModel.Fields, StrUtils;
+  Classes, SysUtils, TypInfo, Variants, DeltaModel, DeltaModel.Fields, StrUtils,
+  DeltaModel.ORM.Types;
 
 type
-  TDatabaseDialect = (ddFirebird, ddPostgreSQL, ddSQLite);
-
-  { TDatabaseDialectHelper }
-
-  TDatabaseDialectHelper = class
-    class function FromString(AStr: string): TDatabaseDialect;
-  end;
 
   { TDMSQLBuilder }
 
@@ -29,6 +23,7 @@ type
     FLimit: Integer;
     FOffset: Integer;
     FDialect: TDatabaseDialect;
+    FGroupBy: string;
 
     function FieldAndValuesToSQL: string;
     function GetTableName: string;
@@ -51,9 +46,11 @@ type
     function OrderBy(const AField: string; const ADescending: Boolean = False): TDMSQLBuilder;
     function Limit(const ALimit: Integer): TDMSQLBuilder;
     function Offset(const AOffset: Integer): TDMSQLBuilder;
+    function GroupBy(const AField: string): TDMSQLBuilder;
     function Build: string;
 
     class function CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect): string; static;
+    class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
@@ -61,20 +58,6 @@ type
   end;
 
 implementation
-
-{ TDatabaseDialectHelper }
-
-class function TDatabaseDialectHelper.FromString(AStr: string
-  ): TDatabaseDialect;
-begin
-  case AStr.ToLower of
-    'firebird': Result := ddFirebird;
-    'postgresql': Result := ddFirebird;
-    'sqlite', 'sqlite3': Result := ddSQLite;
-  else
-    raise Exception.CreateFmt('%s isn''t a valid Database Dialect', [AStr]);
-  end;
-end;
 
 { TDMSQLBuilder }
 
@@ -93,6 +76,7 @@ begin
   FWhereConditions.StrictDelimiter := True;
   FLimit := -1;
   FOffset := -1;
+  FGroupBy := '';
 end;
 
 destructor TDMSQLBuilder.Destroy;
@@ -315,20 +299,26 @@ begin
   Result := Self;
 end;
 
+function TDMSQLBuilder.GroupBy(const AField: string): TDMSQLBuilder;
+begin
+  FGroupBy := QuoteIdentifier(AField);
+  Result := Self;
+end;
+
 function TDMSQLBuilder.Build: string;
 var
-  vFields, vOrderBy: string;
+  vFields, vOrderBy, vGroupBy: string;
 begin
   case FCommand of
     'SELECT':
     begin
       vFields := IfThen(FFields.Count > 0, FieldsToSQL, '*');
       vOrderBy := IfThen(FOrderBy <> '', ' ORDER BY ' + FOrderBy, '');
+      vGroupBy := IfThen(FGroupBy <> '', ' GROUP BY ' + FGroupBy, '');
 
-      Result := Format('%s %s FROM %s%s%s%s',
+      Result := Format('%s %s FROM %s%s%s%s%s',
         [FCommand, vFields, GetTableName, WhereToSQL,
-         vOrderBy,
-         BuildLimitOffset]);
+         vGroupBy, vOrderBy, BuildLimitOffset]);
     end;
 
     'INSERT INTO':
@@ -372,6 +362,15 @@ begin
     .Create(AModel, ADialect)
     .Insert
     .Build;
+end;
+
+class function TDMSQLBuilder.CreateInsertReturning(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string): string;
+begin
+  Result := CreateInsert(AModel, ADialect);
+  Result :=
+    Result + sLineBreak +
+    'RETURNING (*)';
 end;
 
 class function TDMSQLBuilder.CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string): string;

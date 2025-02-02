@@ -5,23 +5,18 @@ unit DeltaModel.ORM.Connection;
 interface
 
 uses
-  Classes, SysUtils, DB, SQLDB, DeltaModel, DeltaModel.SQLBuilder,
-  DatabaseURLParser, DeltaModel.DataSetConverter, StrUtils;
+  Classes, SysUtils, StrUtils, DB, SQLDB,
+  DeltaModel, DatabaseURLParser, DeltaModel.ORM.Interfaces,
+  DeltaModel.ORM.Types, DeltaModel.ORM.DML;
 
 type
-  IDeltaORMEngine = interface
-  ['{5FCD6178-213B-42D9-8712-33B953EEDACD}']
-    procedure StartTransaction;
-    procedure Commit;
-    procedure Rollback;
-  end;
 
   { TDeltaORMEngine }
   TDeltaORMEngine = class(TInterfacedObject, IDeltaORMEngine)
   private
     FConnection: TSQLConnector;
     FTransaction: TSQLTransaction;
-    function Dialect: TDatabaseDialect;
+    FQuery: TQuery;
   public
     property Connection: TSQLConnector read FConnection;
 
@@ -37,6 +32,10 @@ type
 
     function Delete(AModel: TDeltaModel): Boolean;
     function Merge(AModel: TDeltaModel): Boolean;
+    function Insert(AModel: TDeltaModel): Boolean;
+    function Query(AModelClass: TDeltaModelClass): TQuery;
+
+    function Dialect: TDatabaseDialect;
   end;
 
 var
@@ -48,7 +47,7 @@ implementation
 
 function TDeltaORMEngine.Dialect: TDatabaseDialect;
 begin
-  TDatabaseDialectHelper.FromString(FConnection.ConnectorType);
+  Result := TDatabaseDialectHelper.FromString(FConnection.ConnectorType);
 end;
 
 constructor TDeltaORMEngine.Create(const ADatabaseURL: string);
@@ -59,15 +58,16 @@ begin
   FTransaction := TSQLTransaction.Create(nil);
   FTransaction.Action := caCommit;
   FTransaction.DataBase := FConnection;
+  FQuery := TQuery.Create(Self);
 
   Config := ParseDatabaseURL(ADatabaseURL);
 
   FConnection.ConnectorType := Config.Protocol;
   FConnection.HostName := Config.Host;
-  FConnection.CharSet := 'UTF-8';
-  FConnection.Params.Values['UserName'] := Config.Username;
-  FConnection.Params.Values['Password'] := Config.Password;
-  FConnection.Params.Values['Database'] := Config.Database;
+  FConnection.CharSet := Config.Charset; 
+  FConnection.UserName := Config.Username;
+  FConnection.Password := Config.Password;
+  FConnection.DatabaseName := Config.Database;
 
   if Config.Port > 0 then
     FConnection.Params.Values['Port'] := Config.Port.ToString;
@@ -77,6 +77,7 @@ destructor TDeltaORMEngine.Destroy;
 begin
   FTransaction.Free;
   FConnection.Free;
+  FQuery.Free;
   inherited Destroy;
 end;
 
@@ -97,15 +98,15 @@ end;
 
 function TDeltaORMEngine.ExecuteQuery(const ASQL: string): TDataSet;
 var
-  Query: TSQLQuery;
+  Qry: TSQLQuery;
 begin
-  Query := Self.NewDataset;
+  Qry := Self.NewDataset;
   try
-    Query.SQL.Text := ASQL;
-    Query.Open;
-    Result := Query;
+    Qry.SQL.Text := ASQL;
+    Qry.Open;
+    Result := Qry;
   except
-    Query.Free;
+    Qry.Free;
     raise;
   end;
 end;
@@ -118,38 +119,24 @@ begin
 end;
 
 function TDeltaORMEngine.Delete(AModel: TDeltaModel): Boolean;
-var
-  DS: TSQLQuery;
 begin
-  DS := NewDataset;
-  try
-    DS.SQL.Text := TDMSQLBuilder.CreateDelete(
-      AModel,
-      Dialect
-    );
-    DS.ExecSQL;
-    Result := DS.RowsAffected > 0;
-  finally
-    DS.Free;
-  end;
+  Result := TDelete.Exec(Self, AModel);
 end;
 
 function TDeltaORMEngine.Merge(AModel: TDeltaModel): Boolean;
-var
-  DS: TSQLQuery;
 begin
-  DS := NewDataset;
-  try
-    DS.SQL.Text := TDMSQLBuilder.CreateUpdateReturning(
-      AModel,
-      Dialect
-    );
-    DS.Open;
-    Result := not DS.IsEmpty;
-    FromDataSet(AModel, DS);
-  finally
-    DS.Free;
-  end;
+  Result := TUpdate.UpdateObject(Self, AModel);
+end;
+
+function TDeltaORMEngine.Insert(AModel: TDeltaModel): Boolean;
+begin
+  Result := TInsert.InsertObject(Self, AModel);
+end;
+
+function TDeltaORMEngine.Query(AModelClass: TDeltaModelClass): TQuery;
+begin
+  FQuery.SetModel(AModelClass);
+  Result := FQuery;
 end;
 
 end.

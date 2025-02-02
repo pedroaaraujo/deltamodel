@@ -15,6 +15,7 @@ type
     Host: string;
     Port: Integer;
     Database: string;
+    Charset: string; // Adicionado para suportar charset
   end;
 
 function ParseDatabaseURL(const ADatabaseURL: string): TDatabaseConfig;
@@ -37,11 +38,28 @@ begin
   end;
 end;
 
+function ExtractURLParams(const AURL: string; Params: TStringList): string;
+var
+  QuestionPos: Integer;
+  ParamsStr: string;
+begin
+  QuestionPos := Pos('?', AURL);
+  if QuestionPos > 0 then
+  begin
+    ParamsStr := Copy(AURL, QuestionPos + 1, Length(AURL));
+    Params.DelimitedText := ParamsStr;
+    Result := Copy(AURL, 1, QuestionPos - 1);
+  end
+  else
+    Result := AURL;
+end;
+
 function ParseDatabaseURL(const ADatabaseURL: string): TDatabaseConfig;
 var
   URI: string;
   Credentials: string;
   AtPos, ColonPos, SlashPos: Integer;
+  Params: TStringList;
 begin
   URI := ADatabaseURL;
 
@@ -67,6 +85,12 @@ begin
     end
     else
       Result.Username := Credentials;
+  end;
+
+  if URI.Equals(':memory:') then
+  begin
+    Result.Database := URI;
+    Exit;
   end;
 
   // Extract host and port
@@ -96,6 +120,14 @@ begin
   begin
     Result.Host := URI;
     URI := '';
+  end;
+
+  Params := TStringList.Create;
+  try
+    URI := ExtractURLParams(URI, Params);
+    Result.Charset := Params.Values['charset']; // Extraindo charset
+  finally
+    Params.Free;
   end;
 
   Result.Database := URI;

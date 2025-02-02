@@ -21,17 +21,18 @@ type
    FValidator: TValidator;
    FFieldList: TFieldList;
    procedure CreateFields;
-   procedure BeforeDestruction; override;
    procedure SetTableName(AValue: string);
  protected
    property Validator: TValidator read FValidator;
  public
    property TableName: string read FTableName write SetTableName;
    procedure FromJson(JsonStr: string);
+   procedure Validate; virtual; abstract;
+   procedure BeforeDestruction; override;
    function ToJson: string;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
-   constructor Create;
+   constructor Create; virtual;
  end;
 
  TDeltaModelClass = class of TDeltaModel;
