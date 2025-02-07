@@ -68,22 +68,39 @@ end;
 
 procedure TDeltaORMSchema.AlterTables;
 var
-  I: Integer;
+  I, F: Integer;
   Obj: TDeltaModel;
-  Fields: TStringList;
+  FieldList: TStringList;
 begin
   for I := 0 to Pred(FModels.Count) do
   begin
     Obj := FModels.Items[I];
-    Fields := TStringList.Create;
+    FieldList := TStringList.Create;
     try
       if (FDBTables.IndexOf(Obj.TableName) = -1) then
         Continue;
 
-      //FConnection.Connection.GetFieldNames(Obj.TableName, Fields);
-      //FSQL.Add(TDDLBuilder.CreateFields(Obj, FConnection.Dialect));
+      try
+        FConnection.Connection.GetFieldNames(Obj.TableName, FieldList);
+      except
+        with FConnection.NewDataset do
+        try
+          SQL.Text :=
+            'SELECT * FROM ' + Obj.TableName + sLineBreak +
+            'WHERE 1 = 0';
+          Open;
+          for F := 0 to Pred(FieldCount) do
+          begin
+            FieldList.Add(Fields[F].FieldName);
+          end;
+        finally
+          Free;
+        end;
+      end;
+
+      FSQL.Add(TDDLBuilder.CreateFields(Obj, FConnection.Dialect, FieldList));
     finally
-      Fields.Free;
+      FieldList.Free;
     end;
   end;
 end;
@@ -99,6 +116,9 @@ begin
 end;
 
 procedure TDeltaORMSchema.PrepareDB(Persist: Boolean);
+var
+  I: Integer;
+  S: string;
 begin
   FSQL.Clear;
   CreateTables;
@@ -107,7 +127,12 @@ begin
 
   if Persist and (FSQL.Count > 0) then
   begin
-    FConnection.Connection.ExecuteDirect(FSQL.Text);
+    for I := 0 to Pred(FSQL.Count) do
+    begin
+      S := FSQL.Strings[I];
+      if S.IsEmpty then Continue;
+      FConnection.Connection.ExecuteDirect(S);
+    end;
     if FConnection.Connection.Transaction.Active then
       FConnection.Connection.Transaction.Commit;
   end;
@@ -119,6 +144,8 @@ begin
   FModels := TTableList.Create;
   FDBTables := TStringList.Create;
   FSQL := TStringList.Create;
+  FSQL.Delimiter := ';';
+  FSQL.StrictDelimiter := True;
 
   FConnection.Connection.GetTableNames(FDBTables);
 end;

@@ -19,9 +19,11 @@ type
     Fid: TDFIntNull;
     Flimit: TDFCurrencyRequired;
     Fname: TDFStringRequired;
+    Fsurname: String;
   published
     property id: TDFIntNull read Fid write Fid;
     property name: TDFStringRequired read Fname write Fname;
+    property surname: String read Fsurname write Fsurname;
     property age: TDFIntRequired read Fage write Fage;
     property creditLimit: TDFCurrencyRequired read Flimit write Flimit;
   public
@@ -118,7 +120,7 @@ begin
 
     Person.name.Value := 'No '' Name';
     Person.age.Value := 30;
-    Person.creditLimit.Value := 39.9999;
+    Person.creditLimit.Value := 399999.9999;
     mmoInsert.Lines.Text := TDMSQLBuilder.CreateInsert(
       Person,
       ddFirebird

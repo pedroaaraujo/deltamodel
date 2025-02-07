@@ -100,8 +100,11 @@ var
   PropValue: Variant;
   Obj: TDeltaField;
   NestedObj: TObject;
+  FS: TFormatSettings;
 begin
   Result := False;
+  FS.DecimalSeparator := '.';
+  FS.ThousandSeparator := ',';
   PropCount := GetPropList(FModel.ClassInfo, tkProperties, nil);
   if PropCount = 0 then Exit;
 
@@ -123,10 +126,13 @@ begin
             Continue;
 
           FFields.Add(QuoteIdentifier(Obj.FieldName));
-          if VarIsStr(Obj.Value) then
-            FValues.Add(QuotedStr(Obj.Value))
+          if Obj.IsNull then
+            FValues.Add('NULL')
           else
-            FValues.Add(VarToStr(Obj.Value));
+          if VarIsNumeric(Obj.Value) then
+            FValues.Add(Obj.ToString.Replace(',', '',[rfReplaceAll]))
+          else
+            FValues.Add(Obj.ToString.QuotedString);
         end;
       end
       else
@@ -135,6 +141,9 @@ begin
           Continue;
 
         FFields.Add(QuoteIdentifier(PropInfo^.Name));
+        if VarIsNumeric(PropValue) then
+          FValues.Add(StrToFloat(VarToStr(PropValue), FS).ToString().Replace(',', '',[rfReplaceAll]))
+        else
         if VarIsStr(PropValue) then
           FValues.Add(QuotedStr(PropValue))
         else
@@ -228,9 +237,9 @@ begin
             Continue;
 
           if VarIsStr(Obj.Value) then
-            SL.Add(Obj.FieldName + ' = ' + QuotedStr(Obj.Value))
+            SL.Add('(' + Obj.FieldName + ' = ' + QuotedStr(Obj.ToString) + ')')
           else
-            SL.Add(Obj.FieldName + ' = ' + VarToStr(Obj.Value));
+            SL.Add('(' + Obj.FieldName + ' = ' + VarToStr(Obj.Value) + ')');
         end;
       end;
     end;

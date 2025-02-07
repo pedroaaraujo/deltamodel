@@ -17,10 +17,10 @@ type
     class function FieldDDL(DeltaField: TDeltaField; ADialect: TDatabaseDialect): string;
     class function PrimitiveFieldDDL(Name: string; Kind: TTypeKind; ADialect: TDatabaseDialect): string;
     class procedure GetFieldsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
-    class procedure GetFieldsAT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
+    class procedure GetFieldsAT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List, ActualFieldList: TStrings);
   public
     class function CreateTableAndFields(Obj: TDeltaModel; ADialect: TDatabaseDialect): string;
-    class function CreateFields(Obj: TDeltaModel; ADialect: TDatabaseDialect): string;
+    class function CreateFields(Obj: TDeltaModel; ADialect: TDatabaseDialect; ActualFieldList: TStrings): string;
   end;
 
 implementation
@@ -156,7 +156,7 @@ begin
 end;
 
 class procedure TDDLBuilder.GetFieldsAT(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; List: TStrings);
+  ADialect: TDatabaseDialect; List, ActualFieldList: TStrings);
 const
   ADD_COLUMN = sLineBreak + '  ADD COLUMN ';
 var
@@ -176,11 +176,13 @@ begin
       if (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
-        List.Add(ADD_COLUMN + FieldDDL(DeltaField, ADialect));
+        if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
+          List.Add(ADD_COLUMN + FieldDDL(DeltaField, ADialect));
       end
       else
       begin
-        List.Add(ADD_COLUMN + PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect));
+        if ActualFieldList.IndexOf(PropInfo^.Name) = -1 then
+          List.Add(ADD_COLUMN + PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect));
       end;
     end;
   finally
@@ -202,7 +204,7 @@ begin
 
     SQL.Add(
       'CREATE TABLE ' + Obj.TableName + ' (' +
-      Fields.DelimitedText +
+      Fields.DelimitedText + sLineBreak +
       ');'
     );
 
@@ -214,22 +216,28 @@ begin
 end;
 
 class function TDDLBuilder.CreateFields(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect): string;
+  ADialect: TDatabaseDialect; ActualFieldList: TStrings): string;
 var
   SQL, Fields: TStringList;
 begin
+  Result := EmptyStr;
+
   SQL := TStringList.Create;
   Fields := TStringList.Create;
   try
     Fields.Delimiter := ',';
     Fields.StrictDelimiter := True;
-    GetFieldsCT(Obj, ADialect, Fields);
+    GetFieldsAT(Obj, ADialect, Fields, ActualFieldList);
 
-    SQL.Add('ALTER TABLE ' + Obj.TableName);
-    SQL.Add(Fields.DelimitedText);
-    SQL.Add(';');
+    SQL.Add(
+      'ALTER TABLE ' + Obj.TableName + sLineBreak +
+      Fields.DelimitedText + sLineBreak + ';'
+    );
 
-    Result := SQL.Text;
+    if Fields.Count > 0 then
+    begin
+      Result := SQL.Text;
+    end;
   finally
     SQL.Free;
     Fields.Free;

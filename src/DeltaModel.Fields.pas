@@ -22,6 +22,7 @@ type
   protected
     function GetValue: Variant; virtual; abstract;
     procedure SetValue(AValue: Variant); virtual; abstract;
+    function FS: TFormatSettings;
   public
     property Value: Variant read GetValue write SetValue;
 
@@ -32,6 +33,7 @@ type
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
     function IsNull: Boolean; virtual; abstract;
+    function ToString: string; virtual;
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
     constructor Create;
@@ -75,6 +77,8 @@ type
   TDFIntNull = class(TDeltaFieldNullable)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFDoubleNull }
@@ -82,6 +86,8 @@ type
   TDFDoubleNull = class(TDeltaFieldNullable)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFCurrencyNull }
@@ -89,6 +95,8 @@ type
   TDFCurrencyNull = class(TDeltaFieldNullable)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFStringNull }
@@ -108,6 +116,8 @@ type
   TDFIntRequired = class(TDeltaFieldRequired)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFDoubleRequired }
@@ -115,6 +125,8 @@ type
   TDFDoubleRequired = class(TDeltaFieldRequired)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFCurrencyRequired }
@@ -122,6 +134,8 @@ type
   TDFCurrencyRequired = class(TDeltaFieldRequired)
   protected
     procedure SetValue(AValue: Variant); override;
+  public
+    function ToString: string; override;
   end;
 
   { TDFStringRequired }
@@ -150,10 +164,21 @@ begin
   FFieldName := AValue;
 end;
 
+function TDeltaField.FS: TFormatSettings;
+begin
+  Result.DecimalSeparator := '.';
+  Result.ThousandSeparator := ',';
+end;
+
 procedure TDeltaField.AfterConstruction;
 begin
   inherited AfterConstruction;
   DBOptions := [dboUpdate];
+end;
+
+function TDeltaField.ToString: string;
+begin
+  Result := VarToStrDef(Self.Value, EmptyStr);
 end;
 
 constructor TDeltaField.Create;
@@ -263,6 +288,11 @@ begin
   end;
 end;
 
+function TDFIntNull.ToString: string;
+begin
+  Result := StrToIntDef(inherited ToString, 0).ToString;
+end;
+
 { TDFDoubleNull }
 
 procedure TDFDoubleNull.SetValue(AValue: Variant);
@@ -274,6 +304,11 @@ begin
   end;
 end;
 
+function TDFDoubleNull.ToString: string;
+begin
+  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+end;
+
 { TDFCurrencyNull }
 
 procedure TDFCurrencyNull.SetValue(AValue: Variant);
@@ -283,6 +318,11 @@ begin
   begin
     Self.FValue := Currency(AValue);
   end;
+end;
+
+function TDFCurrencyNull.ToString: string;
+begin
+  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
 end;
 
 { TDFStringNull }
@@ -314,6 +354,11 @@ begin
   end;
 end;
 
+function TDFIntRequired.ToString: string;
+begin
+  Result := StrToIntDef(inherited ToString, 0).ToString;
+end;
+
 { TDFDoubleRequired }
 
 procedure TDFDoubleRequired.SetValue(AValue: Variant);
@@ -325,6 +370,11 @@ begin
   end;
 end;
 
+function TDFDoubleRequired.ToString: string;
+begin
+  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+end;
+
 { TDFCurrencyRequired }
 
 procedure TDFCurrencyRequired.SetValue(AValue: Variant);
@@ -334,6 +384,11 @@ begin
   begin
     Self.FValue := Currency(AValue);
   end;
+end;
+
+function TDFCurrencyRequired.ToString: string;
+begin
+  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
 end;
 
 { TDFStringRequired }
