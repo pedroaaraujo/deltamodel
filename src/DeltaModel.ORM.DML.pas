@@ -52,8 +52,6 @@ type
 
 implementation
 
-{ TQuery<T> }
-
 constructor TQuery.Create(AConn: IDeltaORMEngine);
 begin
   FConn := AConn;
@@ -187,9 +185,10 @@ begin
       AModel,
       AConn.Dialect
     );
-    DS.Open;
-    Result := not DS.IsEmpty;
-    FromDataSet(AModel, DS);
+    ToDatasetParams(AModel, DS);
+
+    DS.ExecSQL;
+    Result := DS.RowsAffected > 0;
   finally
     DS.Free;
   end;
@@ -210,9 +209,10 @@ begin
       AModel,
       AConn.Dialect
     );
-    DS.Open;
-    Result := not DS.IsEmpty;
-    FromDataSet(AModel, DS);
+    ToDatasetParams(AModel, DS);
+
+    DS.ExecSQL;
+    Result := DS.RowsAffected > 0;
   finally
     DS.Free;
   end;

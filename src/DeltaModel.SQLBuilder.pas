@@ -27,7 +27,7 @@ type
 
     function FieldAndValuesToSQL: string;
     function GetTableName: string;
-    function ExtractFieldsAndValues: Boolean;
+    function ExtractFieldsAndValues(UseNamedParams: Boolean): Boolean;
     function FieldsToSQL: string;
     function ValuesToSQL: string;
     function WhereToSQL: string;
@@ -39,8 +39,8 @@ type
     destructor Destroy; override;
 
     function Select: TDMSQLBuilder;
-    function Insert: TDMSQLBuilder;
-    function Update: TDMSQLBuilder;
+    function Insert(UseNamedParams: Boolean): TDMSQLBuilder;
+    function Update(UseNamedParams: Boolean): TDMSQLBuilder;
     function Delete: TDMSQLBuilder;
     function Where(const ACondition: string): TDMSQLBuilder;
     function OrderBy(const AField: string; const ADescending: Boolean = False): TDMSQLBuilder;
@@ -49,10 +49,10 @@ type
     function GroupBy(const AField: string): TDMSQLBuilder;
     function Build: string;
 
-    class function CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect): string; static;
-    class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
-    class function CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
-    class function CreateUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
+    class function CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
+    class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
+    class function CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
+    class function CreateUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
     class function CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateSelect(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
   end;
@@ -92,7 +92,7 @@ begin
   Result := QuoteIdentifier(FModel.TableName);
 end;
 
-function TDMSQLBuilder.ExtractFieldsAndValues: Boolean;
+function TDMSQLBuilder.ExtractFieldsAndValues(UseNamedParams: Boolean): Boolean;
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -126,6 +126,10 @@ begin
             Continue;
 
           FFields.Add(QuoteIdentifier(Obj.FieldName));
+
+          if UseNamedParams then
+            FValues.Add(':' + Obj.FieldName)
+          else
           if Obj.IsNull then
             FValues.Add('NULL')
           else
@@ -141,6 +145,10 @@ begin
           Continue;
 
         FFields.Add(QuoteIdentifier(PropInfo^.Name));
+
+        if UseNamedParams then
+          FValues.Add(':' + PropInfo^.Name)
+        else
         if VarIsNumeric(PropValue) then
           FValues.Add(StrToFloat(VarToStr(PropValue), FS).ToString().Replace(',', '',[rfReplaceAll]))
         else
@@ -257,21 +265,21 @@ begin
   Result := Self;
 end;
 
-function TDMSQLBuilder.Insert: TDMSQLBuilder;
+function TDMSQLBuilder.Insert(UseNamedParams: Boolean): TDMSQLBuilder;
 begin
   FCommand := 'INSERT INTO';
   FFields.Clear;
   FValues.Clear;
-  ExtractFieldsAndValues;
+  ExtractFieldsAndValues(UseNamedParams);
   Result := Self;
 end;
 
-function TDMSQLBuilder.Update: TDMSQLBuilder;
+function TDMSQLBuilder.Update(UseNamedParams: Boolean): TDMSQLBuilder;
 begin
   FCommand := 'UPDATE';
   FFields.Clear;
   FValues.Clear;
-  ExtractFieldsAndValues;
+  ExtractFieldsAndValues(UseNamedParams);
   Result := Self;
 end;
 
@@ -321,9 +329,9 @@ begin
   case FCommand of
     'SELECT':
     begin
-      vFields := IfThen(FFields.Count > 0, FieldsToSQL, '*');
       vOrderBy := IfThen(FOrderBy <> '', ' ORDER BY ' + FOrderBy, '');
       vGroupBy := IfThen(FGroupBy <> '', ' GROUP BY ' + FGroupBy, '');
+      vFields  := IfThen(FFields.Count > 0, FieldsToSQL, '*');
 
       Result := Format('%s %s FROM %s%s%s%s%s',
         [FCommand, vFields, GetTableName, WhereToSQL,
@@ -365,16 +373,17 @@ begin
   end;
 end;
 
-class function TDMSQLBuilder.CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect): string;
+class function TDMSQLBuilder.CreateInsert(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; UseNamedParams: Boolean): string;
 begin
   Result := TDMSQLBuilder
     .Create(AModel, ADialect)
-    .Insert
+    .Insert(UseNamedParams)
     .Build;
 end;
 
 class function TDMSQLBuilder.CreateInsertReturning(AModel: TDeltaModel;
-  ADialect: TDatabaseDialect; const WhereClause: string): string;
+  ADialect: TDatabaseDialect; UseNamedParams: Boolean): string;
 begin
   Result := CreateInsert(AModel, ADialect);
   Result :=
@@ -382,20 +391,23 @@ begin
     'RETURNING (*)';
 end;
 
-class function TDMSQLBuilder.CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string): string;
+class function TDMSQLBuilder.CreateUpdate(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
+  ): string;
 var
   WherePK: string;
 begin
   WherePK := WhereClausePK(AModel);
   Result := TDMSQLBuilder
     .Create(AModel, ADialect)
-    .Update
+    .Update(UseNamedParams)
     .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
     .Build;
 end;
 
 class function TDMSQLBuilder.CreateUpdateReturning(AModel: TDeltaModel;
-  ADialect: TDatabaseDialect; const WhereClause: string): string;
+  ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
+  ): string;
 begin
   Result := CreateUpdate(AModel, ADialect, WhereClause);
   Result :=

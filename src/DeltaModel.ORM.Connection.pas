@@ -64,10 +64,13 @@ begin
 
   FConnection.ConnectorType := Config.Protocol;
   FConnection.HostName := Config.Host;
-  FConnection.CharSet := Config.Charset; 
   FConnection.UserName := Config.Username;
   FConnection.Password := Config.Password;
   FConnection.DatabaseName := Config.Database;
+
+  FConnection.CharSet := Config.Charset;
+  if Config.Charset.IsEmpty then
+    FConnection.CharSet := 'UTF-8';
 
   if Config.Port > 0 then
     FConnection.Params.Values['Port'] := Config.Port.ToString;
