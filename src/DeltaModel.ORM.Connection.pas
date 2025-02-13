@@ -70,10 +70,10 @@ begin
 
   FConnection.CharSet := Config.Charset;
   if Config.Charset.IsEmpty then
-    FConnection.CharSet := 'UTF-8';
+    FConnection.CharSet := 'UTF8';
 
   if Config.Port > 0 then
-    FConnection.Params.Values['Port'] := Config.Port.ToString;
+    FConnection.Params.Values['port'] := Config.Port.ToString;
 end;
 
 destructor TDeltaORMEngine.Destroy;

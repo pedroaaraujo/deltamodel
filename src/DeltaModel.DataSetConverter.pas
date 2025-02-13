@@ -33,18 +33,12 @@ begin
         PropObj := GetObjectProp(AModel, PropInfo^.Name);
         if (PropObj is TDeltaField) then
         begin
-          if DS.FieldByName(PropInfo^.Name) is TStringField then
-            (PropObj as TDeltaField).Value := DS.FieldByName(PropInfo^.Name).AsUTF8String
-          else
-            (PropObj as TDeltaField).Value := DS.FieldByName(PropInfo^.Name).Value;
+          (PropObj as TDeltaField).Value := DS.FieldByName((PropObj as TDeltaField).FieldName).Value;
         end;
       end
       else
       begin
-        if DS.FieldByName(PropInfo^.Name) is TStringField then
-          SetPropValue(AModel, PropInfo^.Name, DS.FieldByName(PropInfo^.Name).AsUTF8String)
-        else
-          SetPropValue(AModel, PropInfo^.Name, DS.FieldByName(PropInfo^.Name).Value);
+        SetPropValue(AModel, PropInfo^.Name, DS.FieldByName(PropInfo^.Name).Value);
       end;
     end;
   finally

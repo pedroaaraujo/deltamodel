@@ -7,7 +7,7 @@ uses
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);
-function Serialize(Obj: TObject): string;
+function Serialize(Obj: TObject): RawByteString;
 function SerializeToJsonObj(Obj: TObject): TJSONObject;
 
 implementation
@@ -121,7 +121,7 @@ begin
   end;
 end;
 
-function Serialize(Obj: TObject): string;
+function Serialize(Obj: TObject): RawByteString;
 var
   JsonData: TJSONObject;
 begin

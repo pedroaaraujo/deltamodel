@@ -133,7 +133,7 @@ begin
     DS.First;
     while not DS.EOF do
     begin
-      Obj := TDeltaModelClass.Create;
+      Obj := FModelClass.Create;
       FromDataSet(Obj, DS);
       Result.Records.Add(Obj);
       DS.Next;

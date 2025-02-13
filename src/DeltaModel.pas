@@ -27,10 +27,10 @@ type
  public
    property TableName: string read FTableName write SetTableName;
    procedure FromJson(JsonStr: string);
-   procedure Validate; virtual; abstract;
+   procedure Validate; virtual;
    procedure BeforeDestruction; override;
-   procedure Configure; virtual; abstract;
-   function ToJson: string;
+   procedure Configure; virtual;
+   function ToJson: RawByteString;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
    constructor Create; virtual;
@@ -56,7 +56,7 @@ type
    property DeltaModelClass: TDeltaModelClass read FDeltaModelClass write FDeltaModelClass;
    property Records: TCustomDeltaModelList read FRecords;
    procedure FromJson(JsonStr: string); virtual;
-   function ToJson: string;
+   function ToJson: RawByteString;
    function ToJsonObj: TJSONObject;
    function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
 
@@ -113,6 +113,11 @@ begin
   FFieldList.Free;
 end;
 
+procedure TDeltaModel.Configure;
+begin
+
+end;
+
 procedure TDeltaModel.SetTableName(AValue: string);
 begin
   if FTableName = AValue then Exit;
@@ -124,7 +129,12 @@ begin
   Deserialize(Self, JsonStr);
 end;
 
-function TDeltaModel.ToJson: string;
+procedure TDeltaModel.Validate;
+begin
+
+end;
+
+function TDeltaModel.ToJson: RawByteString;
 begin
   Result := Serialize(Self);
 end;
@@ -189,7 +199,7 @@ begin
   end;
 end;
 
-function TDeltaModelList.ToJson: string;
+function TDeltaModelList.ToJson: RawByteString;
 var
   JsonArr: TJSONArray;
   I: Integer;

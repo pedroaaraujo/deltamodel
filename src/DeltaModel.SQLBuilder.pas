@@ -72,8 +72,6 @@ begin
   FValues.Delimiter := ',';
   FValues.StrictDelimiter := True;
   FWhereConditions := TStringList.Create;
-  FWhereConditions.Delimiter := ',';
-  FWhereConditions.StrictDelimiter := True;
   FLimit := -1;
   FOffset := -1;
   FGroupBy := '';
@@ -175,11 +173,14 @@ begin
 end;
 
 function TDMSQLBuilder.WhereToSQL: string;
+var
+  Count: Integer;
 begin
-  if FWhereConditions.Count > 0 then
+  Result := '';
+
+  Count := FWhereConditions.Count;
+  if Count > 0 then
     Result := ' WHERE ' + String.Join(' AND ', FWhereConditions.ToStringArray)
-  else
-    Result := '';
 end;
 
 function TDMSQLBuilder.QuoteIdentifier(const AIdentifier: string): string;
@@ -291,7 +292,8 @@ end;
 
 function TDMSQLBuilder.Where(const ACondition: string): TDMSQLBuilder;
 begin
-  FWhereConditions.Add(ACondition);
+  if not ACondition.IsEmpty then
+    FWhereConditions.Add(ACondition);
   Result := Self;
 end;
 
