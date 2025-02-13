@@ -29,6 +29,7 @@ type
    procedure FromJson(JsonStr: string);
    procedure Validate; virtual; abstract;
    procedure BeforeDestruction; override;
+   procedure Configure; virtual; abstract;
    function ToJson: string;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
@@ -155,6 +156,8 @@ begin
   FTableName := FTableName.ToLower;
 
   AfterConstruction;
+
+  Configure();
 end;
 
 { TDeltaModelList }
