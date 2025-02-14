@@ -43,7 +43,7 @@ type
     function Update(UseNamedParams: Boolean): TDMSQLBuilder;
     function Delete: TDMSQLBuilder;
     function Where(const ACondition: string): TDMSQLBuilder;
-    function OrderBy(const AField: string; const ADescending: Boolean = False): TDMSQLBuilder;
+    function OrderBy(const AField: string): TDMSQLBuilder;
     function Limit(const ALimit: Integer): TDMSQLBuilder;
     function Offset(const AOffset: Integer): TDMSQLBuilder;
     function GroupBy(const AField: string): TDMSQLBuilder;
@@ -297,12 +297,9 @@ begin
   Result := Self;
 end;
 
-function TDMSQLBuilder.OrderBy(const AField: string; const ADescending: Boolean): TDMSQLBuilder;
+function TDMSQLBuilder.OrderBy(const AField: string): TDMSQLBuilder;
 begin
-  if ADescending then
-    FOrderBy := QuoteIdentifier(AField) + ' DESC'
-  else
-    FOrderBy := QuoteIdentifier(AField) + ' ASC';
+  FOrderBy := AField;
   Result := Self;
 end;
 

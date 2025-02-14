@@ -17,10 +17,12 @@ type
     FModelClass: TDeltaModelClass;
     FConn: IDeltaORMEngine;
     FFilter: string;
+    FOrderBy: string;
   public
     constructor Create(AConn: IDeltaORMEngine);
     destructor Destroy; override;
 
+    function OrderBy(const AField: string): TQuery;
     function Filter(const Value: string): TQuery;
     function SetModel(AModel: TDeltaModelClass): TQuery;
     function First: TDeltaModel;
@@ -64,6 +66,12 @@ begin
   inherited Destroy;
 end;
 
+function TQuery.OrderBy(const AField: string): TQuery;
+begin
+  FOrderBy := AField;
+  Result := Self;
+end;
+
 function TQuery.Filter(const Value: string): TQuery;
 begin
   Result := Self;
@@ -89,6 +97,7 @@ begin
       SQLBuilder
       .Select
       .Limit(1)
+      .OrderBy(FOrderBy)
       .Where(FFilter)
       .Build;
     DS.Open;
@@ -123,6 +132,7 @@ begin
       .Limit(Limit)
       .Offset(Offset)
       .Where(FFilter)
+      .OrderBy(FOrderBy)
       .Build;
     DS.Open;
     if DS.IsEmpty then
