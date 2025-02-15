@@ -185,11 +185,11 @@ end;
 
 function TDMSQLBuilder.QuoteIdentifier(const AIdentifier: string): string;
 begin
-  case FDialect of
-    ddPostgreSQL: Result := '"' + AIdentifier + '"';
-  else
+  //case FDialect of
+  //  ddPostgreSQL: Result := '"' + AIdentifier + '"';
+  //else
     Result := AIdentifier;
-  end;
+  //end;
 end;
 
 function TDMSQLBuilder.BuildLimitOffset: string;
