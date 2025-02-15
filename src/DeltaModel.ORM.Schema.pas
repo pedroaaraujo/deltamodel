@@ -19,13 +19,14 @@ type
     FModels: TTableList;
     FDBTables: TStringList;
     FSQL: TStringList;
+    FConstraitList: TStringList;
     procedure CreateTables;
     procedure AlterTables;
-    procedure CreateForeignKeys;
+    procedure CreateConstraints;
   public
     property SQL: TStringList read FSQL;
-    procedure RegisterModel(Model: TDeltaModel);
-    procedure CreateDB;
+    procedure RegisterModel(Model: TDeltaModel); overload;
+    procedure RegisterModel(ModelClass: TDeltaModelClass); overload;
     procedure PrepareDB(Persist: Boolean);
     constructor Create(AConnection: TDeltaORMEngine);
     destructor Destroy; override;
@@ -34,22 +35,6 @@ type
 implementation
 
 { TDeltaORMSchema }
-
-procedure TDeltaORMSchema.CreateDB;
-begin
-  try
-    FConnection.Connection.Connected := True;
-  except
-    on E: EDatabaseError do
-    begin
-      FConnection.Connection.CreateDB;
-      FConnection.Connection.Connected := True;
-    end;
-  end;
-
-  if FConnection.Connection.Connected then
-      PrepareDB(True);
-end;
 
 procedure TDeltaORMSchema.CreateTables;
 var
@@ -62,7 +47,7 @@ begin
     if (FDBTables.IndexOf(Obj.TableName) > -1) then
       Continue;
 
-    FSQL.Add(TDDLBuilder.CreateTableAndFields(Obj, FConnection.Dialect));
+    FSQL.Add(TDDLBuilder.CreateTableAndFields(Obj, FConstraitList, FConnection.Dialect));
   end;
 end;
 
@@ -80,39 +65,50 @@ begin
       if (FDBTables.IndexOf(Obj.TableName) = -1) then
         Continue;
 
+      with FConnection.NewDataset do
       try
-        FConnection.Connection.GetFieldNames(Obj.TableName, FieldList);
-      except
-        with FConnection.NewDataset do
-        try
-          SQL.Text :=
-            'SELECT * FROM ' + Obj.TableName + sLineBreak +
-            'WHERE 1 = 0';
-          Open;
-          for F := 0 to Pred(FieldCount) do
-          begin
-            FieldList.Add(Fields[F].FieldName);
-          end;
-        finally
-          Free;
+        SQL.Text :=
+          'SELECT * FROM ' + Obj.TableName + sLineBreak +
+          'WHERE 1 = 0';
+        Open;
+        for F := 0 to Pred(FieldCount) do
+        begin
+          FieldList.Add(Fields[F].FieldName);
         end;
+      finally
+        Free;
       end;
 
-      FSQL.Add(TDDLBuilder.CreateFields(Obj, FConnection.Dialect, FieldList));
+      FSQL.Add(TDDLBuilder.CreateFields(Obj, FConnection.Dialect, FieldList, FConstraitList));
     finally
       FieldList.Free;
     end;
   end;
 end;
 
-procedure TDeltaORMSchema.CreateForeignKeys;
+procedure TDeltaORMSchema.CreateConstraints;
+var
+  I: Integer;
+  S: string;
 begin
-  // Implementar lógica para criar chaves estrangeiras
+  for I := 0 to Pred(FConstraitList.Count) do
+  begin
+    S := FConstraitList[I];
+    if not S.IsEmpty then
+    begin
+      FSQL.Add(S);
+    end;
+  end;
 end;
 
 procedure TDeltaORMSchema.RegisterModel(Model: TDeltaModel);
 begin
   FModels.Add(Model);
+end;
+
+procedure TDeltaORMSchema.RegisterModel(ModelClass: TDeltaModelClass);
+begin
+  RegisterModel(ModelClass.Create);
 end;
 
 procedure TDeltaORMSchema.PrepareDB(Persist: Boolean);
@@ -121,9 +117,11 @@ var
   S: string;
 begin
   FSQL.Clear;
+  FConstraitList.Clear;
+
   CreateTables;
   AlterTables;
-  CreateForeignKeys;
+  CreateConstraints;
 
   if Persist and (FSQL.Count > 0) then
   begin
@@ -143,6 +141,7 @@ begin
   FConnection := AConnection;
   FModels := TTableList.Create;
   FDBTables := TStringList.Create;
+  FConstraitList := TStringList.Create;
   FSQL := TStringList.Create;
   FSQL.Delimiter := ';';
   FSQL.StrictDelimiter := True;
@@ -155,6 +154,7 @@ begin
   FModels.Free;
   FDBTables.Free;
   FSQL.Free;
+  FConstraitList.Free;
   inherited Destroy;
 end;
 

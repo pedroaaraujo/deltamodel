@@ -7,7 +7,8 @@ interface
 
 uses
   Classes, SysUtils, fgl, fpjson, TypInfo,
-  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator, DeltaModel.Fields;
+  DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator,
+  DeltaModel.Fields;
 
 type
 

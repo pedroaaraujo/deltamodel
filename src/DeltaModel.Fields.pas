@@ -9,8 +9,24 @@ uses
 
 type
 
-  TDBOptions = (dboPrimaryKey, dboUpdate);
+  TDBOptions = (dboPrimaryKey, dboUpdate, dboAutoInc);
+  TFKOption = (fkNone, fkCascade, fkSetNull, fkRestrict);
   TDBOptionsSet = set of TDBOptions;
+
+  { TForeignKey }
+
+  TForeignKey = class
+  private
+    FOnDelete: TFKOption;
+    FOnUpdate: TFKOption;
+    FReferencesField: string;
+    FReferencesTable: TClass;
+  public
+    property ReferencesTable: TClass read FReferencesTable write FReferencesTable;
+    property ReferencesField: string read FReferencesField write FReferencesField;
+    property OnDelete: TFKOption read FOnDelete write FOnDelete;
+    property OnUpdate: TFKOption read FOnUpdate write FOnUpdate;
+  end;
 
   { TDeltaField }
 
@@ -18,6 +34,7 @@ type
   private
     FDBOptions: TDBOptionsSet;
     FFieldName: string;
+    FForeignKey: TForeignKey;
     procedure SetFieldName(AValue: string);
   protected
     function GetValue: Variant; virtual; abstract;
@@ -29,6 +46,7 @@ type
     ///to be used with ORM
     property FieldName: string read FFieldName write SetFieldName;
     property DBOptions: TDBOptionsSet read FDBOptions write FDBOptions;
+    property ForeignKey: TForeignKey read FForeignKey;
 
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
@@ -37,6 +55,7 @@ type
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
     constructor Create;
+    destructor Destroy; override;
   end;
 
   { TDeltaFieldNullable }
@@ -174,6 +193,7 @@ procedure TDeltaField.AfterConstruction;
 begin
   inherited AfterConstruction;
   DBOptions := [dboUpdate];
+  FForeignKey := TForeignKey.Create;
 end;
 
 function TDeltaField.ToString: string;
@@ -184,6 +204,12 @@ end;
 constructor TDeltaField.Create;
 begin
   inherited;
+end;
+
+destructor TDeltaField.Destroy;
+begin
+  FForeignKey.Free;
+  inherited Destroy;
 end;
 
 { TDeltaFieldNullable }
