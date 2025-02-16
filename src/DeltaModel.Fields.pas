@@ -172,7 +172,7 @@ type
 implementation
 
 const
-  DEFAULT_STR_SIZE = 20;
+  DEFAULT_STR_SIZE = 255;
 
 { TDeltaField }
 

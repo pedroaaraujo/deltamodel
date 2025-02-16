@@ -53,6 +53,7 @@ var
   PropType: PTypeInfo;
   I, PropCount: Integer;
   PropObj: TObject;
+  Param: TParam;
   FieldName: string;
 begin
   PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
@@ -70,8 +71,12 @@ begin
         if (PropObj is TDeltaField) then
         begin
           FieldName := (PropObj as TDeltaField).FieldName;
-          if (FieldName <> '') and (DS.ParamByName(FieldName) <> nil) then
-            DS.ParamByName(FieldName).Value := (PropObj as TDeltaField).Value;
+          if (FieldName <> '') then
+          begin
+            Param := DS.Params.FindParam(FieldName);
+            if Param <> Nil then
+              Param.Value := (PropObj as TDeltaField).Value;
+          end;
         end;
       end
       else
