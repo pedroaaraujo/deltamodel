@@ -298,7 +298,9 @@ begin
     for I := 0 to PropCount - 1 do
     begin
       PropInfo := PropList^[I];
-      if (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
+
+      if (PropInfo^.PropType^.Kind = tkClass) and
+         (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
