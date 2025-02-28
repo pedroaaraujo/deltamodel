@@ -80,17 +80,36 @@ begin
             if (PropObj is TDeltaField) then
             begin
               try
-                case PropValue.JSONType of
-                  jtNumber:
-                    (PropObj as TDeltaField).Value := PropValue.AsFloat;
-                  jtString:
-                    (PropObj as TDeltaField).Value := PropValue.AsString;
-                  jtBoolean:
-                    (PropObj as TDeltaField).Value := PropValue.AsBoolean;
-                  jtNull:
-                    (PropObj as TDeltaField).Value := Null
+                if (PropObj is TDFDateRequired) or
+                   (PropObj is TDFDateNull) or
+                   (PropObj is TDFTimeRequired) or
+                   (PropObj is TDFTimeNull) or
+                   (PropObj is TDFDateTimeRequired) or
+                   (PropObj is TDFDateTimeNull) then
+                begin
+                  if (PropValue.JSONType = jtNull) then
+                  begin
+                    (PropObj as TDeltaField).Clear;
+                  end
+                  else
+                  begin
+                    DateTimeToField((PropObj as TDeltaField), PropValue.AsString);
+                  end;
+                end
                 else
-                  raise Exception.Create('Incompatible type');
+                begin
+                  case PropValue.JSONType of
+                    jtNumber:
+                      (PropObj as TDeltaField).Value := PropValue.AsFloat;
+                    jtString:
+                      (PropObj as TDeltaField).Value := PropValue.AsString;
+                    jtBoolean:
+                      (PropObj as TDeltaField).Value := PropValue.AsBoolean;
+                    jtNull:
+                      (PropObj as TDeltaField).Value := Null
+                  else
+                    raise Exception.Create('Incompatible type');
+                  end;
                 end;
               except
                 on E: Exception do
@@ -198,20 +217,37 @@ begin
               if NestedObj is TDeltaField then
               begin
                 try
-                  PropValue := (NestedObj as TDeltaField).Value;
-                  case VarType(PropValue) of
-                    varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
-                      JsonData.Add(PropName, Integer(PropValue));
-                    varSingle, varDouble, varCurrency:
-                      JsonData.Add(PropName, Double(PropValue));
-                    varUString, varString, varOleStr:
-                      JsonData.Add(PropName, string(PropValue));
-                    varBoolean:
-                      JsonData.Add(PropName, Boolean(PropValue));
-                    varNull, varEmpty:
-                      JsonData.Add(PropName, TJSONNull.Create);
+                  if (NestedObj as TDeltaField).IsNull then
+                  begin
+                    JsonData.Add(PropName, TJSONNull.Create);
+                  end
                   else
-                    raise Exception.CreateFmt('Unsupported type for property "%s".', [PropName]);
+                  if (NestedObj is TDFDateRequired) or
+                     (NestedObj is TDFDateNull) or
+                     (NestedObj is TDFTimeRequired) or
+                     (NestedObj is TDFTimeNull) or
+                     (NestedObj is TDFDateTimeRequired) or
+                     (NestedObj is TDFDateTimeNull) then
+                  begin
+                    JsonData.Add(PropName, (NestedObj as TDeltaField).AsString);
+                  end
+                  else
+                  begin
+                    PropValue := (NestedObj as TDeltaField).Value;
+                    case VarType(PropValue) of
+                      varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
+                        JsonData.Add(PropName, Integer(PropValue));
+                      varSingle, varDouble, varCurrency:
+                        JsonData.Add(PropName, Double(PropValue));
+                      varUString, varString, varOleStr:
+                        JsonData.Add(PropName, string(PropValue));
+                      varBoolean:
+                        JsonData.Add(PropName, Boolean(PropValue));
+                      varNull, varEmpty:
+                        JsonData.Add(PropName, TJSONNull.Create);
+                    else
+                      raise Exception.CreateFmt('Unsupported type for property "%s".', [PropName]);
+                    end;
                   end;
                 except
                   JsonData.Add(PropName, TJSONNull.Create);

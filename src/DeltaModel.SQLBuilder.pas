@@ -132,9 +132,9 @@ begin
             FValues.Add('NULL')
           else
           if VarIsNumeric(Obj.Value) then
-            FValues.Add(Obj.ToString.Replace(',', '',[rfReplaceAll]))
+            FValues.Add(Obj.AsString.Replace(',', '',[rfReplaceAll]))
           else
-            FValues.Add(Obj.ToString.QuotedString);
+            FValues.Add(Obj.AsString.QuotedString);
         end;
       end
       else
@@ -246,7 +246,7 @@ begin
             Continue;
 
           if VarIsStr(Obj.Value) then
-            SL.Add('(' + Obj.FieldName + ' = ' + QuotedStr(Obj.ToString) + ')')
+            SL.Add('(' + Obj.FieldName + ' = ' + QuotedStr(Obj.AsString) + ')')
           else
             SL.Add('(' + Obj.FieldName + ' = ' + VarToStr(Obj.Value) + ')');
         end;

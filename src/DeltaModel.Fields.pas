@@ -5,7 +5,7 @@ unit DeltaModel.Fields;
 interface
 
 uses
-  Classes, SysUtils, Variants, DeltaModelMessages;
+  Classes, SysUtils, DateUtils, Variants, DeltaModelMessages;
 
 type
 
@@ -51,7 +51,7 @@ type
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
     function IsNull: Boolean; virtual; abstract;
-    function ToString: string; virtual;
+    function AsString: string; virtual;
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
     constructor Create;
@@ -97,7 +97,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFDoubleNull }
@@ -106,7 +107,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFCurrencyNull }
@@ -115,7 +117,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFStringNull }
@@ -136,7 +139,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFDoubleRequired }
@@ -145,7 +149,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFCurrencyRequired }
@@ -154,7 +159,8 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
-    function ToString: string; override;
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
   end;
 
   { TDFStringRequired }
@@ -169,10 +175,74 @@ type
     procedure AfterConstruction; override;
   end;
 
+  { TDFDateNull }
+
+  TDFDateNull = class(TDeltaFieldNullable)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+  { TDFTimeNull }
+
+  TDFTimeNull = class(TDeltaFieldNullable)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+  { TDFDateTimeNull }
+
+  TDFDateTimeNull = class(TDeltaFieldNullable)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+  { TDFDateRequired }
+
+  TDFDateRequired = class(TDeltaFieldRequired)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+  { TDFTimeRequired }
+
+  TDFTimeRequired = class(TDeltaFieldRequired)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+  { TDFDateTimeRequired }
+
+  TDFDateTimeRequired = class(TDeltaFieldRequired)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+  end;
+
+procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
+
 implementation
 
 const
   DEFAULT_STR_SIZE = 255;
+
+procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
+begin
+  AField.Value := ISO8601ToDateDef(
+    DateTime,
+    0
+  );
+end;
 
 { TDeltaField }
 
@@ -196,7 +266,7 @@ begin
   FForeignKey := TForeignKey.Create;
 end;
 
-function TDeltaField.ToString: string;
+function TDeltaField.AsString: string;
 begin
   Result := VarToStrDef(Self.Value, EmptyStr);
 end;
@@ -314,9 +384,14 @@ begin
   end;
 end;
 
-function TDFIntNull.ToString: string;
+function TDFIntNull.AsString: string;
 begin
-  Result := StrToIntDef(inherited ToString, 0).ToString;
+  Result := StrToIntDef(inherited AsString, 0).ToString;
+end;
+
+function TDFIntNull.SwaggerDataType: string;
+begin
+  Result := 'integer';
 end;
 
 { TDFDoubleNull }
@@ -330,9 +405,14 @@ begin
   end;
 end;
 
-function TDFDoubleNull.ToString: string;
+function TDFDoubleNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFDoubleNull.SwaggerDataType: string;
+begin
+  Result := 'number';
 end;
 
 { TDFCurrencyNull }
@@ -346,9 +426,14 @@ begin
   end;
 end;
 
-function TDFCurrencyNull.ToString: string;
+function TDFCurrencyNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFCurrencyNull.SwaggerDataType: string;
+begin
+  Result := 'number';
 end;
 
 { TDFStringNull }
@@ -380,9 +465,14 @@ begin
   end;
 end;
 
-function TDFIntRequired.ToString: string;
+function TDFIntRequired.AsString: string;
 begin
-  Result := StrToIntDef(inherited ToString, 0).ToString;
+  Result := StrToIntDef(inherited AsString, 0).ToString;
+end;
+
+function TDFIntRequired.SwaggerDataType: string;
+begin
+  Result := 'integer';
 end;
 
 { TDFDoubleRequired }
@@ -396,9 +486,14 @@ begin
   end;
 end;
 
-function TDFDoubleRequired.ToString: string;
+function TDFDoubleRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFDoubleRequired.SwaggerDataType: string;
+begin
+  Result := 'number';
 end;
 
 { TDFCurrencyRequired }
@@ -412,9 +507,14 @@ begin
   end;
 end;
 
-function TDFCurrencyRequired.ToString: string;
+function TDFCurrencyRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited ToString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFCurrencyRequired.SwaggerDataType: string;
+begin
+  Result := 'number';
 end;
 
 { TDFStringRequired }
@@ -436,6 +536,94 @@ procedure TDFStringRequired.AfterConstruction;
 begin
   inherited AfterConstruction;
   Size := DEFAULT_STR_SIZE;
+end;
+
+{ TDFDateNull }
+
+procedure TDFDateNull.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+  if AValue = 0 then
+  begin
+    Self.Clear;
+  end;
+end;
+
+function TDFDateNull.AsString: string;
+begin
+  Result := DateToISO8601(Self.Value);
+end;
+
+{ TDFTimeNull }
+
+procedure TDFTimeNull.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+  if AValue = 0 then
+  begin
+    Self.Clear;
+  end;
+end;
+
+function TDFTimeNull.AsString: string;
+begin
+  if Self.IsNull then
+  begin
+    Exit('00:00:00');
+  end;
+  Result := FormatDateTime('hh:nn:ss', Self.Value);
+end;
+
+{ TDFDateTimeNull }
+
+procedure TDFDateTimeNull.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+  if AValue = 0 then
+  begin
+    Self.Clear;
+  end;
+end;
+
+function TDFDateTimeNull.AsString: string;
+begin
+  Result := DateToISO8601(Self.Value);
+end;
+
+{ TDFDateRequired }
+
+procedure TDFDateRequired.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+end;
+
+function TDFDateRequired.AsString: string;
+begin
+  Result := DateToISO8601(Self.Value);
+end;
+
+{ TDFTimeRequired }
+
+procedure TDFTimeRequired.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+end;
+
+function TDFTimeRequired.AsString: string;
+begin
+  Result := FormatDateTime('hh:nn:ss', Self.Value);
+end;
+
+{ TDFDateTimeRequired }
+
+procedure TDFDateTimeRequired.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+end;
+
+function TDFDateTimeRequired.AsString: string;
+begin
+  Result := DateToISO8601(Self.Value);
 end;
 
 end.
