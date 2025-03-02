@@ -15,7 +15,10 @@ type
     procedure Rollback;
     function NewDataset: TSQLQuery;
     function ExecuteQuery(const ASQL: string): TDataSet;
+    function TransactionActive: Boolean;
+    procedure ExecuteDirect(const ASQL: string);
     function Dialect: TDatabaseDialect;
+    function Connection: TSQLConnector;
   end;
 
 implementation

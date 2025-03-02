@@ -75,7 +75,9 @@ begin
           begin
             Param := DS.Params.FindParam(FieldName);
             if Param <> Nil then
+            begin
               Param.Value := (PropObj as TDeltaField).Value;
+            end;
           end;
         end;
       end

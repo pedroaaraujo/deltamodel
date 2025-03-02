@@ -18,28 +18,30 @@ type
     FTransaction: TSQLTransaction;
     FQuery: TQuery;
   public
-    property Connection: TSQLConnector read FConnection;
+    function Connection: TSQLConnector;
 
     constructor Create(const ADatabaseURL: string);
-    destructor Destroy; override;
+    destructor destroy; override;
 
     procedure StartTransaction;
+    function TransactionActive: Boolean;
     procedure Commit;
     procedure Rollback;
+    procedure Disconect;
 
     function ExecuteQuery(const ASQL: string): TDataSet;
+    procedure ExecuteDirect(const ASQL: string);
     function NewDataset: TSQLQuery;
 
     function Delete(AModel: TDeltaModel): Boolean;
     function Merge(AModel: TDeltaModel): Boolean;
+    function MergeReturning(AModel: TDeltaModel; AClass: TDeltaModelClass): TDeltaModel;
     function Insert(AModel: TDeltaModel): Boolean;
+    function InsertReturning(AModel: TDeltaModel; AClass: TDeltaModelClass): TDeltaModel;
     function Query(AModelClass: TDeltaModelClass): TQuery;
 
     function Dialect: TDatabaseDialect;
   end;
-
-var
-  DeltaORMEngine: TDeltaORMEngine;
 
 implementation
 
@@ -50,13 +52,18 @@ begin
   Result := TDatabaseDialectHelper.FromString(FConnection.ConnectorType);
 end;
 
+function TDeltaORMEngine.Connection: TSQLConnector;
+begin
+  Result := FConnection;
+end;
+
 constructor TDeltaORMEngine.Create(const ADatabaseURL: string);
 var
   Config: TDatabaseConfig;
 begin
   FConnection := TSQLConnector.Create(nil);
   FTransaction := TSQLTransaction.Create(nil);
-  FTransaction.Action := caCommit;
+  FTransaction.Action := caCommitRetaining;
   FTransaction.DataBase := FConnection;
   FQuery := TQuery.Create(Self);
 
@@ -76,17 +83,24 @@ begin
     FConnection.Params.Values['port'] := Config.Port.ToString;
 end;
 
-destructor TDeltaORMEngine.Destroy;
+destructor TDeltaORMEngine.destroy;
 begin
+  Disconect;
   FTransaction.Free;
   FConnection.Free;
   FQuery.Free;
-  inherited Destroy;
+
+  inherited destroy;
 end;
 
 procedure TDeltaORMEngine.StartTransaction;
 begin
   FTransaction.StartTransaction;
+end;
+
+function TDeltaORMEngine.TransactionActive: Boolean;
+begin
+  Result := FTransaction.Active;
 end;
 
 procedure TDeltaORMEngine.Commit;
@@ -97,6 +111,11 @@ end;
 procedure TDeltaORMEngine.Rollback;
 begin
   FTransaction.Rollback;
+end;
+
+procedure TDeltaORMEngine.Disconect;
+begin
+  FConnection.Close(True);
 end;
 
 function TDeltaORMEngine.ExecuteQuery(const ASQL: string): TDataSet;
@@ -112,6 +131,11 @@ begin
     Qry.Free;
     raise;
   end;
+end;
+
+procedure TDeltaORMEngine.ExecuteDirect(const ASQL: string);
+begin
+  FConnection.ExecuteDirect(ASQL);
 end;
 
 function TDeltaORMEngine.NewDataset: TSQLQuery;
@@ -131,9 +155,21 @@ begin
   Result := TUpdate.UpdateObject(Self, AModel);
 end;
 
+function TDeltaORMEngine.MergeReturning(AModel: TDeltaModel;
+  AClass: TDeltaModelClass): TDeltaModel;
+begin
+  Result := TUpdate.UpdateObject(Self, AModel, AClass);
+end;
+
 function TDeltaORMEngine.Insert(AModel: TDeltaModel): Boolean;
 begin
   Result := TInsert.InsertObject(Self, AModel);
+end;
+
+function TDeltaORMEngine.InsertReturning(AModel: TDeltaModel;
+  AClass: TDeltaModelClass): TDeltaModel;
+begin
+  Result := TInsert.InsertObject(Self, AModel, AClass);
 end;
 
 function TDeltaORMEngine.Query(AModelClass: TDeltaModelClass): TQuery;

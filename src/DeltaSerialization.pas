@@ -3,7 +3,8 @@ unit DeltaSerialization;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Fields;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl,
+  DeltaModel.Fields, DeltaModel.List;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);
@@ -252,6 +253,11 @@ begin
                 except
                   JsonData.Add(PropName, TJSONNull.Create);
                 end;
+              end
+              else
+              if NestedObj is TCustomDeltaModelList then
+              begin
+                JsonData.Add(PropInfo^.Name, (NestedObj as TCustomDeltaModelList).ToJsonObj);
               end
               else
               if NestedObj is TFPSList then

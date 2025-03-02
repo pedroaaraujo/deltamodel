@@ -283,7 +283,7 @@ end;
 class procedure TDDLBuilder.GetFieldsAT(Obj: TDeltaModel;
   ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings);
 const
-  ADD_COLUMN = sLineBreak + '  ADD COLUMN ';
+  COLUMN = sLineBreak + '  COLUMN ';
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -305,7 +305,7 @@ begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
         begin
-          List.Add(ADD_COLUMN + FieldDDL(DeltaField, ADialect));
+          List.Add(COLUMN + FieldDDL(DeltaField, ADialect));
 
           if (DeltaField.ForeignKey.ReferencesTable <> nil) then
           begin
@@ -321,7 +321,7 @@ begin
       else
       begin
         if ActualFieldList.IndexOf(PropInfo^.Name) = -1 then
-          List.Add(ADD_COLUMN + PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect));
+          List.Add(COLUMN + PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect));
       end;
     end;
   finally
@@ -365,20 +365,22 @@ class function TDDLBuilder.CreateFields(Obj: TDeltaModel;
   ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings): string;
 var
   SQL, Fields: TStringList;
+  I: Integer;
 begin
   Result := EmptyStr;
 
   SQL := TStringList.Create;
   Fields := TStringList.Create;
   try
-    Fields.Delimiter := ',';
-    Fields.StrictDelimiter := True;
     GetFieldsAT(Obj, ADialect, Fields, ActualFieldList, Constraints);
 
-    SQL.Add(
-      'ALTER TABLE ' + Obj.TableName + sLineBreak +
-      Fields.DelimitedText + sLineBreak + ';'
-    );
+    for I := 0 to Pred(Fields.Count) do
+    begin
+      SQL.Add(
+        'ALTER TABLE ' + Obj.TableName +
+        ' ADD ' + Fields[I] + ';'
+      );
+    end;
 
     if Fields.Count > 0 then
     begin

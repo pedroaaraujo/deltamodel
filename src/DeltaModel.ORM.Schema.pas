@@ -5,7 +5,7 @@ unit DeltaModel.ORM.Schema;
 interface
 
 uses
-  Classes, SysUtils, fgl, DB, DeltaModel, DeltaModel.ORM.Connection,
+  Classes, SysUtils, fgl, DB, DeltaModel, DeltaModel.ORM.Interfaces,
   DeltaModel.ORM.DDL;
 
 type
@@ -15,7 +15,7 @@ type
   TDeltaORMSchema = class
   private type TTableList = specialize TFPGObjectList<TDeltaModel>;
   private
-    FConnection: TDeltaORMEngine;
+    FConnection: IDeltaORMEngine;
     FModels: TTableList;
     FDBTables: TStringList;
     FSQL: TStringList;
@@ -28,7 +28,7 @@ type
     procedure RegisterModel(Model: TDeltaModel); overload;
     procedure RegisterModel(ModelClass: TDeltaModelClass); overload;
     procedure PrepareDB(Persist: Boolean);
-    constructor Create(AConnection: TDeltaORMEngine);
+    constructor Create(AConnection: IDeltaORMEngine);
     destructor Destroy; override;
   end;
 
@@ -129,14 +129,16 @@ begin
     begin
       S := FSQL.Strings[I];
       if S.IsEmpty then Continue;
-      FConnection.Connection.ExecuteDirect(S);
+
+      FConnection.ExecuteDirect(S);
     end;
-    if FConnection.Connection.Transaction.Active then
-      FConnection.Connection.Transaction.Commit;
+
+    if FConnection.TransactionActive then
+      FConnection.Commit;
   end;
 end;
 
-constructor TDeltaORMSchema.Create(AConnection: TDeltaORMEngine);
+constructor TDeltaORMSchema.Create(AConnection: IDeltaORMEngine);
 begin
   FConnection := AConnection;
   FModels := TTableList.Create;
@@ -155,6 +157,7 @@ begin
   FDBTables.Free;
   FSQL.Free;
   FConstraitList.Free;
+  FConnection.Connection.Close(True);
   inherited Destroy;
 end;
 

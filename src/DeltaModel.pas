@@ -8,7 +8,7 @@ interface
 uses
   Classes, SysUtils, fgl, fpjson, TypInfo,
   DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator,
-  DeltaModel.Fields;
+  DeltaModel.Fields, DeltaModel.List;
 
 type
 
@@ -23,8 +23,6 @@ type
    FFieldList: TFieldList;
    procedure CreateFields;
    procedure SetTableName(AValue: string);
- protected
-   property Validator: TValidator read FValidator;
  public
    property TableName: string read FTableName write SetTableName;
    procedure FromJson(JsonStr: string);
@@ -35,30 +33,27 @@ type
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
    constructor Create; virtual;
+ public
+   property Validator: TValidator read FValidator;
  end;
 
  TDeltaModelClass = class of TDeltaModel;
 
- TCustomDeltaModelList = specialize TFPGObjectList<TDeltaModel>;
-
- IDeltaModelList = Interface
- procedure FromJson(JsonStr: string);
- function ToJson: string;
- function ToJsonObj: TJSONObject;
- end;
+ TDeltaModelRecords = specialize TFPGObjectList<TDeltaModel>;
 
  { TDeltaModelList }
 
- TDeltaModelList = class
+ TDeltaModelList = class(TCustomDeltaModelList)
  private
    FDeltaModelClass: TDeltaModelClass;
-   FRecords: TCustomDeltaModelList;
+   FRecords: TDeltaModelRecords;
  public
    property DeltaModelClass: TDeltaModelClass read FDeltaModelClass write FDeltaModelClass;
-   property Records: TCustomDeltaModelList read FRecords;
-   procedure FromJson(JsonStr: string); virtual;
-   function ToJson: RawByteString;
-   function ToJsonObj: TJSONObject;
+   property Records: TDeltaModelRecords read FRecords;
+   procedure FromJson(JsonStr: string); override;
+   function ToJson: RawByteString; override;
+   function ToJsonObj: TJSONArray; override;
+   function SwaggerSchema(AddExamples: Boolean): TJSONObject; override;
    function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
 
    procedure AfterConstruction; override;
@@ -131,8 +126,35 @@ begin
 end;
 
 procedure TDeltaModel.Validate;
+var
+  I: Integer;
 begin
+  for I := 0 to Pred(Self.FFieldList.Count) do
+  begin
+    if (Self.FFieldList.Items[I] is TDeltaFieldRequired) and
+       ((Self.FFieldList.Items[I] as TDeltaFieldRequired).IsNull) then
+    begin
+      raise EDeltaValidation.CreateFmt(
+        'Field %s.%s id required',
+        [
+          Self.ClassName,
+          (Self.FFieldList.Items[I] as TDFStringRequired).FieldName
+        ]
+      );
+    end;
 
+    if (Self.FFieldList.Items[I] is TDFStringRequired) and
+       ((Self.FFieldList.Items[I] as TDFStringRequired).AsString.Trim.Length = 0) then
+    begin
+      raise EDeltaValidation.CreateFmt(
+        'Invalid value for %s.%s',
+        [
+          Self.ClassName,
+          (Self.FFieldList.Items[I] as TDFStringRequired).FieldName
+        ]
+      );
+    end;
+  end;
 end;
 
 function TDeltaModel.ToJson: RawByteString;
@@ -221,9 +243,29 @@ begin
   end;
 end;
 
-function TDeltaModelList.ToJsonObj: TJSONObject;
+function TDeltaModelList.ToJsonObj: TJSONArray;
+var
+  Arr: TJSONArray;
+  I: Integer;
 begin
-  Result := SerializeToJsonObj(Self);
+  Arr := TJSONArray.Create();
+  for I := 0 to Pred(Self.Records.Count) do
+  begin
+    Arr.Add(SerializeToJsonObj(Self.Records.Items[I]));
+  end;
+  Result := Arr;
+end;
+
+function TDeltaModelList.SwaggerSchema(AddExamples: Boolean): TJSONObject;
+var
+  Obj: TDeltaModel;
+begin
+  Obj := Self.DeltaModelClass.Create;
+  try
+    Result := GenerateSchema(Obj, AddExamples);
+  finally
+    Obj.Free;
+  end;
 end;
 
 function TDeltaModelList.SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
@@ -235,7 +277,7 @@ end;
 procedure TDeltaModelList.AfterConstruction;
 begin
   inherited AfterConstruction;
-  FRecords := TCustomDeltaModelList.Create;
+  FRecords := TDeltaModelRecords.Create;
 end;
 
 procedure TDeltaModelList.BeforeDestruction;

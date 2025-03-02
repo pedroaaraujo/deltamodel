@@ -37,6 +37,7 @@ type
     FForeignKey: TForeignKey;
     procedure SetFieldName(AValue: string);
   protected
+    FValue: Variant;
     function GetValue: Variant; virtual; abstract;
     procedure SetValue(AValue: Variant); virtual; abstract;
     function FS: TFormatSettings;
@@ -61,8 +62,6 @@ type
   { TDeltaFieldNullable }
 
   TDeltaFieldNullable = class(TDeltaField)
-  private
-    FValue: Variant;
   protected
     function GetValue: Variant; override;
     procedure SetValue(AValue: Variant); override;
@@ -78,8 +77,6 @@ type
   { TDeltaFieldRequired }
 
   TDeltaFieldRequired = class(TDeltaField)
-  private
-    FValue: Variant;
   protected
     function GetValue: Variant; override;
     procedure SetValue(AValue: Variant); override;
@@ -274,6 +271,7 @@ end;
 constructor TDeltaField.Create;
 begin
   inherited;
+  FValue := Null;
 end;
 
 destructor TDeltaField.Destroy;
@@ -342,19 +340,19 @@ end;
 procedure TDeltaFieldRequired.SetValue(AValue: Variant);
 begin
   if VarIsNull(AValue) then
-    raise Exception.Create(ValueCannotBeEmpty);
+    raise Exception.CreateFmt(ValidationFailedForField, [Self.FieldName, 'NULL']);
 
   FValue := AValue;
 end;
 
 procedure TDeltaFieldRequired.Clear;
 begin
-  raise Exception.Create(ValueCannotBeEmpty);
+  raise Exception.CreateFmt(ValidationFailedForField, [Self.FieldName, 'NULL']);
 end;
 
 function TDeltaFieldRequired.IsNull: Boolean;
 begin
-  Result := False;
+  Result := VarIsNull(FValue);
 end;
 
 function TDeltaFieldRequired.IsValid: Boolean;

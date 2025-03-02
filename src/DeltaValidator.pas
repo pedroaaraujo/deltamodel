@@ -12,6 +12,8 @@ uses
   DeltaModelMessages;
 
 type
+  EDeltaValidation = class(Exception);
+
   TValid = record
     OK: Boolean;
     Message: UTF8String;

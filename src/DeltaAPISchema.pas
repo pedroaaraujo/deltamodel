@@ -3,7 +3,8 @@ unit DeltaAPISchema;
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl, DeltaModel.Fields;
+  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl,
+  DeltaModel.Fields, DeltaModel.List;
 
 function GenerateSchema(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): TJSONObject;
 function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): string;
@@ -93,6 +94,12 @@ begin
               if NestedObj is TDeltaField then
               begin
                 SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
+              end
+              else
+              if NestedObj is TCustomDeltaModelList then
+              begin
+                SchemaObj.Add('type', 'array');
+                SchemaObj.Add('items', (NestedObj as TCustomDeltaModelList).SwaggerSchema(AddExamples));
               end
               else
               if NestedObj is TFPSList then

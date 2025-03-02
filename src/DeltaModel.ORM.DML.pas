@@ -5,7 +5,7 @@ unit DeltaModel.ORM.DML;
 interface
 
 uses
-  Classes, SysUtils, SQLDB, DeltaModel, DeltaModel.Fields,
+  Classes, SysUtils, SQLDB, DeltaModel, DeltaModel.Fields, DeltaValidator,
   DeltaModel.SQLBuilder, DeltaModel.ORM.Interfaces, DeltaModel.DataSetConverter;
 
 type
@@ -42,14 +42,16 @@ type
 
   TUpdate = class
   public
-    class function UpdateObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static;
+    class function UpdateObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static; overload;
+    class function UpdateObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
   end;
 
   { TInsert }
 
   TInsert = class
   public
-    class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static;
+    class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static; overload;
+    class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
   end;
 
 implementation
@@ -108,6 +110,7 @@ begin
     end;
 
     FromDataSet(Result, DS);
+    DS.Close;
   finally
     SQLBuilder.Free;
     DS.Free;
@@ -148,6 +151,7 @@ begin
       Result.Records.Add(Obj);
       DS.Next;
     end;
+    DS.Close;
   finally
     SQLBuilder.Free;
     ObjTemp.Free;
@@ -188,6 +192,42 @@ var
   DS: TSQLQuery;
 begin
   AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+    begin
+      raise EDeltaValidation.Create(Message);
+    end;
+  end;
+
+  DS := AConn.NewDataset;
+  try
+    DS.SQL.Text := TDMSQLBuilder.CreateUpdate(
+      AModel,
+      AConn.Dialect
+    );
+    ToDatasetParams(AModel, DS);
+
+    DS.ExecSQL;
+    Result := DS.RowsAffected > 0;
+  finally
+    DS.Free;
+  end;
+end;
+
+class function TUpdate.UpdateObject(AConn: IDeltaORMEngine;
+  AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel;
+var
+  DS: TSQLQuery;
+begin
+  AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+    begin
+      raise EDeltaValidation.Create(Message);
+    end;
+  end;
 
   DS := AConn.NewDataset;
   try
@@ -197,8 +237,14 @@ begin
     );
     ToDatasetParams(AModel, DS);
 
-    DS.ExecSQL;
-    Result := DS.RowsAffected > 0;
+    DS.Open;
+    if DS.IsEmpty then
+    begin
+      Exit(nil);
+    end;
+
+    Result := Return.Create;
+    FromDataSet(Result, DS);
   finally
     DS.Free;
   end;
@@ -212,6 +258,13 @@ var
   DS: TSQLQuery;
 begin
   AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+    begin
+      raise EDeltaValidation.Create(Message);
+    end;
+  end;
 
   DS := AConn.NewDataset;
   try
@@ -223,6 +276,41 @@ begin
 
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
+  finally
+    DS.Free;
+  end;
+end;
+
+class function TInsert.InsertObject(AConn: IDeltaORMEngine;
+  AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel;
+var
+  DS: TSQLQuery;
+begin
+  AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+    begin
+      raise EDeltaValidation.Create(Message);
+    end;
+  end;
+
+  DS := AConn.NewDataset;
+  try
+    DS.SQL.Text := TDMSQLBuilder.CreateInsertReturning(
+      AModel,
+      AConn.Dialect
+    );
+    ToDatasetParams(AModel, DS);
+
+    DS.Open;
+    if DS.IsEmpty then
+    begin
+      Exit(nil);
+    end;
+
+    Result := Return.Create;
+    FromDataSet(Result, DS);
   finally
     DS.Free;
   end;

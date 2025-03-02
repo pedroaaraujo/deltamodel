@@ -387,7 +387,7 @@ begin
   Result := CreateInsert(AModel, ADialect);
   Result :=
     Result + sLineBreak +
-    'RETURNING (*)';
+    'RETURNING *';
 end;
 
 class function TDMSQLBuilder.CreateUpdate(AModel: TDeltaModel;
@@ -411,7 +411,7 @@ begin
   Result := CreateUpdate(AModel, ADialect, WhereClause);
   Result :=
     Result + sLineBreak +
-    'RETURNING (*)';
+    'RETURNING *';
 end;
 
 class function TDMSQLBuilder.CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string): string;
