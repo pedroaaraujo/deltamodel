@@ -29,6 +29,7 @@ type
    procedure Validate; virtual;
    procedure BeforeDestruction; override;
    procedure Configure; virtual;
+   procedure CopyObject(Obj: TDeltaModel);
    function ToJson: RawByteString;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
@@ -112,6 +113,18 @@ end;
 procedure TDeltaModel.Configure;
 begin
 
+end;
+
+procedure TDeltaModel.CopyObject(Obj: TDeltaModel);
+var
+  Json: TJSONObject;
+begin
+  Json := SerializeToJsonObj(Obj);
+  try
+    DeserializeObj(Self, Json);
+  finally
+    Json.Free;
+  end;
 end;
 
 procedure TDeltaModel.SetTableName(AValue: string);
