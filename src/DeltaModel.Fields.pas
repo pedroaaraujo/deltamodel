@@ -35,6 +35,7 @@ type
     FDBOptions: TDBOptionsSet;
     FFieldName: string;
     FForeignKey: TForeignKey;
+    FVisible: Boolean;
     procedure SetFieldName(AValue: string);
   protected
     FValue: Variant;
@@ -43,6 +44,7 @@ type
     function FS: TFormatSettings;
   public
     property Value: Variant read GetValue write SetValue;
+    property Visible: Boolean read FVisible write FVisible;
 
     ///to be used with ORM
     property FieldName: string read FFieldName write SetFieldName;
@@ -226,6 +228,26 @@ type
     function AsString: string; override;
   end;
 
+  { TDFBooleanRequired }
+
+  TDFBooleanRequired = class(TDeltaFieldRequired)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
+  end;
+
+  { TDFBooleanNull }
+
+  TDFBooleanNull = class(TDeltaFieldNullable)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+    function SwaggerDataType: string; override;
+  end;
+
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 
 implementation
@@ -272,6 +294,7 @@ constructor TDeltaField.Create;
 begin
   inherited;
   FValue := Null;
+  FVisible := True;
 end;
 
 destructor TDeltaField.Destroy;
@@ -622,6 +645,44 @@ end;
 function TDFDateTimeRequired.AsString: string;
 begin
   Result := DateToISO8601(Self.Value);
+end;
+
+{ TDFBooleanRequired }
+
+procedure TDFBooleanRequired.SetValue(AValue: Variant);
+begin
+  inherited SetValue(Boolean(AValue));
+end;
+
+function TDFBooleanRequired.AsString: string;
+begin
+  Result := 'F';
+  if FValue then
+    Exit('T');
+end;
+
+function TDFBooleanRequired.SwaggerDataType: string;
+begin
+  Result := 'boolean';
+end;
+
+{ TDFBooleanNull }
+
+procedure TDFBooleanNull.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+end;
+
+function TDFBooleanNull.AsString: string;
+begin
+  Result := 'F';
+  if FValue then
+    Exit('T');
+end;
+
+function TDFBooleanNull.SwaggerDataType: string;
+begin
+  Result := 'boolean';
 end;
 
 end.

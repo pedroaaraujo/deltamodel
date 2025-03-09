@@ -81,6 +81,9 @@ begin
             if (PropObj is TDeltaField) then
             begin
               try
+                if not (PropObj as TDeltaField).Visible then
+                  Continue;
+
                 if (PropObj is TDFDateRequired) or
                    (PropObj is TDFDateNull) or
                    (PropObj is TDFTimeRequired) or
@@ -234,6 +237,9 @@ begin
                   end
                   else
                   begin
+                    if not (NestedObj as TDeltaField).Visible then
+                      Continue;
+
                     PropValue := (NestedObj as TDeltaField).Value;
                     case VarType(PropValue) of
                       varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:

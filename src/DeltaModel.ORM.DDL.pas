@@ -72,6 +72,11 @@ begin
     end;
   end
   else
+  if (DeltaField is TDFBooleanNull) or (DeltaField is TDFBooleanRequired) then
+  begin
+    SQLType := 'BOOLEAN';
+  end
+  else
   if (DeltaField is TDFStringNull) or (DeltaField is TDFStringRequired) then
   begin
     if (DeltaField is TDFStringNull) then

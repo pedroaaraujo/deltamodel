@@ -92,6 +92,7 @@ begin
           begin
             PropObj := PropClass.Create;
             (PropObj as TDeltaField).FieldName := PropInfo^.Name;
+            (PropObj as TDeltaField).Visible   := True;
             SetObjectProp(Self, PropInfo, PropObj);
             FFieldList.Add(PropObj as TDeltaField);
           end;
