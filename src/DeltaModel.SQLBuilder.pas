@@ -33,7 +33,6 @@ type
     function WhereToSQL: string;
     function QuoteIdentifier(const AIdentifier: string): string;
     function BuildLimitOffset: string;
-    class function WhereClausePK(AModel: TDeltaModel): string;
   public
     constructor Create(AModel: TDeltaModel; ADialect: TDatabaseDialect);
     destructor Destroy; override;
@@ -48,6 +47,8 @@ type
     function Offset(const AOffset: Integer): TDMSQLBuilder;
     function GroupBy(const AField: string): TDMSQLBuilder;
     function Build: string;
+
+    class function WhereClausePK(AModel: TDeltaModel): string;
 
     class function CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
     class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;

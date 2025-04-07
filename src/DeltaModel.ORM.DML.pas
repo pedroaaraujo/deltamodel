@@ -204,7 +204,8 @@ begin
   try
     DS.SQL.Text := TDMSQLBuilder.CreateUpdate(
       AModel,
-      AConn.Dialect
+      AConn.Dialect,
+      TDMSQLBuilder.WhereClausePK(AModel)
     );
     ToDatasetParams(AModel, DS);
 
@@ -233,7 +234,8 @@ begin
   try
     DS.SQL.Text := TDMSQLBuilder.CreateUpdateReturning(
       AModel,
-      AConn.Dialect
+      AConn.Dialect,
+      TDMSQLBuilder.WhereClausePK(AModel)
     );
     ToDatasetParams(AModel, DS);
 

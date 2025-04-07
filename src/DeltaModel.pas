@@ -117,15 +117,8 @@ begin
 end;
 
 procedure TDeltaModel.CopyObject(Obj: TDeltaModel);
-var
-  Json: TJSONObject;
 begin
-  Json := SerializeToJsonObj(Obj);
-  try
-    DeserializeObj(Self, Json);
-  finally
-    Json.Free;
-  end;
+  DeltaSerialization.CopyObject(Obj, Self);
 end;
 
 procedure TDeltaModel.SetTableName(AValue: string);
@@ -142,29 +135,28 @@ end;
 procedure TDeltaModel.Validate;
 var
   I: Integer;
+  Field: TDeltaField;
+  Req: TDeltaFieldRequired;
 begin
   for I := 0 to Pred(Self.FFieldList.Count) do
   begin
-    if (Self.FFieldList.Items[I] is TDeltaFieldRequired) and
-       ((Self.FFieldList.Items[I] as TDeltaFieldRequired).IsNull) then
+    Field := Self.FFieldList.Items[I];
+
+    if not (Field is TDeltaFieldRequired) then
     begin
-      raise EDeltaValidation.CreateFmt(
-        'Field %s.%s id required',
-        [
-          Self.ClassName,
-          (Self.FFieldList.Items[I] as TDFStringRequired).FieldName
-        ]
-      );
+      Continue;
     end;
 
-    if (Self.FFieldList.Items[I] is TDFStringRequired) and
-       ((Self.FFieldList.Items[I] as TDFStringRequired).AsString.Trim.Length = 0) then
+    Req := (Field as TDeltaFieldRequired);
+
+    if (Req.IsNull) or
+        ((Req is TDFStringRequired) and ((Req as TDFStringRequired).AsString.Trim.Length = 0)) then
     begin
       raise EDeltaValidation.CreateFmt(
-        'Invalid value for %s.%s',
+        'Field %s.%s is required',
         [
           Self.ClassName,
-          (Self.FFieldList.Items[I] as TDFStringRequired).FieldName
+          Req.FieldName
         ]
       );
     end;
