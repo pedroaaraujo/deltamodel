@@ -16,4 +16,4 @@
 
 ### Clone o repositório:
 ```bash
-git clone https://github.com/seuuser/DeltaModel.git
+git clone https://github.com/pedroaaraujo/deltamodel.git
