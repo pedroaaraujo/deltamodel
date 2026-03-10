@@ -91,12 +91,14 @@ begin
             NestedObj := GetObjectProp(Obj, PropInfo^.Name);
             if Assigned(NestedObj) then
             begin
-              if (NestedObj is TDeltaField)then
+              if (NestedObj is TDeltaField) then
               begin
                 if not (NestedObj as TDeltaField).Visible then
                   Continue;
 
                 SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
+                if AddExamples then
+                  SchemaObj.Add('example', (NestedObj as TDeltaField).AsString);
               end
               else
               if NestedObj is TCustomDeltaModelList then
