@@ -25,7 +25,7 @@ type
    procedure SetTableName(AValue: string);
  public
    property TableName: string read FTableName write SetTableName;
-   procedure FromJson(JsonStr: string);
+   procedure FromJson(JsonStr: string); virtual;
    procedure Validate; virtual;
    procedure BeforeDestruction; override;
    procedure Configure; virtual;
