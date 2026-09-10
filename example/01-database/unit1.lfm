@@ -1,127 +1,212 @@
 object Form1: TForm1
   Left = 1054
-  Height = 521
-  Top = 236
-  Width = 704
-  Align = alClient
-  Caption = 'Form1'
-  ClientHeight = 521
-  ClientWidth = 704
+  Height = 620
+  Top = 200
+  Width = 860
+  Caption = 'DeltaModel - ORM Multi-SGDB Showcase'
+  ClientHeight = 620
+  ClientWidth = 860
   OnShow = FormShow
   Position = poScreenCenter
   LCLVersion = '3.8.0.0'
   object PageControl1: TPageControl
     Left = 0
-    Height = 521
+    Height = 620
     Top = 0
-    Width = 704
+    Width = 860
     ActivePage = tbsSQL
     Align = alClient
     TabIndex = 0
     TabOrder = 0
     object tbsSQL: TTabSheet
-      Caption = 'SQL'
-      ClientHeight = 488
-      ClientWidth = 694
-      object mmoDelete: TMemo
-        Left = 296
-        Height = 200
-        Top = 256
-        Width = 280
+      Caption = 'Gerador SQL Multi-SGDB'
+      ClientHeight = 587
+      ClientWidth = 850
+      object pnlTop: TPanel
+        Left = 8
+        Height = 44
+        Top = 8
+        Width = 834
+        BevelOuter = bvNone
+        ClientHeight = 44
+        ClientWidth = 834
         TabOrder = 0
+        object Label6: TLabel
+          Left = 0
+          Height = 19
+          Top = 12
+          Width = 140
+          Caption = 'Selecione o SGDB:'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object cmbDialect: TComboBox
+          Left = 148
+          Height = 33
+          Top = 6
+          Width = 220
+          ItemHeight = 0
+          ItemIndex = 0
+          Items.Strings = (
+            'PostgreSQL'
+            'MySQL / MariaDB'
+            'SQLite'
+            'Firebird'
+            'SQL Server (MSSQL)'
+            'Oracle'
+          )
+          Style = csDropDownList
+          TabOrder = 0
+          Text = 'PostgreSQL'
+          OnChange = cmbDialectChange
+        end
       end
-      object Label4: TLabel
-        Left = 296
-        Height = 19
-        Top = 232
-        Width = 55
-        Caption = 'DELETE'
-        Font.Style = [fsBold]
-        ParentFont = False
-      end
-      object mmoUpdate: TMemo
+      object Label1: TLabel
         Left = 8
-        Height = 200
-        Top = 256
-        Width = 280
-        TabOrder = 1
-      end
-      object Label3: TLabel
-        Left = 8
         Height = 19
-        Top = 232
-        Width = 58
-        Caption = 'UPDATE'
+        Top = 58
+        Width = 160
+        Caption = 'SELECT (com paginação)'
         Font.Style = [fsBold]
         ParentFont = False
       end
       object mmoSelect: TMemo
         Left = 8
-        Height = 200
-        Top = 24
-        Width = 280
-        TabOrder = 2
+        Height = 120
+        Top = 80
+        Width = 410
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        TabOrder = 1
       end
-      object Label1: TLabel
-        Left = 8
+      object Label2: TLabel
+        Left = 430
         Height = 19
-        Top = 0
-        Width = 52
-        Caption = 'SELECT'
+        Top = 58
+        Width = 180
+        Caption = 'INSERT (Returning/Output)'
         Font.Style = [fsBold]
         ParentFont = False
       end
       object mmoInsert: TMemo
-        Left = 296
-        Height = 200
-        Top = 24
-        Width = 280
-        TabOrder = 3
+        Left = 430
+        Height = 120
+        Top = 80
+        Width = 412
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        TabOrder = 2
       end
-      object Label2: TLabel
-        Left = 296
+      object Label3: TLabel
+        Left = 8
         Height = 19
-        Top = 0
-        Width = 50
-        Caption = 'INSERT'
+        Top = 208
+        Width = 58
+        Caption = 'UPDATE'
         Font.Style = [fsBold]
         ParentFont = False
       end
+      object mmoUpdate: TMemo
+        Left = 8
+        Height = 110
+        Top = 230
+        Width = 410
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        TabOrder = 3
+      end
+      object Label4: TLabel
+        Left = 430
+        Height = 19
+        Top = 208
+        Width = 55
+        Caption = 'DELETE'
+        Font.Style = [fsBold]
+        ParentFont = False
+      end
+      object mmoDelete: TMemo
+        Left = 430
+        Height = 110
+        Top = 230
+        Width = 412
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        TabOrder = 4
+      end
+      object Label7: TLabel
+        Left = 8
+        Height = 19
+        Top = 348
+        Width = 230
+        Caption = 'DDL (CREATE TABLE específico)'
+        Font.Style = [fsBold]
+        ParentFont = False
+      end
+      object mmoDDLPreview: TMemo
+        Left = 8
+        Height = 220
+        Top = 370
+        Width = 834
+        ReadOnly = True
+        ScrollBars = ssAutoBoth
+        TabOrder = 5
+      end
     end
     object TabSheet2: TTabSheet
-      Caption = 'Database'
-      ClientHeight = 488
-      ClientWidth = 694
+      Caption = 'Conexão & Operações Reais'
+      ClientHeight = 587
+      ClientWidth = 850
       object Label5: TLabel
         Left = 8
         Height = 19
-        Top = 8
-        Width = 165
-        Caption = 'Database URL to Params:'
+        Top = 10
+        Width = 107
+        Caption = 'Database URL:'
+        Font.Style = [fsBold]
+        ParentFont = False
       end
       object Edit1: TEdit
         Left = 8
-        Height = 36
-        Top = 32
-        Width = 296
+        Height = 34
+        Top = 34
+        Width = 500
         TabOrder = 0
         Text = 'sqlite://:memory:'
       end
       object Button2: TButton
-        Left = 312
-        Height = 60
-        Top = 8
-        Width = 86
-        Caption = 'CONNECT'
+        Left = 520
+        Height = 34
+        Top = 34
+        Width = 140
+        Caption = 'Criar Schema'
         TabOrder = 1
         OnClick = Button2Click
       end
+      object btnTestCRUD: TButton
+        Left = 670
+        Height = 34
+        Top = 34
+        Width = 170
+        Caption = 'Executar CRUD Real'
+        TabOrder = 2
+        OnClick = btnTestCRUDClick
+      end
+      object Label8: TLabel
+        Left = 8
+        Height = 19
+        Top = 80
+        Width = 180
+        Caption = 'Log DDL / Resultados:'
+        Font.Style = [fsBold]
+        ParentFont = False
+      end
       object mmoDDL: TMemo
         Left = 8
-        Height = 410
-        Top = 72
-        Width = 680
-        TabOrder = 2
+        Height = 485
+        Top = 102
+        Width = 832
+        ScrollBars = ssAutoBoth
+        TabOrder = 3
       end
     end
   end

@@ -42,16 +42,16 @@
         <UnitName Value="Unit1"/>
       </Unit>
       <Unit>
-        <Filename Value="../src/DeltaModel.pas"/>
+        <Filename Value="../../src/DeltaModel.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
-        <Filename Value="../src/deltamodelmessages.pas"/>
+        <Filename Value="../../src/deltamodelmessages.pas"/>
         <IsPartOfProject Value="True"/>
         <UnitName Value="DeltaModelMessages"/>
       </Unit>
       <Unit>
-        <Filename Value="../src/DeltaModel.SQLBuilder.pas"/>
+        <Filename Value="../../src/DeltaModel.SQLBuilder.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>
@@ -63,7 +63,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="../src"/>
+      <OtherUnitFiles Value="../../src"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Linking>
