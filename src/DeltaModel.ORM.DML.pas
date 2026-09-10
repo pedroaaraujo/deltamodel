@@ -5,7 +5,8 @@ unit DeltaModel.ORM.DML;
 interface
 
 uses
-  Classes, SysUtils, SQLDB, DeltaModel, DeltaModel.Fields, DeltaValidator,
+  Classes, SysUtils, DB, SQLDB, Variants, TypInfo,
+  DeltaModel, DeltaValidator, DeltaModel.Fields,
   DeltaModel.SQLBuilder, DeltaModel.ORM.Interfaces, DeltaModel.DataSetConverter;
 
 type
@@ -18,15 +19,34 @@ type
     FConn: IDeltaORMEngine;
     FFilter: string;
     FOrderBy: string;
+    FSelectFields: string;
+    FLimit: Integer;
+    FOffset: Integer;
+    FParams: TParams;
+    procedure BindParams(AQuery: TSQLQuery);
   public
     constructor Create(AConn: IDeltaORMEngine);
     destructor Destroy; override;
 
     function OrderBy(const AField: string): TQuery;
     function Filter(const Value: string): TQuery;
+    function Where(const Value: string): TQuery;
+    function AndWhere(const Value: string): TQuery;
+    function OrWhere(const Value: string): TQuery;
+    function Limit(const ALimit: Integer): TQuery;
+    function Offset(const AOffset: Integer): TQuery;
+    function Page(const APageNumber, APageSize: Integer): TQuery;
+    function Select(const AColumns: string): TQuery; overload;
+    function Select(const AColumns: array of string): TQuery; overload;
+    function Param(const AName: string; const AValue: Variant): TQuery;
     function SetModel(AModel: TDeltaModelClass): TQuery;
+
     function First: TDeltaModel;
-    function All(Limit: Integer = -1; Offset: Integer = -1): TDeltaModelList;
+    function All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelList;
+    function FindById(const AId: Variant): TDeltaModel;
+    function Count: Int64;
+    function Exists: Boolean;
+    function Delete: Boolean;
 
     procedure Clear;
   end;
@@ -36,6 +56,7 @@ type
   TDelete = class
   public
     class function Exec(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static;
+    class function ExecById(AConn: IDeltaORMEngine; AModelClass: TDeltaModelClass; const AId: Variant): Boolean; static;
   end;
 
   { TUpdate }
@@ -54,18 +75,78 @@ type
     class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
   end;
 
+  { TSave - Decide entre Insert e Update baseado na Chave Primária }
+
+  TSave = class
+  public
+    class function HasPKValue(AModel: TDeltaModel): Boolean; static;
+    class function SaveObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static;
+  end;
+
 implementation
+
+{ TQuery }
 
 constructor TQuery.Create(AConn: IDeltaORMEngine);
 begin
+  inherited Create;
   FConn := AConn;
-
   FFilter := '';
+  FOrderBy := '';
+  FSelectFields := '';
+  FLimit := -1;
+  FOffset := -1;
+  FParams := TParams.Create(nil);
 end;
 
 destructor TQuery.Destroy;
 begin
+  FParams.Free;
   inherited Destroy;
+end;
+
+procedure TQuery.BindParams(AQuery: TSQLQuery);
+var
+  I: Integer;
+  TargetParam: TParam;
+begin
+  for I := 0 to FParams.Count - 1 do
+  begin
+    TargetParam := AQuery.Params.FindParam(FParams[I].Name);
+    if TargetParam <> nil then
+      TargetParam.Value := FParams[I].Value;
+  end;
+end;
+
+function TQuery.Param(const AName: string; const AValue: Variant): TQuery;
+var
+  P: TParam;
+begin
+  P := FParams.FindParam(AName);
+  if P = nil then
+    P := FParams.CreateParam(ftUnknown, AName, ptInput);
+  P.Value := AValue;
+  Result := Self;
+end;
+
+function TQuery.Select(const AColumns: string): TQuery;
+begin
+  FSelectFields := AColumns;
+  Result := Self;
+end;
+
+function TQuery.Select(const AColumns: array of string): TQuery;
+var
+  I: Integer;
+begin
+  FSelectFields := '';
+  for I := Low(AColumns) to High(AColumns) do
+  begin
+    if not FSelectFields.IsEmpty then
+      FSelectFields := FSelectFields + ', ';
+    FSelectFields := FSelectFields + AColumns[I].Trim;
+  end;
+  Result := Self;
 end;
 
 function TQuery.OrderBy(const AField: string): TQuery;
@@ -76,14 +157,61 @@ end;
 
 function TQuery.Filter(const Value: string): TQuery;
 begin
-  Result := Self;
   FFilter := Value;
+  Result := Self;
+end;
+
+function TQuery.Where(const Value: string): TQuery;
+begin
+  Result := Filter(Value);
+end;
+
+function TQuery.AndWhere(const Value: string): TQuery;
+begin
+  if Value.IsEmpty then Exit(Self);
+  if FFilter.IsEmpty then
+    FFilter := Value
+  else
+    FFilter := '(' + FFilter + ') AND (' + Value + ')';
+  Result := Self;
+end;
+
+function TQuery.OrWhere(const Value: string): TQuery;
+begin
+  if Value.IsEmpty then Exit(Self);
+  if FFilter.IsEmpty then
+    FFilter := Value
+  else
+    FFilter := '(' + FFilter + ') OR (' + Value + ')';
+  Result := Self;
+end;
+
+function TQuery.Limit(const ALimit: Integer): TQuery;
+begin
+  FLimit := ALimit;
+  Result := Self;
+end;
+
+function TQuery.Offset(const AOffset: Integer): TQuery;
+begin
+  FOffset := AOffset;
+  Result := Self;
+end;
+
+function TQuery.Page(const APageNumber, APageSize: Integer): TQuery;
+begin
+  if (APageNumber > 0) and (APageSize > 0) then
+  begin
+    FLimit := APageSize;
+    FOffset := (APageNumber - 1) * APageSize;
+  end;
+  Result := Self;
 end;
 
 function TQuery.SetModel(AModel: TDeltaModelClass): TQuery;
 begin
-  Result := Self;
   FModelClass := AModel;
+  Result := Self;
 end;
 
 function TQuery.First: TDeltaModel;
@@ -91,22 +219,31 @@ var
   DS: TSQLQuery;
   SQLBuilder: TDMSQLBuilder;
 begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
+
   Result := FModelClass.Create;
   DS := FConn.NewDataset;
   SQLBuilder := TDMSQLBuilder.Create(Result, FConn.Dialect);
   try
+    if not FSelectFields.IsEmpty then
+      SQLBuilder.Select(FSelectFields)
+    else
+      SQLBuilder.Select;
+
     DS.SQL.Text :=
       SQLBuilder
-      .Select
       .Limit(1)
       .OrderBy(FOrderBy)
       .Where(FFilter)
       .Build;
+    BindParams(DS);
     DS.Open;
     if DS.IsEmpty then
     begin
       Result.Free;
-      Exit(nil);
+      Result := nil;
+      Exit;
     end;
 
     FromDataSet(Result, DS);
@@ -117,39 +254,51 @@ begin
   end;
 end;
 
-function TQuery.All(Limit: Integer; Offset: Integer): TDeltaModelList;
+function TQuery.All(ALimit: Integer; AOffset: Integer): TDeltaModelList;
 var
   ObjTemp, Obj: TDeltaModel;
   DS: TSQLQuery;
   SQLBuilder: TDMSQLBuilder;
+  EffLimit, EffOffset: Integer;
 begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
+
+  EffLimit := ALimit;
+  if EffLimit = -1 then EffLimit := FLimit;
+  EffOffset := AOffset;
+  if EffOffset = -1 then EffOffset := FOffset;
+
   ObjTemp := FModelClass.Create;
   DS := FConn.NewDataset;
   SQLBuilder := TDMSQLBuilder.Create(ObjTemp, FConn.Dialect);
   Result := TDeltaModelList.Create;
   try
     Result.DeltaModelClass := FModelClass;
+    if not FSelectFields.IsEmpty then
+      SQLBuilder.Select(FSelectFields)
+    else
+      SQLBuilder.Select;
+
     DS.SQL.Text :=
       SQLBuilder
-      .Select
-      .Limit(Limit)
-      .Offset(Offset)
+      .Limit(EffLimit)
+      .Offset(EffOffset)
       .Where(FFilter)
       .OrderBy(FOrderBy)
       .Build;
+    BindParams(DS);
     DS.Open;
-    if DS.IsEmpty then
+    if not DS.IsEmpty then
     begin
-      Exit();
-    end;
-
-    DS.First;
-    while not DS.EOF do
-    begin
-      Obj := FModelClass.Create;
-      FromDataSet(Obj, DS);
-      Result.Records.Add(Obj);
-      DS.Next;
+      DS.First;
+      while not DS.EOF do
+      begin
+        Obj := FModelClass.Create;
+        FromDataSet(Obj, DS);
+        Result.Records.Add(Obj);
+        DS.Next;
+      end;
     end;
     DS.Close;
   finally
@@ -159,18 +308,128 @@ begin
   end;
 end;
 
+function TQuery.FindById(const AId: Variant): TDeltaModel;
+var
+  ObjTemp: TDeltaModel;
+  PropList: PPropList;
+  PropInfo: PPropInfo;
+  PropCount, I: Integer;
+  PKFieldName: string;
+  NestedObj: TObject;
+begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery.');
+
+  PKFieldName := '';
+  ObjTemp := FModelClass.Create;
+  try
+    PropCount := GetPropList(ObjTemp.ClassInfo, tkProperties, nil);
+    if PropCount > 0 then
+    begin
+      GetMem(PropList, PropCount * SizeOf(Pointer));
+      try
+        GetPropList(ObjTemp.ClassInfo, tkProperties, PropList, False);
+        for I := 0 to PropCount - 1 do
+        begin
+          PropInfo := PropList^[I];
+          if PropInfo^.PropType^.Kind = tkClass then
+          begin
+            NestedObj := GetObjectProp(ObjTemp, PropInfo^.Name);
+            if (NestedObj is DeltaModel.Fields.TDeltaField) and (dboPrimaryKey in (NestedObj as DeltaModel.Fields.TDeltaField).DBOptions) then
+            begin
+              PKFieldName := (NestedObj as DeltaModel.Fields.TDeltaField).FieldName;
+              Break;
+            end;
+          end;
+        end;
+      finally
+        FreeMem(PropList, PropCount * SizeOf(Pointer));
+      end;
+    end;
+  finally
+    ObjTemp.Free;
+  end;
+
+  if PKFieldName.IsEmpty then
+    PKFieldName := 'id';
+
+  FFilter := PKFieldName + ' = :__pk_id';
+  Param('__pk_id', AId);
+
+  Result := First;
+end;
+
+function TQuery.Count: Int64;
+var
+  ObjTemp: TDeltaModel;
+  DS: TSQLQuery;
+  SQLBuilder: TDMSQLBuilder;
+begin
+  Result := 0;
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery.');
+
+  ObjTemp := FModelClass.Create;
+  DS := FConn.NewDataset;
+  SQLBuilder := TDMSQLBuilder.Create(ObjTemp, FConn.Dialect);
+  try
+    DS.SQL.Text := SQLBuilder.Count.Where(FFilter).Build;
+    BindParams(DS);
+    DS.Open;
+    if not DS.IsEmpty then
+      Result := DS.Fields[0].AsLargeInt;
+    DS.Close;
+  finally
+    SQLBuilder.Free;
+    ObjTemp.Free;
+    DS.Free;
+  end;
+end;
+
+function TQuery.Exists: Boolean;
+begin
+  Result := Count > 0;
+end;
+
+function TQuery.Delete: Boolean;
+var
+  ObjTemp: TDeltaModel;
+  DS: TSQLQuery;
+begin
+  Result := False;
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery.');
+
+  ObjTemp := FModelClass.Create;
+  DS := FConn.NewDataset;
+  try
+    DS.SQL.Text := TDMSQLBuilder.CreateDelete(ObjTemp, FConn.Dialect, FFilter);
+    BindParams(DS);
+    DS.ExecSQL;
+    Result := DS.RowsAffected > 0;
+  finally
+    ObjTemp.Free;
+    DS.Free;
+  end;
+end;
+
 procedure TQuery.Clear;
 begin
   FFilter := '';
+  FOrderBy := '';
+  FSelectFields := '';
+  FLimit := -1;
+  FOffset := -1;
+  FParams.Clear;
 end;
 
 { TDelete }
 
-class function TDelete.Exec(AConn: IDeltaORMEngine; AModel: TDeltaModel
-  ): Boolean;
+class function TDelete.Exec(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean;
 var
   DS: TSQLQuery;
 begin
+  AModel.BeforeDelete;
   DS := AConn.NewDataset;
   try
     DS.SQL.Text := TDMSQLBuilder.CreateDelete(
@@ -179,8 +438,26 @@ begin
     );
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
+    if Result then
+      AModel.AfterDelete;
   finally
     DS.Free;
+  end;
+end;
+
+class function TDelete.ExecById(AConn: IDeltaORMEngine; AModelClass: TDeltaModelClass;
+  const AId: Variant): Boolean;
+var
+  Q: TQuery;
+begin
+  Q := TQuery.Create(AConn);
+  try
+    Q.SetModel(AModelClass);
+    Q.Where('id = :__pk_id');
+    Q.Param('__pk_id', AId);
+    Result := Q.Delete;
+  finally
+    Q.Free;
   end;
 end;
 
@@ -191,13 +468,12 @@ class function TUpdate.UpdateObject(AConn: IDeltaORMEngine;
 var
   DS: TSQLQuery;
 begin
+  AModel.BeforeUpdate;
   AModel.Validate;
   with AModel.Validator.Validate do
   begin
     if not OK then
-    begin
       raise EDeltaValidation.Create(Message);
-    end;
   end;
 
   DS := AConn.NewDataset;
@@ -211,6 +487,8 @@ begin
 
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
+    if Result then
+      AModel.AfterUpdate;
   finally
     DS.Free;
   end;
@@ -221,13 +499,12 @@ class function TUpdate.UpdateObject(AConn: IDeltaORMEngine;
 var
   DS: TSQLQuery;
 begin
+  AModel.BeforeUpdate;
   AModel.Validate;
   with AModel.Validator.Validate do
   begin
     if not OK then
-    begin
       raise EDeltaValidation.Create(Message);
-    end;
   end;
 
   DS := AConn.NewDataset;
@@ -241,12 +518,13 @@ begin
 
     DS.Open;
     if DS.IsEmpty then
-    begin
       Exit(nil);
-    end;
 
     Result := Return.Create;
     FromDataSet(Result, DS);
+    DS.Close;
+    if Assigned(Result) then
+      AModel.AfterUpdate;
   finally
     DS.Free;
   end;
@@ -259,13 +537,12 @@ class function TInsert.InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel
 var
   DS: TSQLQuery;
 begin
+  AModel.BeforeInsert;
   AModel.Validate;
   with AModel.Validator.Validate do
   begin
     if not OK then
-    begin
       raise EDeltaValidation.Create(Message);
-    end;
   end;
 
   DS := AConn.NewDataset;
@@ -278,6 +555,8 @@ begin
 
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
+    if Result then
+      AModel.AfterInsert;
   finally
     DS.Free;
   end;
@@ -288,13 +567,12 @@ class function TInsert.InsertObject(AConn: IDeltaORMEngine;
 var
   DS: TSQLQuery;
 begin
+  AModel.BeforeInsert;
   AModel.Validate;
   with AModel.Validator.Validate do
   begin
     if not OK then
-    begin
       raise EDeltaValidation.Create(Message);
-    end;
   end;
 
   DS := AConn.NewDataset;
@@ -307,16 +585,86 @@ begin
 
     DS.Open;
     if DS.IsEmpty then
-    begin
       Exit(nil);
-    end;
 
     Result := Return.Create;
     FromDataSet(Result, DS);
+    DS.Close;
+    if Assigned(Result) then
+      AModel.AfterInsert;
   finally
     DS.Free;
   end;
 end;
 
-end.
+{ TSave }
 
+class function TSave.HasPKValue(AModel: TDeltaModel): Boolean;
+var
+  PropList: PPropList;
+  PropInfo: PPropInfo;
+  PropCount, I: Integer;
+  Obj: DeltaModel.Fields.TDeltaField;
+  NestedObj: TObject;
+begin
+  Result := False;
+  PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
+  if PropCount = 0 then Exit;
+
+  GetMem(PropList, PropCount * SizeOf(Pointer));
+  try
+    GetPropList(AModel.ClassInfo, tkProperties, PropList, False);
+    for I := 0 to PropCount - 1 do
+    begin
+      PropInfo := PropList^[I];
+      if PropInfo^.PropType^.Kind = tkClass then
+      begin
+        NestedObj := GetObjectProp(AModel, PropInfo^.Name);
+        if NestedObj is DeltaModel.Fields.TDeltaField then
+        begin
+          Obj := NestedObj as DeltaModel.Fields.TDeltaField;
+          if (dboPrimaryKey in Obj.DBOptions) and (not Obj.IsNull) then
+          begin
+            if VarIsNumeric(Obj.Value) then
+            begin
+              if Double(Obj.Value) > 0 then
+              begin
+                Result := True;
+                Exit;
+              end;
+            end
+            else
+            if VarIsStr(Obj.Value) then
+            begin
+              if not VarToStr(Obj.Value).Trim.IsEmpty then
+              begin
+                Result := True;
+                Exit;
+              end;
+            end
+            else
+            begin
+              Result := True;
+              Exit;
+            end;
+          end;
+        end;
+      end;
+    end;
+  finally
+    FreeMem(PropList, PropCount * SizeOf(Pointer));
+  end;
+end;
+
+class function TSave.SaveObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean;
+begin
+  AModel.BeforeSave;
+  if HasPKValue(AModel) then
+    Result := TUpdate.UpdateObject(AConn, AModel)
+  else
+    Result := TInsert.InsertObject(AConn, AModel);
+  if Result then
+    AModel.AfterSave;
+end;
+
+end.

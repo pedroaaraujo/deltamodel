@@ -5,7 +5,7 @@ unit DeltaModel.ORM.Schema;
 interface
 
 uses
-  Classes, SysUtils, fgl, DB, DeltaModel, DeltaModel.ORM.Interfaces,
+  Classes, SysUtils, fgl, DB, SQLDB, DeltaModel, DeltaModel.ORM.Interfaces,
   DeltaModel.ORM.DDL;
 
 type
@@ -56,6 +56,7 @@ var
   I, F: Integer;
   Obj: TDeltaModel;
   FieldList: TStringList;
+  DS: TSQLQuery;
 begin
   for I := 0 to Pred(FModels.Count) do
   begin
@@ -65,18 +66,17 @@ begin
       if (FDBTables.IndexOf(Obj.TableName) = -1) then
         Continue;
 
-      with FConnection.NewDataset do
+      DS := FConnection.NewDataset;
       try
-        SQL.Text :=
+        DS.SQL.Text :=
           'SELECT * FROM ' + Obj.TableName + sLineBreak +
           'WHERE 1 = 0';
-        Open;
-        for F := 0 to Pred(FieldCount) do
-        begin
-          FieldList.Add(Fields[F].FieldName);
-        end;
+        DS.Open;
+        for F := 0 to Pred(DS.FieldCount) do
+          FieldList.Add(DS.Fields[F].FieldName);
+        DS.Close;
       finally
-        Free;
+        DS.Free;
       end;
 
       FSQL.Add(TDDLBuilder.CreateFields(Obj, FConnection.Dialect, FieldList, FConstraitList));
@@ -157,7 +157,6 @@ begin
   FDBTables.Free;
   FSQL.Free;
   FConstraitList.Free;
-  FConnection.Connection.Close(True);
   inherited Destroy;
 end;
 

@@ -19,6 +19,8 @@ var
   PropType: PTypeInfo;
   I, PropCount: integer;
   PropObj: TObject;
+  FieldName: string;
+  DSField: TField;
 begin
   PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
   GetMem(PropList, PropCount * SizeOf(Pointer));
@@ -33,12 +35,23 @@ begin
         PropObj := GetObjectProp(AModel, PropInfo^.Name);
         if (PropObj is TDeltaField) then
         begin
-          (PropObj as TDeltaField).Value := DS.FieldByName((PropObj as TDeltaField).FieldName).Value;
+          FieldName := (PropObj as TDeltaField).FieldName;
+          DSField := DS.FindField(FieldName);
+          if Assigned(DSField) then
+            (PropObj as TDeltaField).Value := DSField.Value;
         end;
       end
       else
       begin
-        SetPropValue(AModel, PropInfo^.Name, DS.FieldByName(PropInfo^.Name).Value);
+        DSField := DS.FindField(PropInfo^.Name);
+        if Assigned(DSField) then
+        begin
+          try
+            SetPropValue(AModel, PropInfo^.Name, DSField.Value);
+          except
+            // ignora conversões incompatíveis
+          end;
+        end;
       end;
     end;
   finally
@@ -75,16 +88,21 @@ begin
           begin
             Param := DS.Params.FindParam(FieldName);
             if Param <> Nil then
-            begin
               Param.Value := (PropObj as TDeltaField).Value;
-            end;
           end;
         end;
       end
       else
       begin
-        if DS.ParamByName(PropInfo^.Name) <> nil then
-          DS.ParamByName(PropInfo^.Name).Value := GetPropValue(AModel, PropInfo^.Name);
+        Param := DS.Params.FindParam(PropInfo^.Name);
+        if Param <> nil then
+        begin
+          try
+            Param.Value := GetPropValue(AModel, PropInfo^.Name);
+          except
+            // ignora propriedades não mapeáveis
+          end;
+        end;
       end;
     end;
   finally
@@ -93,4 +111,3 @@ begin
 end;
 
 end.
-

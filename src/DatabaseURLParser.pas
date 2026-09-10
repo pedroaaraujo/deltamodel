@@ -15,7 +15,8 @@ type
     Host: string;
     Port: Integer;
     Database: string;
-    Charset: string; // Adicionado para suportar charset
+    Charset: string;
+    Params: TStringList;
   end;
 
 function ParseDatabaseURL(const ADatabaseURL: string): TDatabaseConfig;
@@ -24,17 +25,29 @@ implementation
 
 function NormalizeProtocol(const AProtocol: string): string;
 begin
-  case LowerCase(AProtocol) of
-    'sqlite', 'sqlite3': Result := 'SQLite3';
-    'firebird', 'fdb': Result := 'Firebird';
-    'postgres', 'postgresql': Result := 'PostgreSQL';
-    'mysql': Result := 'MySQL 5.7';
-    'mysql8', 'mysql80', 'mysql8.0': Result := 'MySQL 8.0';
-    'oracle': Result := 'Oracle';
-    'odbc': Result := 'ODBC';
-    'sybase': Result := 'Sybase';
+  case LowerCase(Trim(AProtocol)) of
+    'sqlite', 'sqlite3':
+      Result := 'SQLite3';
+    'firebird', 'fdb', 'interbase':
+      Result := 'Firebird';
+    'postgres', 'postgresql', 'pgsql':
+      Result := 'PostgreSQL';
+    'mysql':
+      Result := 'MySQL 5.7';
+    'mysql8', 'mysql80', 'mysql8.0':
+      Result := 'MySQL 8.0';
+    'mariadb':
+      Result := 'MariaDB';
+    'mssql', 'mssqlserver', 'sqlserver':
+      Result := 'MSSQLServer';
+    'oracle', 'ora':
+      Result := 'Oracle';
+    'odbc':
+      Result := 'ODBC';
+    'sybase':
+      Result := 'Sybase';
   else
-    raise Exception.CreateFmt('Unsupported protocol: %s', [AProtocol]);
+    raise Exception.CreateFmt('Unsupported database protocol: %s', [AProtocol]);
   end;
 end;
 
@@ -47,6 +60,8 @@ begin
   if QuestionPos > 0 then
   begin
     ParamsStr := Copy(AURL, QuestionPos + 1, Length(AURL));
+    Params.Delimiter := '&';
+    Params.StrictDelimiter := True;
     Params.DelimitedText := ParamsStr;
     Result := Copy(AURL, 1, QuestionPos - 1);
   end
@@ -59,16 +74,54 @@ var
   URI: string;
   Credentials: string;
   AtPos, ColonPos, SlashPos: Integer;
-  Params: TStringList;
+  UrlParams: TStringList;
 begin
+  Result.Protocol := '';
+  Result.Username := '';
+  Result.Password := '';
+  Result.Host     := '';
+  Result.Port     := 0;
+  Result.Database := '';
+  Result.Charset  := '';
+  Result.Params   := TStringList.Create;
+
   URI := ADatabaseURL;
 
   // Extract protocol
   ColonPos := Pos('://', URI);
   if ColonPos = 0 then
     raise Exception.Create('Invalid Database URL: Protocol not found');
+
   Result.Protocol := NormalizeProtocol(Copy(URI, 1, ColonPos - 1));
-  Delete(URI, 1, ColonPos + 2);
+  Delete(URI, 1, ColonPos + 2); // remove "://"
+
+  // SQLite special cases: in-memory or direct file path
+  if (Result.Protocol = 'SQLite3') then
+  begin
+    if (URI = ':memory:') or (URI = '/:memory:') then
+    begin
+      Result.Database := ':memory:';
+      Exit;
+    end;
+
+    // sqlite:////path/to/db.sqlite or sqlite:///path/to/db.sqlite or sqlite://db.sqlite
+    UrlParams := TStringList.Create;
+    try
+      URI := ExtractURLParams(URI, UrlParams);
+      Result.Charset := UrlParams.Values['charset'];
+      Result.Params.Assign(UrlParams);
+    finally
+      UrlParams.Free;
+    end;
+
+    // Remove leading slash if needed or preserve absolute path
+    if (Pos('///', ADatabaseURL) > 0) then
+      Result.Database := '/' + URI
+    else
+      Result.Database := URI;
+
+    Exit;
+  end;
 
   // Extract credentials (if any)
   AtPos := Pos('@', URI);
@@ -87,15 +140,20 @@ begin
       Result.Username := Credentials;
   end;
 
-  if URI.Equals(':memory:') then
-  begin
-    Result.Database := URI;
-    Exit;
+  // Extract query params (?param=value&...)
+  UrlParams := TStringList.Create;
+  try
+    URI := ExtractURLParams(URI, UrlParams);
+    Result.Charset := UrlParams.Values['charset'];
+    Result.Params.Assign(UrlParams);
+  finally
+    UrlParams.Free;
   end;
 
   // Extract host and port
   ColonPos := Pos(':', URI);
   SlashPos := Pos('/', URI);
+
   if ColonPos > 0 then
   begin
     Result.Host := Copy(URI, 1, ColonPos - 1);
@@ -103,11 +161,12 @@ begin
     begin
       Result.Port := StrToIntDef(Copy(URI, ColonPos + 1, SlashPos - ColonPos - 1), 0);
       Delete(URI, 1, SlashPos);
+      Result.Database := URI;
     end
     else
     begin
       Result.Port := StrToIntDef(Copy(URI, ColonPos + 1, Length(URI)), 0);
-      URI := '';
+      Result.Database := '';
     end;
   end
   else
@@ -115,23 +174,13 @@ begin
   begin
     Result.Host := Copy(URI, 1, SlashPos - 1);
     Delete(URI, 1, SlashPos);
+    Result.Database := URI;
   end
   else
   begin
     Result.Host := URI;
-    URI := '';
+    Result.Database := '';
   end;
-
-  Params := TStringList.Create;
-  try
-    URI := ExtractURLParams(URI, Params);
-    Result.Charset := Params.Values['charset']; // Extraindo charset
-  finally
-    Params.Free;
-  end;
-
-  Result.Database := URI;
 end;
 
 end.
-

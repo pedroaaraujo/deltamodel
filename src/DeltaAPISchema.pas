@@ -1,5 +1,7 @@
 unit DeltaAPISchema;
 
+{$mode ObjFPC}{$H+}
+
 interface
 
 uses
@@ -19,11 +21,14 @@ var
   PropInfo: PPropInfo;
   I, PropCount: integer;
   NestedObj: TObject;
+  NestedSchema: TJSONObject;
+  PropsData: TJSONData;
   PropName: string;
   SchemaObj: TJSONObject;
   PropValue: Variant;
   ListObj: TFPSList;
   FirstItem: TObject;
+  SwaggerFmt: string;
 begin
   if not Assigned(Obj) then Exit(nil);
 
@@ -65,6 +70,7 @@ begin
         tkInt64:
           begin
             SchemaObj.Add('type', 'integer');
+            SchemaObj.Add('format', 'int64');
             if AddExamples then
               SchemaObj.Add('example', Int64(PropValue));
           end;
@@ -77,6 +83,7 @@ begin
         tkFloat:
           begin
             SchemaObj.Add('type', 'number');
+            SchemaObj.Add('format', 'double');
             if AddExamples then
               SchemaObj.Add('example', Double(PropValue));
           end;
@@ -94,10 +101,27 @@ begin
               if (NestedObj is TDeltaField) then
               begin
                 if not (NestedObj as TDeltaField).Visible then
+                begin
+                  SchemaObj.Free;
                   Continue;
+                end;
 
                 SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
-                if AddExamples then
+
+                // Adiciona format quando disponível
+                SwaggerFmt := (NestedObj as TDeltaField).SwaggerFormat;
+                if not SwaggerFmt.IsEmpty then
+                  SchemaObj.Add('format', SwaggerFmt);
+
+                // Adiciona nullable para campos opcionais
+                if NestedObj is TDeltaFieldNullable then
+                begin
+                  {$IF FPC_FULLVERSION >= 30200}
+                  SchemaObj.Add('nullable', True);
+                  {$ENDIF}
+                end;
+
+                if AddExamples and not (NestedObj as TDeltaField).IsNull then
                   SchemaObj.Add('example', (NestedObj as TDeltaField).AsString);
               end
               else
@@ -115,19 +139,26 @@ begin
                 begin
                   FirstItem := TObject(ListObj.Items[0]^);
                   if Assigned(FirstItem) then
-                  begin
-                    SchemaObj.Add('items', GenerateSchema(FirstItem, AddExamples, False));
-                  end;
+                    SchemaObj.Add('items', GenerateSchema(FirstItem, AddExamples, False))
+                  else
+                    SchemaObj.Add('items', TJSONObject.Create);
                 end
                 else
-                begin
                   SchemaObj.Add('items', TJSONObject.Create);
-                end;
               end
               else
               begin
                 SchemaObj.Add('type', 'object');
-                SchemaObj.Add('properties', GenerateSchema(NestedObj, AddExamples, False).Find('properties'));
+                NestedSchema := GenerateSchema(NestedObj, AddExamples, False);
+                try
+                  PropsData := NestedSchema.Extract('properties');
+                  if Assigned(PropsData) then
+                    SchemaObj.Add('properties', PropsData)
+                  else
+                    SchemaObj.Add('properties', TJSONObject.Create);
+                finally
+                  NestedSchema.Free;
+                end;
               end;
             end
             else

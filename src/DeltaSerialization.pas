@@ -340,7 +340,7 @@ begin
 
           if (ObjFrom = nil) or (ObjTo = nil) then
           begin
-            Exit;
+            Continue;
           end;
 
           if (ObjFrom is TDeltaField) then
@@ -349,7 +349,9 @@ begin
               Continue;
 
             (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
-          end;
+          end
+          else
+            CopyObject(ObjFrom, ObjTo);
         end;
       end;
     end;

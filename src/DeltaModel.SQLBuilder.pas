@@ -24,6 +24,8 @@ type
     FOffset: Integer;
     FDialect: TDatabaseDialect;
     FGroupBy: string;
+    FUseQuotes: Boolean;
+    FIsCount: Boolean;
 
     function FieldAndValuesToSQL: string;
     function GetTableName: string;
@@ -37,15 +39,22 @@ type
     constructor Create(AModel: TDeltaModel; ADialect: TDatabaseDialect);
     destructor Destroy; override;
 
-    function Select: TDMSQLBuilder;
-    function Insert(UseNamedParams: Boolean): TDMSQLBuilder;
-    function Update(UseNamedParams: Boolean): TDMSQLBuilder;
+    function Select: TDMSQLBuilder; overload;
+    function Select(const AColumns: string): TDMSQLBuilder; overload;
+    function Select(const AColumns: array of string): TDMSQLBuilder; overload;
+    function Count: TDMSQLBuilder;
+    function Insert(UseNamedParams: Boolean = True): TDMSQLBuilder;
+    function Update(UseNamedParams: Boolean = True): TDMSQLBuilder;
     function Delete: TDMSQLBuilder;
     function Where(const ACondition: string): TDMSQLBuilder;
+    function AndWhere(const ACondition: string): TDMSQLBuilder;
+    function OrWhere(const ACondition: string): TDMSQLBuilder;
     function OrderBy(const AField: string): TDMSQLBuilder;
     function Limit(const ALimit: Integer): TDMSQLBuilder;
     function Offset(const AOffset: Integer): TDMSQLBuilder;
+    function Page(const APageNumber, APageSize: Integer): TDMSQLBuilder;
     function GroupBy(const AField: string): TDMSQLBuilder;
+    function UseQuotes(AValue: Boolean): TDMSQLBuilder;
     function Build: string;
 
     class function WhereClausePK(AModel: TDeltaModel): string;
@@ -56,6 +65,7 @@ type
     class function CreateUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
     class function CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateSelect(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
+    class function CreateCount(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
   end;
 
 implementation
@@ -76,6 +86,9 @@ begin
   FLimit := -1;
   FOffset := -1;
   FGroupBy := '';
+  FOrderBy := '';
+  FUseQuotes := False;
+  FIsCount := False;
 end;
 
 destructor TDMSQLBuilder.Destroy;
@@ -84,6 +97,20 @@ begin
   FValues.Free;
   FWhereConditions.Free;
   inherited Destroy;
+end;
+
+function TDMSQLBuilder.UseQuotes(AValue: Boolean): TDMSQLBuilder;
+begin
+  FUseQuotes := AValue;
+  Result := Self;
+end;
+
+function TDMSQLBuilder.QuoteIdentifier(const AIdentifier: string): string;
+begin
+  if FUseQuotes then
+    Result := TDatabaseDialectHelper.QuoteIdentifier(AIdentifier, FDialect)
+  else
+    Result := AIdentifier;
 end;
 
 function TDMSQLBuilder.GetTableName: string;
@@ -133,7 +160,7 @@ begin
             FValues.Add('NULL')
           else
           if VarIsNumeric(Obj.Value) then
-            FValues.Add(Obj.AsString.Replace(',', '',[rfReplaceAll]))
+            FValues.Add(Obj.AsString.Replace(',', '', [rfReplaceAll]))
           else
             FValues.Add(Obj.AsString.QuotedString);
         end;
@@ -149,7 +176,7 @@ begin
           FValues.Add(':' + PropInfo^.Name)
         else
         if VarIsNumeric(PropValue) then
-          FValues.Add(StrToFloat(VarToStr(PropValue), FS).ToString().Replace(',', '',[rfReplaceAll]))
+          FValues.Add(StrToFloat(VarToStr(PropValue), FS).ToString().Replace(',', '', [rfReplaceAll]))
         else
         if VarIsStr(PropValue) then
           FValues.Add(QuotedStr(PropValue))
@@ -174,44 +201,67 @@ begin
 end;
 
 function TDMSQLBuilder.WhereToSQL: string;
-var
-  Count: Integer;
 begin
   Result := '';
-
-  Count := FWhereConditions.Count;
-  if Count > 0 then
-    Result := ' WHERE ' + String.Join(' AND ', FWhereConditions.ToStringArray)
-end;
-
-function TDMSQLBuilder.QuoteIdentifier(const AIdentifier: string): string;
-begin
-  //case FDialect of
-  //  ddPostgreSQL: Result := '"' + AIdentifier + '"';
-  //else
-    Result := AIdentifier;
-  //end;
+  if FWhereConditions.Count > 0 then
+    Result := ' WHERE ' + string.Join(' AND ', FWhereConditions.ToStringArray);
 end;
 
 function TDMSQLBuilder.BuildLimitOffset: string;
+var
+  EffOffset, EffLimit: Integer;
 begin
+  Result := '';
+  EffOffset := FOffset;
+  EffLimit  := FLimit;
+
   case FDialect of
-    ddPostgreSQL, ddSQLite:
+    ddPostgreSQL, ddSQLite, ddMySQL:
     begin
-      Result := '';
-      if FLimit > -1 then
-        Result := Result + ' LIMIT ' + IntToStr(FLimit);
-      if FOffset > -1 then
-        Result := Result + ' OFFSET ' + IntToStr(FOffset);
+      if EffLimit > -1 then
+        Result := Result + ' LIMIT ' + IntToStr(EffLimit);
+      if EffOffset > -1 then
+        Result := Result + ' OFFSET ' + IntToStr(EffOffset);
     end;
+
     ddFirebird:
     begin
-      if FLimit > -1 then
+      if EffLimit > -1 then
       begin
-        if FOffset > -1 then
-          Result := Format(' ROWS %d TO %d', [FOffset + 1, FOffset + FLimit])
+        if EffOffset > -1 then
+          Result := Format(' ROWS %d TO %d', [EffOffset + 1, EffOffset + EffLimit])
         else
-          Result := Format(' ROWS 1 TO %d', [FLimit]);
+          Result := Format(' ROWS 1 TO %d', [EffLimit]);
+      end
+      else
+      if EffOffset > -1 then
+        Result := Format(' ROWS %d TO 2147483647', [EffOffset + 1]);
+    end;
+
+    ddMSSQL:
+    begin
+      if (EffOffset > -1) or (EffLimit > -1) then
+      begin
+        if EffOffset < 0 then EffOffset := 0;
+
+        // MSSQL OFFSET-FETCH exige cláusula ORDER BY
+        if FOrderBy.IsEmpty then
+          Result := ' ORDER BY (SELECT NULL)';
+
+        Result := Result + Format(' OFFSET %d ROWS', [EffOffset]);
+        if EffLimit > -1 then
+          Result := Result + Format(' FETCH NEXT %d ROWS ONLY', [EffLimit]);
+      end;
+    end;
+
+    ddOracle:
+    begin
+      if (EffOffset > -1) or (EffLimit > -1) then
+      begin
+        if EffOffset < 0 then EffOffset := 0;
+        Result := Format(' OFFSET %d ROWS', [EffOffset]);
+        if EffLimit > -1 then
+          Result := Result + Format(' FETCH NEXT %d ROWS ONLY', [EffLimit]);
       end;
     end;
   end;
@@ -227,7 +277,7 @@ var
   SL: TStringList;
 begin
   PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
-  if PropCount = 0 then Exit;
+  if PropCount = 0 then Exit('');
 
   GetMem(PropList, PropCount * SizeOf(Pointer));
   SL := TStringList.Create;
@@ -253,7 +303,7 @@ begin
         end;
       end;
     end;
-    Result := SL.Text;
+    Result := string.Join(' AND ', SL.ToStringArray);
   finally
     FreeMem(PropList, PropCount * SizeOf(Pointer));
     SL.Free;
@@ -263,6 +313,43 @@ end;
 function TDMSQLBuilder.Select: TDMSQLBuilder;
 begin
   FCommand := 'SELECT';
+  FIsCount := False;
+  FFields.Clear;
+  Result := Self;
+end;
+
+function TDMSQLBuilder.Select(const AColumns: string): TDMSQLBuilder;
+var
+  Parts: TStringArray;
+  I: Integer;
+begin
+  FCommand := 'SELECT';
+  FIsCount := False;
+  FFields.Clear;
+  Parts := AColumns.Split([',']);
+  for I := 0 to High(Parts) do
+    if not Parts[I].Trim.IsEmpty then
+      FFields.Add(QuoteIdentifier(Parts[I].Trim));
+  Result := Self;
+end;
+
+function TDMSQLBuilder.Select(const AColumns: array of string): TDMSQLBuilder;
+var
+  I: Integer;
+begin
+  FCommand := 'SELECT';
+  FIsCount := False;
+  FFields.Clear;
+  for I := Low(AColumns) to High(AColumns) do
+    if not AColumns[I].Trim.IsEmpty then
+      FFields.Add(QuoteIdentifier(AColumns[I].Trim));
+  Result := Self;
+end;
+
+function TDMSQLBuilder.Count: TDMSQLBuilder;
+begin
+  FCommand := 'SELECT';
+  FIsCount := True;
   FFields.Clear;
   Result := Self;
 end;
@@ -298,6 +385,30 @@ begin
   Result := Self;
 end;
 
+function TDMSQLBuilder.AndWhere(const ACondition: string): TDMSQLBuilder;
+begin
+  Result := Where(ACondition);
+end;
+
+function TDMSQLBuilder.OrWhere(const ACondition: string): TDMSQLBuilder;
+var
+  LastIdx: Integer;
+  PrevCond: string;
+begin
+  if ACondition.IsEmpty then Exit(Self);
+
+  if FWhereConditions.Count > 0 then
+  begin
+    LastIdx := FWhereConditions.Count - 1;
+    PrevCond := FWhereConditions[LastIdx];
+    FWhereConditions[LastIdx] := '(' + PrevCond + ' OR ' + ACondition + ')';
+  end
+  else
+    FWhereConditions.Add(ACondition);
+
+  Result := Self;
+end;
+
 function TDMSQLBuilder.OrderBy(const AField: string): TDMSQLBuilder;
 begin
   FOrderBy := AField;
@@ -316,6 +427,16 @@ begin
   Result := Self;
 end;
 
+function TDMSQLBuilder.Page(const APageNumber, APageSize: Integer): TDMSQLBuilder;
+begin
+  if (APageNumber > 0) and (APageSize > 0) then
+  begin
+    FLimit  := APageSize;
+    FOffset := (APageNumber - 1) * APageSize;
+  end;
+  Result := Self;
+end;
+
 function TDMSQLBuilder.GroupBy(const AField: string): TDMSQLBuilder;
 begin
   FGroupBy := QuoteIdentifier(AField);
@@ -324,18 +445,29 @@ end;
 
 function TDMSQLBuilder.Build: string;
 var
-  vFields, vOrderBy, vGroupBy: string;
+  vFields, vOrderBy, vGroupBy, vLimitOffset: string;
 begin
   case FCommand of
     'SELECT':
     begin
-      vOrderBy := IfThen(FOrderBy <> '', ' ORDER BY ' + FOrderBy, '');
+      if FIsCount then
+        vFields := 'COUNT(*)'
+      else
+        vFields := IfThen(FFields.Count > 0, FieldsToSQL, '*');
+
       vGroupBy := IfThen(FGroupBy <> '', ' GROUP BY ' + FGroupBy, '');
-      vFields  := IfThen(FFields.Count > 0, FieldsToSQL, '*');
+      vOrderBy := IfThen(FOrderBy <> '', ' ORDER BY ' + FOrderBy, '');
+      vLimitOffset := BuildLimitOffset;
+
+      // Se for MSSQL e o BuildLimitOffset adicionou ORDER BY interno, evita duplicação
+      if (FDialect = ddMSSQL) and vLimitOffset.StartsWith(' ORDER BY') and (vOrderBy <> '') then
+      begin
+        vLimitOffset := Copy(vLimitOffset, Length(' ORDER BY (SELECT NULL)') + 1, Length(vLimitOffset));
+      end;
 
       Result := Format('%s %s FROM %s%s%s%s%s',
         [FCommand, vFields, GetTableName, WhereToSQL,
-         vGroupBy, vOrderBy, BuildLimitOffset]);
+         vGroupBy, vOrderBy, vLimitOffset]);
     end;
 
     'INSERT INTO':
@@ -367,7 +499,7 @@ begin
     begin
       SL.Add(Format('%s = %s', [FFields[I], FValues[I]]));
     end;
-    Result := SL.DelimitedText;
+    Result := string.Join(', ', SL.ToStringArray);
   finally
     SL.Free;
   end;
@@ -375,66 +507,130 @@ end;
 
 class function TDMSQLBuilder.CreateInsert(AModel: TDeltaModel;
   ADialect: TDatabaseDialect; UseNamedParams: Boolean): string;
+var
+  Builder: TDMSQLBuilder;
 begin
-  Result := TDMSQLBuilder
-    .Create(AModel, ADialect)
-    .Insert(UseNamedParams)
-    .Build;
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder.Insert(UseNamedParams).Build;
+  finally
+    Builder.Free;
+  end;
 end;
 
 class function TDMSQLBuilder.CreateInsertReturning(AModel: TDeltaModel;
   ADialect: TDatabaseDialect; UseNamedParams: Boolean): string;
+var
+  Builder: TDMSQLBuilder;
 begin
-  Result := CreateInsert(AModel, ADialect);
-  Result :=
-    Result + sLineBreak +
-    'RETURNING *';
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Builder.Insert(UseNamedParams);
+    case ADialect of
+      ddMSSQL:
+        // Sintaxe MSSQL: INSERT INTO table (fields) OUTPUT INSERTED.* VALUES (values)
+        Result := Format('INSERT INTO %s (%s) OUTPUT INSERTED.* VALUES (%s)',
+          [Builder.GetTableName, Builder.FieldsToSQL, Builder.ValuesToSQL]);
+
+      ddPostgreSQL, ddSQLite, ddFirebird:
+        Result := Builder.Build + sLineBreak + 'RETURNING *';
+    else
+      // Outros dialetos (MySQL/Oracle): retorna o insert normal
+      Result := Builder.Build;
+    end;
+  finally
+    Builder.Free;
+  end;
 end;
 
 class function TDMSQLBuilder.CreateUpdate(AModel: TDeltaModel;
   ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
   ): string;
 var
+  Builder: TDMSQLBuilder;
   WherePK: string;
 begin
   WherePK := WhereClausePK(AModel);
-  Result := TDMSQLBuilder
-    .Create(AModel, ADialect)
-    .Update(UseNamedParams)
-    .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
-    .Build;
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder
+      .Update(UseNamedParams)
+      .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
+      .Build;
+  finally
+    Builder.Free;
+  end;
 end;
 
 class function TDMSQLBuilder.CreateUpdateReturning(AModel: TDeltaModel;
   ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
   ): string;
+var
+  Builder: TDMSQLBuilder;
+  WherePK: string;
 begin
-  Result := CreateUpdate(AModel, ADialect, WhereClause);
-  Result :=
-    Result + sLineBreak +
-    'RETURNING *';
+  WherePK := IfThen(WhereClause.IsEmpty, WhereClausePK(AModel), WhereClause);
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Builder.Update(UseNamedParams).Where(WherePK);
+    case ADialect of
+      ddMSSQL:
+        // Sintaxe MSSQL: UPDATE table SET col=val OUTPUT INSERTED.* WHERE ...
+        Result := Format('UPDATE %s SET %s OUTPUT INSERTED.*%s',
+          [Builder.GetTableName, Builder.FieldAndValuesToSQL, Builder.WhereToSQL]);
+
+      ddPostgreSQL, ddSQLite, ddFirebird:
+        Result := Builder.Build + sLineBreak + 'RETURNING *';
+    else
+      Result := Builder.Build;
+    end;
+  finally
+    Builder.Free;
+  end;
 end;
 
-class function TDMSQLBuilder.CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string): string;
+class function TDMSQLBuilder.CreateDelete(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string): string;
 var
+  Builder: TDMSQLBuilder;
   WherePK: string;
 begin
   WherePK := WhereClausePK(AModel);
-  Result := TDMSQLBuilder
-    .Create(AModel, ADialect)
-    .Delete
-    .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
-    .Build;
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder
+      .Delete
+      .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
+      .Build;
+  finally
+    Builder.Free;
+  end;
 end;
 
-class function TDMSQLBuilder.CreateSelect(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string): string;
+class function TDMSQLBuilder.CreateSelect(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string): string;
+var
+  Builder: TDMSQLBuilder;
 begin
-  Result := TDMSQLBuilder
-    .Create(AModel, ADialect)
-    .Select
-    .Where(WhereClause)
-    .Build;
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder.Select.Where(WhereClause).Build;
+  finally
+    Builder.Free;
+  end;
+end;
+
+class function TDMSQLBuilder.CreateCount(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string): string;
+var
+  Builder: TDMSQLBuilder;
+begin
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder.Count.Where(WhereClause).Build;
+  finally
+    Builder.Free;
+  end;
 end;
 
 end.
-

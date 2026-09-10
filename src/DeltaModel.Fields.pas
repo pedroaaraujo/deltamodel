@@ -57,6 +57,7 @@ type
     function AsString: string; virtual;
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
+    function SwaggerFormat: string; virtual;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -97,7 +98,20 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsInteger: Integer;
     function SwaggerDataType: string; override;
+  end;
+
+  { TDFInt64Null }
+
+  TDFInt64Null = class(TDeltaFieldNullable)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+    function AsInt64: Int64;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFDoubleNull }
@@ -107,7 +121,9 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsFloat: Double;
     function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFCurrencyNull }
@@ -117,6 +133,7 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsCurrency: Currency;
     function SwaggerDataType: string; override;
   end;
 
@@ -139,7 +156,20 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsInteger: Integer;
     function SwaggerDataType: string; override;
+  end;
+
+  { TDFInt64Required }
+
+  TDFInt64Required = class(TDeltaFieldRequired)
+  protected
+    procedure SetValue(AValue: Variant); override;
+  public
+    function AsString: string; override;
+    function AsInt64: Int64;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFDoubleRequired }
@@ -149,7 +179,9 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsFloat: Double;
     function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFCurrencyRequired }
@@ -159,6 +191,7 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function AsCurrency: Currency;
     function SwaggerDataType: string; override;
   end;
 
@@ -181,6 +214,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFTimeNull }
@@ -190,6 +225,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFDateTimeNull }
@@ -199,6 +236,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFDateRequired }
@@ -208,6 +247,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFTimeRequired }
@@ -217,6 +258,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFDateTimeRequired }
@@ -226,6 +269,8 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     function AsString: string; override;
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
   end;
 
   { TDFBooleanRequired }
@@ -234,6 +279,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
   end;
@@ -244,16 +290,57 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
   end;
 
+  { TDFUUIDNull - Campo UUID opcional (tipo string com format uuid) }
+
+  TDFUUIDNull = class(TDFStringNull)
+  public
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
+    function IsValid: Boolean; override;
+  end;
+
+  { TDFUUIDRequired - Campo UUID obrigatório }
+
+  TDFUUIDRequired = class(TDFStringRequired)
+  public
+    function SwaggerDataType: string; override;
+    function SwaggerFormat: string; override;
+    function IsValid: Boolean; override;
+  end;
+
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
+function IsValidUUID(const S: string): Boolean;
 
 implementation
 
 const
   DEFAULT_STR_SIZE = 255;
+  UUID_LENGTH = 36;
+
+function IsValidUUID(const S: string): Boolean;
+var
+  I: Integer;
+  C: Char;
+begin
+  Result := False;
+  if Length(S) <> UUID_LENGTH then Exit;
+  for I := 1 to UUID_LENGTH do
+  begin
+    C := S[I];
+    case I of
+      9, 14, 19, 24:
+        if C <> '-' then Exit;
+    else
+      if not (C in ['0'..'9', 'a'..'f', 'A'..'F']) then Exit;
+    end;
+  end;
+  Result := True;
+end;
 
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 begin
@@ -268,7 +355,6 @@ end;
 procedure TDeltaField.SetFieldName(AValue: string);
 begin
   if FFieldName = AValue then Exit;
-
   FFieldName := AValue;
 end;
 
@@ -288,6 +374,11 @@ end;
 function TDeltaField.AsString: string;
 begin
   Result := VarToStrDef(Self.Value, EmptyStr);
+end;
+
+function TDeltaField.SwaggerFormat: string;
+begin
+  Result := '';
 end;
 
 constructor TDeltaField.Create;
@@ -341,10 +432,7 @@ end;
 
 function TDeltaFieldNullable.SwaggerDataType: string;
 begin
-  if VarIsNull(FValue) then
-    Result := 'null'
-  else
-    Result := 'string';
+  Result := 'string';
 end;
 
 constructor TDeltaFieldNullable.Create;
@@ -400,9 +488,7 @@ procedure TDFIntNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Integer(AValue);
-  end;
 end;
 
 function TDFIntNull.AsString: string;
@@ -410,9 +496,48 @@ begin
   Result := StrToIntDef(inherited AsString, 0).ToString;
 end;
 
+function TDFIntNull.AsInteger: Integer;
+begin
+  if IsNull then
+    Result := 0
+  else
+    Result := Integer(FValue);
+end;
+
 function TDFIntNull.SwaggerDataType: string;
 begin
   Result := 'integer';
+end;
+
+{ TDFInt64Null }
+
+procedure TDFInt64Null.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+  if not VarIsNull(AValue) then
+    Self.FValue := Int64(AValue);
+end;
+
+function TDFInt64Null.AsString: string;
+begin
+  if IsNull then Result := '0'
+  else Result := IntToStr(Int64(FValue));
+end;
+
+function TDFInt64Null.AsInt64: Int64;
+begin
+  if IsNull then Result := 0
+  else Result := Int64(FValue);
+end;
+
+function TDFInt64Null.SwaggerDataType: string;
+begin
+  Result := 'integer';
+end;
+
+function TDFInt64Null.SwaggerFormat: string;
+begin
+  Result := 'int64';
 end;
 
 { TDFDoubleNull }
@@ -421,9 +546,7 @@ procedure TDFDoubleNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Double(AValue);
-  end;
 end;
 
 function TDFDoubleNull.AsString: string;
@@ -431,9 +554,20 @@ begin
   Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
 end;
 
+function TDFDoubleNull.AsFloat: Double;
+begin
+  if IsNull then Result := 0
+  else Result := Double(FValue);
+end;
+
 function TDFDoubleNull.SwaggerDataType: string;
 begin
   Result := 'number';
+end;
+
+function TDFDoubleNull.SwaggerFormat: string;
+begin
+  Result := 'double';
 end;
 
 { TDFCurrencyNull }
@@ -442,14 +576,18 @@ procedure TDFCurrencyNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Currency(AValue);
-  end;
 end;
 
 function TDFCurrencyNull.AsString: string;
 begin
   Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFCurrencyNull.AsCurrency: Currency;
+begin
+  if IsNull then Result := 0
+  else Result := Currency(FValue);
 end;
 
 function TDFCurrencyNull.SwaggerDataType: string;
@@ -463,10 +601,7 @@ procedure TDFStringNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
-    Self.FValue := Copy(string(AValue).Trim, 1, Self.FSize);
-    Self.FValue := Trim(FValue);
-  end;
+    Self.FValue := Copy(Trim(string(AValue)), 1, Self.FSize);
 end;
 
 procedure TDFStringNull.AfterConstruction;
@@ -481,9 +616,7 @@ procedure TDFIntRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Integer(AValue);
-  end;
 end;
 
 function TDFIntRequired.AsString: string;
@@ -491,9 +624,46 @@ begin
   Result := StrToIntDef(inherited AsString, 0).ToString;
 end;
 
+function TDFIntRequired.AsInteger: Integer;
+begin
+  if IsNull then Result := 0
+  else Result := Integer(FValue);
+end;
+
 function TDFIntRequired.SwaggerDataType: string;
 begin
   Result := 'integer';
+end;
+
+{ TDFInt64Required }
+
+procedure TDFInt64Required.SetValue(AValue: Variant);
+begin
+  inherited SetValue(AValue);
+  if not VarIsNull(AValue) then
+    Self.FValue := Int64(AValue);
+end;
+
+function TDFInt64Required.AsString: string;
+begin
+  if IsNull then Result := '0'
+  else Result := IntToStr(Int64(FValue));
+end;
+
+function TDFInt64Required.AsInt64: Int64;
+begin
+  if IsNull then Result := 0
+  else Result := Int64(FValue);
+end;
+
+function TDFInt64Required.SwaggerDataType: string;
+begin
+  Result := 'integer';
+end;
+
+function TDFInt64Required.SwaggerFormat: string;
+begin
+  Result := 'int64';
 end;
 
 { TDFDoubleRequired }
@@ -502,9 +672,7 @@ procedure TDFDoubleRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Double(AValue);
-  end;
 end;
 
 function TDFDoubleRequired.AsString: string;
@@ -512,9 +680,20 @@ begin
   Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
 end;
 
+function TDFDoubleRequired.AsFloat: Double;
+begin
+  if IsNull then Result := 0
+  else Result := Double(FValue);
+end;
+
 function TDFDoubleRequired.SwaggerDataType: string;
 begin
   Result := 'number';
+end;
+
+function TDFDoubleRequired.SwaggerFormat: string;
+begin
+  Result := 'double';
 end;
 
 { TDFCurrencyRequired }
@@ -523,14 +702,18 @@ procedure TDFCurrencyRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
     Self.FValue := Currency(AValue);
-  end;
 end;
 
 function TDFCurrencyRequired.AsString: string;
 begin
   Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+end;
+
+function TDFCurrencyRequired.AsCurrency: Currency;
+begin
+  if IsNull then Result := 0
+  else Result := Currency(FValue);
 end;
 
 function TDFCurrencyRequired.SwaggerDataType: string;
@@ -541,16 +724,10 @@ end;
 { TDFStringRequired }
 
 procedure TDFStringRequired.SetValue(AValue: Variant);
-var
-  S: string;
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-  begin
-    S := string(AValue);
-    Self.FValue := Copy(S.Trim, 1, Self.FSize);
-    Self.FValue := Trim(FValue);
-  end;
+    Self.FValue := Copy(Trim(string(AValue)), 1, Self.FSize);
 end;
 
 procedure TDFStringRequired.AfterConstruction;
@@ -564,15 +741,24 @@ end;
 procedure TDFDateNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
-  if AValue = 0 then
-  begin
+  if not VarIsNull(AValue) and (AValue = 0) then
     Self.Clear;
-  end;
 end;
 
 function TDFDateNull.AsString: string;
 begin
-  Result := DateToISO8601(Self.Value);
+  if IsNull then Result := ''
+  else Result := DateToISO8601(Self.Value);
+end;
+
+function TDFDateNull.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFDateNull.SwaggerFormat: string;
+begin
+  Result := 'date';
 end;
 
 { TDFTimeNull }
@@ -580,19 +766,25 @@ end;
 procedure TDFTimeNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
-  if AValue = 0 then
-  begin
+  if not VarIsNull(AValue) and (AValue = 0) then
     Self.Clear;
-  end;
 end;
 
 function TDFTimeNull.AsString: string;
 begin
   if Self.IsNull then
-  begin
-    Exit('00:00:00');
-  end;
+    Exit('');
   Result := FormatDateTime('hh:nn:ss', Self.Value);
+end;
+
+function TDFTimeNull.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFTimeNull.SwaggerFormat: string;
+begin
+  Result := 'time';
 end;
 
 { TDFDateTimeNull }
@@ -600,15 +792,24 @@ end;
 procedure TDFDateTimeNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
-  if AValue = 0 then
-  begin
+  if not VarIsNull(AValue) and (AValue = 0) then
     Self.Clear;
-  end;
 end;
 
 function TDFDateTimeNull.AsString: string;
 begin
-  Result := DateToISO8601(Self.Value);
+  if IsNull then Result := ''
+  else Result := DateToISO8601(Self.Value);
+end;
+
+function TDFDateTimeNull.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFDateTimeNull.SwaggerFormat: string;
+begin
+  Result := 'date-time';
 end;
 
 { TDFDateRequired }
@@ -623,6 +824,16 @@ begin
   Result := DateToISO8601(Self.Value);
 end;
 
+function TDFDateRequired.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFDateRequired.SwaggerFormat: string;
+begin
+  Result := 'date';
+end;
+
 { TDFTimeRequired }
 
 procedure TDFTimeRequired.SetValue(AValue: Variant);
@@ -633,6 +844,16 @@ end;
 function TDFTimeRequired.AsString: string;
 begin
   Result := FormatDateTime('hh:nn:ss', Self.Value);
+end;
+
+function TDFTimeRequired.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFTimeRequired.SwaggerFormat: string;
+begin
+  Result := 'time';
 end;
 
 { TDFDateTimeRequired }
@@ -647,6 +868,16 @@ begin
   Result := DateToISO8601(Self.Value);
 end;
 
+function TDFDateTimeRequired.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFDateTimeRequired.SwaggerFormat: string;
+begin
+  Result := 'date-time';
+end;
+
 { TDFBooleanRequired }
 
 procedure TDFBooleanRequired.SetValue(AValue: Variant);
@@ -654,11 +885,16 @@ begin
   inherited SetValue(Boolean(AValue));
 end;
 
+function TDFBooleanRequired.AsBoolean: Boolean;
+begin
+  if IsNull then Result := False
+  else Result := Boolean(FValue);
+end;
+
 function TDFBooleanRequired.AsString: string;
 begin
-  Result := 'F';
-  if FValue then
-    Exit('T');
+  if AsBoolean then Result := 'T'
+  else Result := 'F';
 end;
 
 function TDFBooleanRequired.SwaggerDataType: string;
@@ -673,11 +909,16 @@ begin
   inherited SetValue(AValue);
 end;
 
+function TDFBooleanNull.AsBoolean: Boolean;
+begin
+  if IsNull then Result := False
+  else Result := Boolean(FValue);
+end;
+
 function TDFBooleanNull.AsString: string;
 begin
-  Result := 'F';
-  if FValue then
-    Exit('T');
+  if AsBoolean then Result := 'T'
+  else Result := 'F';
 end;
 
 function TDFBooleanNull.SwaggerDataType: string;
@@ -685,6 +926,41 @@ begin
   Result := 'boolean';
 end;
 
+{ TDFUUIDNull }
+
+function TDFUUIDNull.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFUUIDNull.SwaggerFormat: string;
+begin
+  Result := 'uuid';
+end;
+
+function TDFUUIDNull.IsValid: Boolean;
+begin
+  if IsNull then
+    Result := True
+  else
+    Result := IsValidUUID(AsString);
+end;
+
+{ TDFUUIDRequired }
+
+function TDFUUIDRequired.SwaggerDataType: string;
+begin
+  Result := 'string';
+end;
+
+function TDFUUIDRequired.SwaggerFormat: string;
+begin
+  Result := 'uuid';
+end;
+
+function TDFUUIDRequired.IsValid: Boolean;
+begin
+  Result := (not IsNull) and IsValidUUID(AsString);
+end;
+
 end.
-
-

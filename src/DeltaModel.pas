@@ -25,15 +25,27 @@ type
    procedure SetTableName(AValue: string);
  public
    property TableName: string read FTableName write SetTableName;
-   procedure FromJson(JsonStr: string); virtual;
+   procedure FromJson(JsonStr: string);
    procedure Validate; virtual;
    procedure BeforeDestruction; override;
    procedure Configure; virtual;
    procedure CopyObject(Obj: TDeltaModel);
+   function Clone: TDeltaModel;
+   function IsEmpty: Boolean;
    function ToJson: RawByteString;
    function ToJsonObj: TJSONObject;
    class function SwaggerSchema(IsArray: Boolean = False): string;
    constructor Create; virtual;
+
+   // Lifecycle hooks
+   procedure BeforeInsert; virtual;
+   procedure AfterInsert; virtual;
+   procedure BeforeUpdate; virtual;
+   procedure AfterUpdate; virtual;
+   procedure BeforeDelete; virtual;
+   procedure AfterDelete; virtual;
+   procedure BeforeSave; virtual;
+   procedure AfterSave; virtual;
  public
    property Validator: TValidator read FValidator;
  end;
@@ -121,6 +133,29 @@ begin
   DeltaSerialization.CopyObject(Obj, Self);
 end;
 
+function TDeltaModel.Clone: TDeltaModel;
+begin
+  Result := TDeltaModelClass(Self.ClassType).Create;
+  DeltaSerialization.CopyObject(Self, Result);
+end;
+
+function TDeltaModel.IsEmpty: Boolean;
+var
+  I: Integer;
+  Field: TDeltaField;
+begin
+  Result := True;
+  for I := 0 to Pred(Self.FFieldList.Count) do
+  begin
+    Field := Self.FFieldList.Items[I];
+    if not Field.IsNull then
+    begin
+      Result := False;
+      Exit;
+    end;
+  end;
+end;
+
 procedure TDeltaModel.SetTableName(AValue: string);
 begin
   if FTableName = AValue then Exit;
@@ -194,9 +229,39 @@ begin
   FTableName := Copy(Self.ToString, 2, Length(Self.ToString));
   FTableName := FTableName.ToLower;
 
-  AfterConstruction;
-
   Configure();
+end;
+
+procedure TDeltaModel.BeforeInsert;
+begin
+end;
+
+procedure TDeltaModel.AfterInsert;
+begin
+end;
+
+procedure TDeltaModel.BeforeUpdate;
+begin
+end;
+
+procedure TDeltaModel.AfterUpdate;
+begin
+end;
+
+procedure TDeltaModel.BeforeDelete;
+begin
+end;
+
+procedure TDeltaModel.AfterDelete;
+begin
+end;
+
+procedure TDeltaModel.BeforeSave;
+begin
+end;
+
+procedure TDeltaModel.AfterSave;
+begin
 end;
 
 { TDeltaModelList }

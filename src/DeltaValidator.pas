@@ -23,29 +23,32 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
-  { TDeltaField }
+  { TValidatorField }
 
-  TDeltaField = class(specialize TFPGInterfacedObjectList<IDeltaValidatorItem>)
+  TValidatorField = class(specialize TFPGInterfacedObjectList<IDeltaValidatorItem>)
   private
     FName: string;
     FValue: Variant;
   public
     property Name: string read FName write FName;
     property Value: Variant read FValue write FValue;
-    function AddValidator(Item: IDeltaValidatorItem): TDeltaField;
+    function AddValidator(Item: IDeltaValidatorItem): TValidatorField;
     constructor Create(_Name: string; _Value: Variant);
     function Validate: TValid;
     function ValidateToJson: TValid;
   end;
 
+  // Alias para retrocompatibilidade
+  TDeltaField = TValidatorField;
+
   { TValidator }
 
   TValidator = class
   private
-    FFields: specialize TFPGObjectList<TDeltaField>;
+    FFields: specialize TFPGObjectList<TValidatorField>;
   public
-    property Fields: specialize TFPGObjectList<TDeltaField> read FFields;
-    function AddField(Name: string; Value: Variant): TDeltaField;
+    property Fields: specialize TFPGObjectList<TValidatorField> read FFields;
+    function AddField(Name: string; Value: Variant): TValidatorField;
     function Validate: TValid;
     function ValidateToJson: TValid;
     procedure Clear;
@@ -91,6 +94,27 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
+  { TValidatorItemUrl - Valida URL com http/https }
+
+  TValidatorItemUrl = class(TInterfacedObject, IDeltaValidatorItem)
+  public
+    function Validate(Value: Variant): TValid;
+  end;
+
+  { TValidatorItemCPF - Valida CPF brasileiro (apenas dígitos, sem pontuação) }
+
+  TValidatorItemCPF = class(TInterfacedObject, IDeltaValidatorItem)
+  public
+    function Validate(Value: Variant): TValid;
+  end;
+
+  { TValidatorItemCNPJ - Valida CNPJ brasileiro (apenas dígitos, sem pontuação) }
+
+  TValidatorItemCNPJ = class(TInterfacedObject, IDeltaValidatorItem)
+  public
+    function Validate(Value: Variant): TValid;
+  end;
+
   { Numeric Validations }
 
   TValidatorItemMinValue = class(TInterfacedObject, IDeltaValidatorItem)
@@ -117,6 +141,17 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
+  { TValidatorItemBetween - Valida se o valor está entre Min e Max (inclusivo) }
+
+  TValidatorItemBetween = class(TInterfacedObject, IDeltaValidatorItem)
+  private
+    FMin: Double;
+    FMax: Double;
+  public
+    constructor Create(AMin, AMax: Double);
+    function Validate(Value: Variant): TValid;
+  end;
+
   { Date Validations }
 
   TValidatorItemPeriod = class(TInterfacedObject, IDeltaValidatorItem)
@@ -130,22 +165,96 @@ type
 
 implementation
 
-{ TDeltaField }
+{ Helpers internos }
 
-function TDeltaField.AddValidator(Item: IDeltaValidatorItem): TDeltaField;
+function OnlyDigits(const S: string): string;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+    if S[I] in ['0'..'9'] then
+      Result := Result + S[I];
+end;
+
+function ValidateCPFDigits(const CPF: string): Boolean;
+var
+  Sum, Remainder, I: Integer;
+begin
+  Result := False;
+  if Length(CPF) <> 11 then Exit;
+
+  // Rejeita sequências com todos os dígitos iguais
+  if (CPF = StringOfChar(CPF[1], 11)) then Exit;
+
+  // Primeiro dígito verificador
+  Sum := 0;
+  for I := 1 to 9 do
+    Sum := Sum + StrToInt(CPF[I]) * (11 - I);
+  Remainder := (Sum * 10) mod 11;
+  if Remainder = 10 then Remainder := 0;
+  if Remainder <> StrToInt(CPF[10]) then Exit;
+
+  // Segundo dígito verificador
+  Sum := 0;
+  for I := 1 to 10 do
+    Sum := Sum + StrToInt(CPF[I]) * (12 - I);
+  Remainder := (Sum * 10) mod 11;
+  if Remainder = 10 then Remainder := 0;
+  if Remainder <> StrToInt(CPF[11]) then Exit;
+
+  Result := True;
+end;
+
+function ValidateCNPJDigits(const CNPJ: string): Boolean;
+var
+  Weights1: array[1..12] of Integer = (5,4,3,2,9,8,7,6,5,4,3,2);
+  Weights2: array[1..13] of Integer = (6,5,4,3,2,9,8,7,6,5,4,3,2);
+  Sum, Remainder, I: Integer;
+begin
+  Result := False;
+  if Length(CNPJ) <> 14 then Exit;
+
+  // Rejeita sequências com todos os dígitos iguais
+  if (CNPJ = StringOfChar(CNPJ[1], 14)) then Exit;
+
+  // Primeiro dígito verificador
+  Sum := 0;
+  for I := 1 to 12 do
+    Sum := Sum + StrToInt(CNPJ[I]) * Weights1[I];
+  Remainder := Sum mod 11;
+  if Remainder < 2 then Remainder := 0
+  else Remainder := 11 - Remainder;
+  if Remainder <> StrToInt(CNPJ[13]) then Exit;
+
+  // Segundo dígito verificador
+  Sum := 0;
+  for I := 1 to 13 do
+    Sum := Sum + StrToInt(CNPJ[I]) * Weights2[I];
+  Remainder := Sum mod 11;
+  if Remainder < 2 then Remainder := 0
+  else Remainder := 11 - Remainder;
+  if Remainder <> StrToInt(CNPJ[14]) then Exit;
+
+  Result := True;
+end;
+
+{ TValidatorField }
+
+function TValidatorField.AddValidator(Item: IDeltaValidatorItem): TValidatorField;
 begin
   Self.Add(Item);
   Result := Self;
 end;
 
-constructor TDeltaField.Create(_Name: string; _Value: Variant);
+constructor TValidatorField.Create(_Name: string; _Value: Variant);
 begin
   inherited Create;
   FName := _Name;
   FValue := _Value;
 end;
 
-function TDeltaField.Validate: TValid;
+function TValidatorField.Validate: TValid;
 var
   i: Integer;
   ValidationResult: TValid;
@@ -164,7 +273,7 @@ begin
   end;
 end;
 
-function TDeltaField.ValidateToJson: TValid;
+function TValidatorField.ValidateToJson: TValid;
 var
   Json: TJSONArray;
   I: Integer;
@@ -176,9 +285,7 @@ begin
     begin
       ValidationResult := Items[i].Validate(FValue);
       if not ValidationResult.OK then
-      begin
         Json.Add(ValidationResult.Message);
-      end;
     end;
 
     Result.Message := Json.AsJSON;
@@ -190,11 +297,11 @@ end;
 
 { TValidator }
 
-function TValidator.AddField(Name: string; Value: Variant): TDeltaField;
+function TValidator.AddField(Name: string; Value: Variant): TValidatorField;
 var
-  Field: TDeltaField;
+  Field: TValidatorField;
 begin
-  Field := TDeltaField.Create(Name, Value);
+  Field := TValidatorField.Create(Name, Value);
   FFields.Add(Field);
   Result := Field;
 end;
@@ -257,7 +364,7 @@ end;
 
 constructor TValidator.Create;
 begin
-  FFields := specialize TFPGObjectList<TDeltaField>.Create(True);
+  FFields := specialize TFPGObjectList<TValidatorField>.Create(True);
 end;
 
 destructor TValidator.Destroy;
@@ -349,6 +456,48 @@ begin
   end;
 end;
 
+{ TValidatorItemUrl }
+
+function TValidatorItemUrl.Validate(Value: Variant): TValid;
+const
+  UrlPattern = '^https?://[^\s/$.?#].[^\s]*$';
+var
+  Regex: TRegExpr;
+begin
+  Regex := TRegExpr.Create(UrlPattern);
+  try
+    Result.OK := Regex.Exec(VarToStr(Value));
+    if not Result.OK then
+      Result.Message := InvalidUrl;
+  finally
+    Regex.Free;
+  end;
+end;
+
+{ TValidatorItemCPF }
+
+function TValidatorItemCPF.Validate(Value: Variant): TValid;
+var
+  Digits: string;
+begin
+  Digits := OnlyDigits(VarToStr(Value));
+  Result.OK := ValidateCPFDigits(Digits);
+  if not Result.OK then
+    Result.Message := InvalidCPF;
+end;
+
+{ TValidatorItemCNPJ }
+
+function TValidatorItemCNPJ.Validate(Value: Variant): TValid;
+var
+  Digits: string;
+begin
+  Digits := OnlyDigits(VarToStr(Value));
+  Result.OK := ValidateCNPJDigits(Digits);
+  if not Result.OK then
+    Result.Message := InvalidCNPJ;
+end;
+
 { Numeric Validations }
 
 constructor TValidatorItemMinValue.Create(MinValue: Double);
@@ -387,6 +536,21 @@ begin
     Result.Message := Format(MaximumAllowedValue, [FMaxValue]);
 end;
 
+{ TValidatorItemBetween }
+
+constructor TValidatorItemBetween.Create(AMin, AMax: Double);
+begin
+  FMin := AMin;
+  FMax := AMax;
+end;
+
+function TValidatorItemBetween.Validate(Value: Variant): TValid;
+begin
+  Result.OK := (Value >= FMin) and (Value <= FMax);
+  if not Result.OK then
+    Result.Message := Format(AllowedRange, [FloatToStr(FMin), FloatToStr(FMax)]);
+end;
+
 constructor TValidatorItemPeriod.Create(StartDate, EndDate: TDateTime);
 begin
   FStartDate := StartDate;
@@ -402,9 +566,7 @@ begin
   begin
     ValueDate := StrToDate(Value);
     if (ValueDate >= FStartDate) and (ValueDate <= FEndDate) then
-    begin
       Result.OK := True;
-    end;
   end;
 
   if not Result.OK then
