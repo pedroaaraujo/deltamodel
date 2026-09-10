@@ -75,6 +75,7 @@ var
   Credentials: string;
   AtPos, ColonPos, SlashPos: Integer;
   UrlParams: TStringList;
+  IsTripleSlash: Boolean;
 begin
   Result.Protocol := '';
   Result.Username := '';
@@ -93,6 +94,9 @@ begin
     raise Exception.Create('Invalid Database URL: Protocol not found');
 
   Result.Protocol := NormalizeProtocol(Copy(URI, 1, ColonPos - 1));
+
+  IsTripleSlash := Pos(':///', URI) > 0;
+
   Delete(URI, 1, ColonPos + 2); // remove "://"
 
   // SQLite special cases: in-memory or direct file path
@@ -114,9 +118,15 @@ begin
       UrlParams.Free;
     end;
 
-    // Remove leading slash if needed or preserve absolute path
-    if (Pos('///', ADatabaseURL) > 0) then
-      Result.Database := '/' + URI
+    if IsTripleSlash then
+    begin
+      if (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') then
+        Result.Database := Copy(URI, 2, MaxInt)
+      else if (Length(URI) > 0) and (URI[1] = '/') then
+        Result.Database := Copy(URI, 2, MaxInt)
+      else
+        Result.Database := URI;
+    end
     else
       Result.Database := URI;
 
