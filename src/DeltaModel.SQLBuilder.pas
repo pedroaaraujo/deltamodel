@@ -26,9 +26,13 @@ type
     FGroupBy: string;
     FUseQuotes: Boolean;
     FIsCount: Boolean;
+    FTableAlias: string;
+    FJoins: TStringList;
 
     function FieldAndValuesToSQL: string;
     function GetTableName: string;
+    function GetTableNameWithAlias: string;
+    function JoinsToSQL: string;
     function ExtractFieldsAndValues(UseNamedParams: Boolean): Boolean;
     function FieldsToSQL: string;
     function ValuesToSQL: string;
@@ -46,15 +50,37 @@ type
     function Insert(UseNamedParams: Boolean = True): TDMSQLBuilder;
     function Update(UseNamedParams: Boolean = True): TDMSQLBuilder;
     function Delete: TDMSQLBuilder;
-    function Where(const ACondition: string): TDMSQLBuilder;
-    function AndWhere(const ACondition: string): TDMSQLBuilder;
-    function OrWhere(const ACondition: string): TDMSQLBuilder;
+    function TableAlias(const AAlias: string): TDMSQLBuilder;
+    function Join(AJoinType: TJoinType; const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder; overload;
+    function Join(const AJoinClause: string): TDMSQLBuilder; overload;
+    function InnerJoin(const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder;
+    function LeftJoin(const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder;
+    function RightJoin(const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder;
+    function FullJoin(const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder;
+    function Where(const ACondition: string): TDMSQLBuilder; overload;
+    function Where(const AField: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder; overload;
+    function Where(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function AndWhere(const ACondition: string): TDMSQLBuilder; overload;
+    function AndWhere(const AField: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder; overload;
+    function AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function OrWhere(const ACondition: string): TDMSQLBuilder; overload;
+    function OrWhere(const AField: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder; overload;
+    function OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder; overload;
+    function WhereBetween(const AField: string; const AVal1, AVal2: Variant): TDMSQLBuilder;
+    function WhereIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
+    function WhereNotIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
+    function WhereNull(const AField: string): TDMSQLBuilder;
+    function WhereNotNull(const AField: string): TDMSQLBuilder;
     function OrderBy(const AField: string): TDMSQLBuilder;
     function Limit(const ALimit: Integer): TDMSQLBuilder;
     function Offset(const AOffset: Integer): TDMSQLBuilder;
     function Page(const APageNumber, APageSize: Integer): TDMSQLBuilder;
     function GroupBy(const AField: string): TDMSQLBuilder;
     function UseQuotes(AValue: Boolean): TDMSQLBuilder;
+    function Clear: TDMSQLBuilder;
     function Build: string;
 
     class function WhereClausePK(AModel: TDeltaModel): string;
@@ -83,6 +109,8 @@ begin
   FValues.Delimiter := ',';
   FValues.StrictDelimiter := True;
   FWhereConditions := TStringList.Create;
+  FJoins := TStringList.Create;
+  FTableAlias := '';
   FLimit := -1;
   FOffset := -1;
   FGroupBy := '';
@@ -96,6 +124,7 @@ begin
   FFields.Free;
   FValues.Free;
   FWhereConditions.Free;
+  FJoins.Free;
   inherited Destroy;
 end;
 
@@ -116,6 +145,20 @@ end;
 function TDMSQLBuilder.GetTableName: string;
 begin
   Result := QuoteIdentifier(FModel.TableName);
+end;
+
+function TDMSQLBuilder.GetTableNameWithAlias: string;
+begin
+  Result := GetTableName;
+  if not FTableAlias.IsEmpty then
+    Result := Result + ' ' + QuoteIdentifier(FTableAlias);
+end;
+
+function TDMSQLBuilder.JoinsToSQL: string;
+begin
+  Result := '';
+  if FJoins.Count > 0 then
+    Result := ' ' + string.Join(' ', FJoins.ToStringArray);
 end;
 
 function TDMSQLBuilder.ExtractFieldsAndValues(UseNamedParams: Boolean): Boolean;
@@ -378,6 +421,51 @@ begin
   Result := Self;
 end;
 
+function TDMSQLBuilder.TableAlias(const AAlias: string): TDMSQLBuilder;
+begin
+  FTableAlias := AAlias.Trim;
+  Result := Self;
+end;
+
+function TDMSQLBuilder.Join(AJoinType: TJoinType; const ATable, AOnCondition: string; const AAlias: string): TDMSQLBuilder;
+var
+  Clause: string;
+begin
+  Clause := TSQLCriteriaHelper.JoinTypeToString(AJoinType) + ' ' + QuoteIdentifier(ATable);
+  if not AAlias.Trim.IsEmpty then
+    Clause := Clause + ' ' + QuoteIdentifier(AAlias.Trim);
+  Clause := Clause + ' ON ' + AOnCondition;
+  FJoins.Add(Clause);
+  Result := Self;
+end;
+
+function TDMSQLBuilder.Join(const AJoinClause: string): TDMSQLBuilder;
+begin
+  if not AJoinClause.Trim.IsEmpty then
+    FJoins.Add(AJoinClause.Trim);
+  Result := Self;
+end;
+
+function TDMSQLBuilder.InnerJoin(const ATable, AOnCondition: string; const AAlias: string): TDMSQLBuilder;
+begin
+  Result := Join(jtInner, ATable, AOnCondition, AAlias);
+end;
+
+function TDMSQLBuilder.LeftJoin(const ATable, AOnCondition: string; const AAlias: string): TDMSQLBuilder;
+begin
+  Result := Join(jtLeft, ATable, AOnCondition, AAlias);
+end;
+
+function TDMSQLBuilder.RightJoin(const ATable, AOnCondition: string; const AAlias: string): TDMSQLBuilder;
+begin
+  Result := Join(jtRight, ATable, AOnCondition, AAlias);
+end;
+
+function TDMSQLBuilder.FullJoin(const ATable, AOnCondition: string; const AAlias: string): TDMSQLBuilder;
+begin
+  Result := Join(jtFull, ATable, AOnCondition, AAlias);
+end;
+
 function TDMSQLBuilder.Where(const ACondition: string): TDMSQLBuilder;
 begin
   if not ACondition.IsEmpty then
@@ -385,9 +473,39 @@ begin
   Result := Self;
 end;
 
+function TDMSQLBuilder.Where(const AField: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.Where(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
+end;
+
 function TDMSQLBuilder.AndWhere(const ACondition: string): TDMSQLBuilder;
 begin
   Result := Where(ACondition);
+end;
+
+function TDMSQLBuilder.AndWhere(const AField: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
 end;
 
 function TDMSQLBuilder.OrWhere(const ACondition: string): TDMSQLBuilder;
@@ -406,6 +524,61 @@ begin
   else
     FWhereConditions.Add(ACondition);
 
+  Result := Self;
+end;
+
+function TDMSQLBuilder.OrWhere(const AField: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
+begin
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
+end;
+
+function TDMSQLBuilder.WhereBetween(const AField: string; const AVal1, AVal2: Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FDialect));
+end;
+
+function TDMSQLBuilder.WhereIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FDialect, False));
+end;
+
+function TDMSQLBuilder.WhereNotIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FDialect, True));
+end;
+
+function TDMSQLBuilder.WhereNull(const AField: string): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildNullCondition(AField, True));
+end;
+
+function TDMSQLBuilder.WhereNotNull(const AField: string): TDMSQLBuilder;
+begin
+  Result := Where(TSQLCriteriaHelper.BuildNullCondition(AField, False));
+end;
+
+function TDMSQLBuilder.Clear: TDMSQLBuilder;
+begin
+  FFields.Clear;
+  FValues.Clear;
+  FWhereConditions.Clear;
+  FJoins.Clear;
+  FTableAlias := '';
+  FLimit := -1;
+  FOffset := -1;
+  FGroupBy := '';
+  FOrderBy := '';
+  FIsCount := False;
   Result := Self;
 end;
 
@@ -465,8 +638,8 @@ begin
         vLimitOffset := Copy(vLimitOffset, Length(' ORDER BY (SELECT NULL)') + 1, Length(vLimitOffset));
       end;
 
-      Result := Format('%s %s FROM %s%s%s%s%s',
-        [FCommand, vFields, GetTableName, WhereToSQL,
+      Result := Format('%s %s FROM %s%s%s%s%s%s',
+        [FCommand, vFields, GetTableNameWithAlias, JoinsToSQL, WhereToSQL,
          vGroupBy, vOrderBy, vLimitOffset]);
     end;
 
