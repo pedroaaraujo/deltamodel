@@ -1,19 +1,29 @@
 # DeltaModel
 
-**DeltaModel** é um microframework leve e extensível para **Lazarus / FreePascal (FPC)** que oferece:
-- Modelagem de dados com campos tipados e controle de nulabilidade
-- Validação fluente (CPF, CNPJ, E-mail, URL, Ranges, Regex)
-- Serialização/Desserialização JSON bidirecional com suporte a objetos aninhados e listas
-- Geração automática de esquemas OpenAPI / Swagger
-- **Micro-ORM Multi-SGDB** com DDL automatizado, construtor de SQL fluente e operações CRUD inteligentes
+[![Lazarus](https://img.shields.io/badge/Lazarus-2.2%2B-blue.svg)](https://www.lazarus-ide.org/)
+[![FreePascal](https://img.shields.io/badge/FPC-3.2.2%2B-green.svg)](https://www.freepascal.org/)
+[![Multi--Database](https://img.shields.io/badge/Databases-6%20SGDBs-orange.svg)](https://github.com/pedroaaraujo/deltamodel)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**DeltaModel** é um microframework leve, moderno e extensível para **Lazarus / Free Pascal (FPC)** que reúne em uma única biblioteca:
+
+- 🧱 **Modelagem de Dados**: Campos fortemente tipados com controle explícito de nulabilidade (`Null` vs `Required`).
+- ✅ **Motor de Validação Fluente**: Validação de CPF, CNPJ, E-mail, URL, Ranges, Regex e regras de negócio personalizadas.
+- 🔄 **Serialização JSON**: Conversão bidirecional entre Objetos/Listas e JSON (`ToJson`, `FromJson`), com suporte a objetos aninhados.
+- 📋 **OpenAPI / Swagger Schemas**: Geração automática de esquemas compatíveis com OpenAPI 3.0 para documentação de APIs.
+- 🗄️ **Micro-ORM Multi-SGDB**:
+  - DDL automatizado que inspeciona e cria/atualiza tabelas, colunas, chaves primárias e estrangeiras.
+  - Construtor fluente de consultas SQL com suporte a condições tipadas (`Where`, `WhereBetween`, `WhereIn`, etc.) e Joins (`InnerJoin`, `LeftJoin`, etc.).
+  - Operações CRUD inteligentes (`Save`, `Insert`, `Update`, `Delete`, `Find`, `Count`).
+  - Hooks de ciclo de vida (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, etc.).
 
 ---
 
 ## 🚀 SGDBs Suportados
 
-O módulo ORM do DeltaModel oferece compatibilidade com os principais sistemas de banco de dados do mercado:
+O módulo ORM do DeltaModel oferece suporte nativo e agnóstico aos principais sistemas gerenciadores de banco de dados:
 
-| SGDB | Dialeto | Auto-Incremento | Sintaxe Paginação | Sintaxe Returning |
+| SGDB | Dialeto | Auto-Incremento | Sintaxe de Paginação | Sintaxe Returning |
 | :--- | :--- | :--- | :--- | :--- |
 | **PostgreSQL** | `ddPostgreSQL` | `SERIAL / BIGSERIAL` | `LIMIT n OFFSET m` | `RETURNING *` |
 | **MySQL / MariaDB** | `ddMySQL` | `AUTO_INCREMENT` | `LIMIT n OFFSET m` | Standard INSERT |
@@ -24,9 +34,9 @@ O módulo ORM do DeltaModel oferece compatibilidade com os principais sistemas d
 
 ---
 
-## 📦 Conexão por URL
+## 📦 Conexão por URL Padronizada
 
-O engine de banco de dados utiliza URLs simples e padronizadas para inicializar qualquer conector:
+Inicialize o engine ORM passando uma connection string em formato de URL padronizada:
 
 ```pascal
 uses DeltaModel.ORM.Connection;
@@ -37,8 +47,8 @@ begin
   // SQLite em memória
   Con := TDeltaORMEngine.Create('sqlite://:memory:');
 
-  // SQLite em arquivo
-  Con := TDeltaORMEngine.Create('sqlite:///caminho/meubanco.db');
+  // SQLite em arquivo local
+  Con := TDeltaORMEngine.Create('sqlite:///var/data/app.db');
 
   // PostgreSQL
   Con := TDeltaORMEngine.Create('postgres://usuario:senha@localhost:5432/meubanco?charset=UTF8');
@@ -47,26 +57,39 @@ begin
   Con := TDeltaORMEngine.Create('mysql://root:senha@127.0.0.1:3306/meubanco');
 
   // Firebird
-  Con := TDeltaORMEngine.Create('firebird://sysdba:masterkey@localhost:3050/caminho/banco.fdb');
+  Con := TDeltaORMEngine.Create('firebird://sysdba:masterkey@localhost:3050//var/db/empresa.fdb');
 
-  // SQL Server
+  // Microsoft SQL Server
   Con := TDeltaORMEngine.Create('mssql://sa:senha@127.0.0.1:1433/meubanco');
 
-  // Oracle
+  // Oracle Database
   Con := TDeltaORMEngine.Create('oracle://system:senha@localhost:1521/XE');
 ```
 
 ---
 
-## 🛠️ Exemplo de Modelo
+## 🛠️ Definição de Modelos
+
+Os modelos herdam de `TDeltaModel` e utilizam os tipos de campos especializados do DeltaModel:
 
 ```pascal
+unit Person.Model;
+
+{$mode ObjFPC}{$H+}
+
+interface
+
+uses
+  Classes, SysUtils, DeltaModel, DeltaModel.Fields, DeltaModel.ORM.Types;
+
 type
+  { TPerson }
   TPerson = class(TDeltaModel)
   private
     Fid: TDFIntNull;
     Fname: TDFStringRequired;
     Femail: TDFStringRequired;
+    Fcpf: TDFStringRequired;
     Fsalary: TDFCurrencyRequired;
     Factive: TDFBooleanRequired;
     Fcreated: TDFDateTimeNull;
@@ -74,28 +97,99 @@ type
     property id: TDFIntNull read Fid write Fid;
     property name: TDFStringRequired read Fname write Fname;
     property email: TDFStringRequired read Femail write Femail;
+    property cpf: TDFStringRequired read Fcpf write Fcpf;
     property salary: TDFCurrencyRequired read Fsalary write Fsalary;
     property active: TDFBooleanRequired read Factive write Factive;
     property created: TDFDateTimeNull read Fcreated write Fcreated;
   public
     procedure AfterConstruction; override;
+    procedure Validate; override;
+    procedure BeforeInsert; override;
   end;
+
+implementation
 
 procedure TPerson.AfterConstruction;
 begin
   inherited AfterConstruction;
+  // Configurações de banco de dados
+  Self.TableName := 'persons';
   Self.id.DBOptions := [dboPrimaryKey, dboAutoInc];
   Self.name.Size := 120;
+  Self.email.Size := 150;
+  Self.cpf.Size := 14;
+end;
+
+procedure TPerson.Validate;
+begin
+  inherited Validate; // Valida campos obrigatórios automaticamente
+  
+  // Regras de validação de negócio com mensagens em português
+  Validator
+    .RuleFor(cpf.Value, 'CPF')
+      .ValidCPF
+    .RuleFor(email.Value, 'E-mail')
+      .ValidEmail
+    .RuleFor(salary.Value, 'Salário')
+      .GreaterThan(0);
+end;
+
+procedure TPerson.BeforeInsert;
+begin
+  inherited BeforeInsert;
+  if created.IsNull then
+    created.Value := Now;
+end;
+
+end.
+```
+
+### Tipos de Campos Disponíveis
+
+| Tipo Nulo | Tipo Obrigatório | Tipo Pascal |
+| :--- | :--- | :--- |
+| `TDFIntNull` | `TDFIntRequired` | `Integer` |
+| `TDFInt64Null` | `TDFInt64Required` | `Int64` |
+| `TDFStringNull` | `TDFStringRequired` | `String` |
+| `TDFBooleanNull` | `TDFBooleanRequired` | `Boolean` |
+| `TDFFloatNull` | `TDFFloatRequired` | `Double` |
+| `TDFCurrencyNull` | `TDFCurrencyRequired` | `Currency` |
+| `TDFDateTimeNull` | `TDFDateTimeRequired` | `TDateTime` |
+| `TDFDateNull` | `TDFDateRequired` | `TDate` |
+
+---
+
+## 🗄️ DDL Automatizado (`TDeltaORMSchema`)
+
+O `TDeltaORMSchema` inspeciona a estrutura das classes e cria ou atualiza as tabelas no SGDB conectado:
+
+```pascal
+var
+  Schema: TDeltaORMSchema;
+begin
+  Schema := TDeltaORMSchema.Create(Con);
+  try
+    Schema.RegisterModel(TPerson.Create);
+    // Schema.RegisterModel(TOrder.Create);
+
+    // True para executar diretamente no banco conectado
+    Schema.PrepareDB(True);
+
+    // Você também pode inspecionar o SQL gerado:
+    // WriteLn(Schema.SQL.Text);
+  finally
+    Schema.Free;
+  end;
 end;
 ```
 
 ---
 
-## 🔄 Operações ORM (CRUD)
+## 🔄 Operações CRUD Inteligentes
 
-### 1. Inserção / Atualização Inteligente (`Save`)
-O método `Save` detecta automaticamente se a Chave Primária possui valor:
-- Se a PK estiver vazia ou zero, executa `INSERT`.
+### Inserção e Atualização com `Save`
+O método `Save` detecta se a Chave Primária possui valor:
+- Se a PK estiver vazia ou com valor padrão (0), executa `INSERT`.
 - Se a PK estiver preenchida, executa `UPDATE`.
 
 ```pascal
@@ -106,62 +200,146 @@ begin
   try
     Person.name.Value := 'Carlos Eduardo';
     Person.email.Value := 'carlos@empresa.com';
+    Person.cpf.Value := '123.456.789-00';
     Person.salary.Value := 7500.00;
     Person.active.Value := True;
 
-    // Faz INSERT automaticamente
+    // INSERT automático (preenche Person.id gerado pelo banco)
     Con.Save(Person);
 
-    // Altera e salva de novo (faz UPDATE automaticamente)
+    // Atualização
     Person.salary.Value := 8200.00;
-    Con.Save(Person);
+    Con.Save(Person); // Executa UPDATE automático
+
+    // Remoção
+    Con.Delete(Person);
   finally
     Person.Free;
   end;
 end;
 ```
 
-### 2. Consultas Fluentes com Paginação (`TQuery`)
+---
+
+## 🔍 Consultas Avançadas e Query Builder
+
+### 1. Critérios Tipados (`Where`, `AndWhere`, `OrWhere`)
+
+Além de strings SQL puras, você pode utilizar métodos com operadores tipados:
+
 ```pascal
 var
   List: TDeltaModelList;
-  Person: TPerson;
-  Total: Int64;
 begin
-  // Contagem
-  Total := Con.Count(TPerson, 'active = 1');
-
-  // Busca por ID
-  Person := Con.Find(TPerson, 42) as TPerson;
-
-  // Consulta paginada (Página 1 com 10 registros)
   List := Con.Query(TPerson)
-    .Where('salary >= 5000')
+    // Condição com igualdade simples: campo, valor
+    .Where('active', True)
+    // Comparação tipada: campo, operador, valor
+    .AndWhere('salary', opGreaterThanOrEqual, 5000)
+    // Outros helpers tipados:
+    .WhereBetween('salary', 5000, 15000)
+    .WhereIn('id', [1, 2, 3, 4, 5])
+    .WhereNotNull('email')
     .OrderBy('name ASC')
-    .Page(1, 10)
+    .Page(1, 10) // Página 1, 10 registros por página
     .All;
   try
-    // Itera resultados
+    // Processa lista de registros
   finally
     List.Free;
   end;
 end;
 ```
 
-### 3. Criação Automática de DDL (`TDeltaORMSchema`)
-Cria ou atualiza tabelas e constraints de acordo com o dialeto do banco conectado:
+### 2. Operadores Tipados Suportados (`TComparisonOp`)
+
+- `opEqual` (`=`)
+- `opNotEqual` (`<>`)
+- `opGreaterThan` (`>`)
+- `opGreaterThanOrEqual` (`>=`)
+- `opLessThan` (`<`)
+- `opLessThanOrEqual` (`<=`)
+- `opLike` (`LIKE`)
+- `opILike` (`ILIKE`)
+- `opIn` / `opNotIn`
+- `opIsNull` / `opIsNotNull`
+
+### 3. Joins Relacionais
 
 ```pascal
 var
-  Schema: TDeltaORMSchema;
+  Builder: TDMSQLBuilder;
+  Sql: string;
 begin
-  Schema := TDeltaORMSchema.Create(Con);
+  Builder := TDMSQLBuilder.Create(Order, ddPostgreSQL);
   try
-    Schema.RegisterModel(TPerson.Create);
-    Schema.PrepareDB(True); // Persiste a estrutura no banco
+    Sql := Builder
+      .TableAlias('o')
+      .InnerJoin('customers', 'c.id = o.customer_id', 'c')
+      .LeftJoin('payments', 'p.order_id = o.id', 'p')
+      .Where('o.status', 'COMPLETED')
+      .OrderBy('o.created_at DESC')
+      .Build;
   finally
-    Schema.Free;
+    Builder.Free;
   end;
+end;
+```
+
+---
+
+## ⚡ Serialização JSON & Listas
+
+```pascal
+var
+  Person: TPerson;
+  JsonStr: string;
+  List: TDeltaModelList;
+begin
+  Person := TPerson.Create;
+  try
+    Person.name.Value := 'Ana Beatriz';
+    Person.email.Value := 'ana@empresa.com';
+
+    // Objeto -> JSON
+    JsonStr := Person.ToJson;
+
+    // JSON -> Objeto
+    Person.FromJson('{"name": "Beatriz Lima", "email": "beatriz@empresa.com"}');
+  finally
+    Person.Free;
+  end;
+
+  // Coleções com TDeltaModelList
+  List := TDeltaModelList.Create;
+  try
+    List.SetDeltaModelClass(TPerson);
+    List.FromJson('[{"name": "Ana"}, {"name": "Carlos"}]');
+
+    // List -> JSON
+    JsonStr := List.ToJson;
+  finally
+    List.Free;
+  end;
+end;
+```
+
+---
+
+## 📋 Geração de Esquemas OpenAPI / Swagger
+
+Gere esquemas OpenAPI 3.0 diretamente de qualquer classe `TDeltaModel` ou coleção:
+
+```pascal
+var
+  SingleSchema: string;
+  ArraySchema: string;
+begin
+  // Esquema para um único objeto
+  SingleSchema := TPerson.SwaggerSchema();
+
+  // Esquema para array de objetos
+  ArraySchema := TPerson.SwaggerSchema(True);
 end;
 ```
 
@@ -169,12 +347,12 @@ end;
 
 ## 📁 Exemplos Incluídos
 
-- **`example/00-serialization`**: Serialização, desserialização e Swagger de modelos simples e aninhados.
-- **`example/01-database`**: Demonstração do ORM multi-SGDB com pré-visualização de DDL/DML para os 6 bancos e execução real de CRUD via SQLite `:memory:`.
-- **`example/02-validation`**: Validação de CPF, CNPJ, E-mail, URL e listas aninhadas.
+- **`example/00-serialization`**: Demonstração de serialização, cópia profunda (`Clone`, `CopyObject`), listas e geração de Swagger Schema.
+- **`example/01-database`**: Interface Lazarus com demonstração do ORM multi-SGDB, pré-visualização de SQL para os 6 dialetos e execução de CRUD em SQLite `:memory:`.
+- **`example/02-validation`**: Testes completos do motor de validação (`TValidator`) para documentos brasileiros, e-mails e regras customizadas.
 
 ---
 
 ## 📄 Licença
 
-Distribuído sob licença MIT. Consulte o repositório para detalhes.
+Distribuído sob a licença MIT. Veja `LICENSE` para mais detalhes.
