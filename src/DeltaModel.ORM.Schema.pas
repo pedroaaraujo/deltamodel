@@ -128,9 +128,11 @@ begin
     for I := 0 to Pred(FSQL.Count) do
     begin
       S := FSQL.Strings[I];
-      if S.IsEmpty then Continue;
-
-      FConnection.ExecuteDirect(S);
+      try
+        FConnection.ExecuteDirect(S);
+      except
+        // Ignora eventuais instrucoes DDL que nao puderem ser aplicadas ou ja existirem
+      end;
     end;
 
     if FConnection.TransactionActive then

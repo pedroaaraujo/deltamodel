@@ -407,6 +407,7 @@ var
   PropInfo: PPropInfo;
   PropCount, I: Integer;
   DeltaField: TDeltaField;
+  FieldDef: string;
 begin
   PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
   if PropCount = 0 then Exit;
@@ -423,7 +424,10 @@ begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
         begin
-          List.Add(COLUMN + FieldDDL(DeltaField, ADialect));
+          FieldDef := FieldDDL(DeltaField, ADialect);
+          if (ADialect = ddSQLite) and (Pos(' NOT NULL', FieldDef) > 0) then
+            FieldDef := StringReplace(FieldDef, ' NOT NULL', '', [rfReplaceAll]);
+          List.Add(COLUMN + FieldDef);
 
           if (DeltaField.ForeignKey.ReferencesTable <> nil) then
           begin
@@ -437,7 +441,12 @@ begin
       else
       begin
         if ActualFieldList.IndexOf(PropInfo^.Name) = -1 then
-          List.Add(COLUMN + PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect));
+        begin
+          FieldDef := PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect);
+          if (ADialect = ddSQLite) and (Pos(' NOT NULL', FieldDef) > 0) then
+            FieldDef := StringReplace(FieldDef, ' NOT NULL', '', [rfReplaceAll]);
+          List.Add(COLUMN + FieldDef);
+        end;
       end;
     end;
   finally

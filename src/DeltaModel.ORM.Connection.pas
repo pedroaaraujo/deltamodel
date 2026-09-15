@@ -19,6 +19,9 @@ type
     FTransaction: TSQLTransaction;
     FDialect: TDatabaseDialect;
     procedure SetupDialect(const AProtocol: string);
+  protected
+    function _AddRef: LongInt; {$IFNDEF WINDOWS}cdecl{$ELSE}stdcall{$ENDIF};
+    function _Release: LongInt; {$IFNDEF WINDOWS}cdecl{$ELSE}stdcall{$ENDIF};
   public
     function Connection: TSQLConnector;
     function Dialect: TDatabaseDialect;
@@ -58,6 +61,16 @@ type
 implementation
 
 { TDeltaORMEngine }
+
+function TDeltaORMEngine._AddRef: LongInt; {$IFNDEF WINDOWS}cdecl{$ELSE}stdcall{$ENDIF};
+begin
+  Result := -1;
+end;
+
+function TDeltaORMEngine._Release: LongInt; {$IFNDEF WINDOWS}cdecl{$ELSE}stdcall{$ENDIF};
+begin
+  Result := -1;
+end;
 
 procedure TDeltaORMEngine.SetupDialect(const AProtocol: string);
 var
