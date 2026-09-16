@@ -1,0 +1,171 @@
+object Form1: TForm1
+  Left = 1050
+  Height = 560
+  Top = 220
+  Width = 720
+  Caption = 'DeltaModel - Validações Avançadas'
+  ClientHeight = 560
+  ClientWidth = 720
+  Position = poScreenCenter
+  LCLVersion = '4.8.0.0'
+  OnCreate = FormCreate
+  object pgcBase: TPageControl
+    Left = 0
+    Height = 560
+    Top = 0
+    Width = 720
+    ActivePage = tbsCompany
+    Align = alClient
+    TabIndex = 1
+    TabOrder = 0
+    object tbsEmployee: TTabSheet
+      Caption = 'Funcionário'
+      ClientHeight = 527
+      ClientWidth = 710
+      object lblEmpName: TLabel
+        Left = 16
+        Height = 19
+        Top = 16
+        Width = 46
+        Caption = 'Nome:'
+      end
+      object edtEmployeeName: TEdit
+        Left = 16
+        Height = 36
+        Top = 40
+        Width = 350
+        TabOrder = 0
+        Text = 'João da Silva'
+      end
+      object lblEmpEmail: TLabel
+        Left = 16
+        Height = 19
+        Top = 88
+        Width = 49
+        Caption = 'E-mail:'
+      end
+      object edtEmployeeEmail: TEdit
+        Left = 16
+        Height = 36
+        Top = 112
+        Width = 350
+        TabOrder = 1
+        Text = 'joao@exemplo.com'
+      end
+      object lblEmpCPF: TLabel
+        Left = 16
+        Height = 19
+        Top = 160
+        Width = 121
+        Caption = 'CPF (com dígito):'
+      end
+      object edtEmployeeCPF: TEdit
+        Left = 16
+        Height = 36
+        Top = 184
+        Width = 350
+        TabOrder = 2
+        Text = '529.982.247-25'
+      end
+      object btnValidateEmployee: TButton
+        Left = 16
+        Height = 40
+        Top = 240
+        Width = 200
+        Caption = 'Validar Funcionário'
+        TabOrder = 3
+        OnClick = btnValidateEmployeeClick
+      end
+    end
+    object tbsCompany: TTabSheet
+      Caption = 'Empresa'
+      ClientHeight = 527
+      ClientWidth = 710
+      object lblCoName: TLabel
+        Left = 16
+        Height = 19
+        Top = 16
+        Width = 92
+        Caption = 'Razão Social:'
+      end
+      object edtCompanyName: TEdit
+        Left = 16
+        Height = 36
+        Top = 40
+        Width = 350
+        TabOrder = 0
+        Text = 'Acme Corp'
+      end
+      object lblCoCNPJ: TLabel
+        Left = 16
+        Height = 19
+        Top = 88
+        Width = 130
+        Caption = 'CNPJ (com dígito):'
+      end
+      object edtCompanyCNPJ: TEdit
+        Left = 16
+        Height = 36
+        Top = 112
+        Width = 350
+        TabOrder = 1
+        Text = '11.222.333/0001-81'
+      end
+      object lblCoWebsite: TLabel
+        Left = 16
+        Height = 19
+        Top = 160
+        Width = 138
+        Caption = 'Website (com URL):'
+      end
+      object edtCompanyWebsite: TEdit
+        Left = 16
+        Height = 36
+        Top = 184
+        Width = 350
+        TabOrder = 2
+        Text = 'https://www.acme.com'
+      end
+      object btnValidateCompany: TButton
+        Left = 16
+        Height = 40
+        Top = 240
+        Width = 200
+        Caption = 'Validar Empresa'
+        TabOrder = 3
+        OnClick = btnValidateCompanyClick
+      end
+    end
+    object tbsJson: TTabSheet
+      Caption = 'Lista Aninhada & JSON'
+      ClientHeight = 527
+      ClientWidth = 710
+      object btnSerializeList: TButton
+        Left = 16
+        Height = 36
+        Top = 16
+        Width = 220
+        Caption = 'Serializar Empresa com Lista'
+        TabOrder = 0
+        OnClick = btnSerializeListClick
+      end
+      object btnDeserializeList: TButton
+        Left = 250
+        Height = 36
+        Top = 16
+        Width = 180
+        Caption = 'Desserializar do Memo'
+        TabOrder = 1
+        OnClick = btnDeserializeListClick
+      end
+      object mmoJson: TMemo
+        Left = 16
+        Height = 440
+        Top = 64
+        Width = 678
+        ScrollBars = ssAutoBoth
+        TabOrder = 2
+      end
+    end
+  end
+end

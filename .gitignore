@@ -1,0 +1,17 @@
+# Lazarus / Free Pascal
+lib/
+backup/
+*.ppu
+*.o
+*.a
+*.or
+*.dbg
+*.rsj
+*.compiled
+*.res
+*.lps
+*~
+*.bak
+
+# Binaries
+project1

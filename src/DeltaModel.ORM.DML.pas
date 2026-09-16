@@ -718,6 +718,12 @@ class function TInsert.InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel
   ): Boolean;
 var
   DS: TSQLQuery;
+  PropList: PPropList;
+  PropInfo: PPropInfo;
+  PropCount, I: Integer;
+  Obj: DeltaModel.Fields.TDeltaField;
+  NestedObj: TObject;
+  LastId: Variant;
 begin
   AModel.BeforeInsert;
   AModel.Validate;
@@ -738,7 +744,61 @@ begin
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
     if Result then
+    begin
+      PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
+      if PropCount > 0 then
+      begin
+        GetMem(PropList, PropCount * SizeOf(Pointer));
+        try
+          GetPropList(AModel.ClassInfo, tkProperties, PropList, False);
+          for I := 0 to PropCount - 1 do
+          begin
+            PropInfo := PropList^[I];
+            if PropInfo^.PropType^.Kind = tkClass then
+            begin
+              NestedObj := GetObjectProp(AModel, PropInfo^.Name);
+              if NestedObj is DeltaModel.Fields.TDeltaField then
+              begin
+                Obj := NestedObj as DeltaModel.Fields.TDeltaField;
+                if (dboAutoInc in Obj.DBOptions) and (Obj.IsNull or (VarIsNumeric(Obj.Value) and (Double(Obj.Value) = 0))) then
+                begin
+                  case AConn.Dialect of
+                    ddSQLite:
+                    begin
+                      LastId := AConn.ExecuteScalar('SELECT last_insert_rowid()');
+                      if not VarIsNull(LastId) then
+                        Obj.Value := LastId;
+                    end;
+                    ddPostgreSQL:
+                    begin
+                      LastId := AConn.ExecuteScalar('SELECT lastval()');
+                      if not VarIsNull(LastId) then
+                        Obj.Value := LastId;
+                    end;
+                    ddMySQL:
+                    begin
+                      LastId := AConn.ExecuteScalar('SELECT LAST_INSERT_ID()');
+                      if not VarIsNull(LastId) then
+                        Obj.Value := LastId;
+                    end;
+                    ddMSSQL:
+                    begin
+                      LastId := AConn.ExecuteScalar('SELECT SCOPE_IDENTITY()');
+                      if not VarIsNull(LastId) then
+                        Obj.Value := LastId;
+                    end;
+                  end;
+                  Break;
+                end;
+              end;
+            end;
+          end;
+        finally
+          FreeMem(PropList, PropCount * SizeOf(Pointer));
+        end;
+      end;
       AModel.AfterInsert;
+    end;
   finally
     DS.Free;
   end;
