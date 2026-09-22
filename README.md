@@ -68,6 +68,62 @@ begin
 
 ---
 
+## ⚡ Pool de Conexões (High Performance & Multithread)
+
+Para APIs web (ex: Horse, Brook) e daemons com múltiplas threads concorrentes, o DeltaModel disponibiliza um pool de conexões thread-safe de alta performance na unit [`DeltaModel.ORM.Pool`](file:///home/araujo/Desenvolvimento/Source/deltamodel/src/DeltaModel.ORM.Pool.pas).
+
+### Principais Vantagens:
+- **Zero Handshake Latency**: Conexões pré-aquecidas (`MinConnections`) prontas para uso.
+- **Thread-Safety Total**: Suporte a dezenas de threads simultâneas com sincronização eficiente via `TCriticalSection` e `TEvent`.
+- **Liberação Automática (RAII)**: Ao usar `IDeltaPooledEngine`, a conexão é devolvida automaticamente ao pool ao sair do escopo ou em caso de exceção.
+- **Auto-Rollback**: Transações esquecidas abertas sofrem rollback automático ao retornar ao pool.
+- **Health Check & Auto-Reconnect**: Conexões derrubadas pelo SGBD são reconectadas automaticamente antes do empréstimo (`TestOnBorrow`).
+
+### Exemplo de Uso com RAII:
+
+```pascal
+uses DeltaModel.ORM.Pool;
+
+var
+  Pool: TDeltaConnectionPool;
+  Lease: IDeltaPooledEngine;
+begin
+  // Configuração direta ou via parâmetros na própria URL
+  Pool := TDeltaConnectionPool.Create('postgres://user:pass@localhost:5432/meubanco?pool_min=5&pool_max=20&pool_timeout=5000');
+  try
+    // Obtém uma conexão protegida por interface (RAII)
+    Lease := Pool.Acquire;
+
+    // Métodos ORM diretamente acessíveis pelo Lease
+    Lease.Save(Person);
+    Lease.Find(TPerson, 1);
+    
+    // Ao final do bloco (ou ao sair de escopo), Lease devolve a conexão ao pool automaticamente!
+  finally
+    Pool.Free;
+  end;
+end;
+```
+
+### Exemplo com Callbacks e Transações:
+
+```pascal
+// Execução simples garantindo liberação
+Pool.Execute(procedure(Engine: TDeltaORMEngine)
+begin
+  Engine.Save(Person);
+end);
+
+// Execução transacional atômica com auto-commit / auto-rollback
+Pool.InTransaction(procedure(Engine: TDeltaORMEngine)
+begin
+  Engine.Insert(Pedido);
+  Engine.Insert(ItensPedido);
+end);
+```
+
+---
+
 ## 🛠️ Definição de Modelos
 
 Os modelos herdam de `TDeltaModel` e utilizam os tipos de campos especializados do DeltaModel:
@@ -219,6 +275,66 @@ begin
 end;
 ```
 
+### Inserção em Massa de Alta Performance com `BulkInsert`
+
+Para inserção de dezenas, centenas ou milhares de registros em lote com máxima performance e segurança transacional:
+- **Execução Atômica e Transacional**: Garante consistência total (se qualquer registro falhar na validação ou no banco, rollback automático é executado).
+- **Chunking / Particionamento em Lotes**: Divide automaticamente grandes volumes em lotes configuráveis (`ABatchSize`, padrão 500), respeitando os limites de parâmetros de cada SGBD.
+- **Suporte Multi-RDBMS**:
+  - **PostgreSQL / SQLite / MySQL / MSSQL**: Gera instrução `INSERT INTO table (cols) VALUES (...), (...)` multi-row otimizada.
+  - **Firebird**: Utiliza blocos anônimos `EXECUTE BLOCK AS BEGIN INSERT INTO ...; END`.
+  - **Oracle**: Utiliza `INSERT ALL INTO ... SELECT 1 FROM DUAL`.
+- **Tratamento Inteligente de Chave Primária AutoInc**: Ignora campos `dboAutoInc` vazios para permitir geração automática pelo banco.
+- **Ciclo de Vida Completo**: Executa `BeforeInsert`, `Validate` e `AfterInsert` para cada registro.
+
+```pascal
+// Exemplo 1: BulkInsert com array aberto
+var
+  Persons: array of TDeltaModel;
+  I: Integer;
+begin
+  SetLength(Persons, 1000);
+  for I := 0 to 999 do
+  begin
+    Persons[I] := TPerson.Create;
+    TPerson(Persons[I]).name.Value := 'Pessoa ' + IntToStr(I);
+    TPerson(Persons[I]).salary.Value := 3000 + I;
+  end;
+  try
+    // Insere os 1000 registros particionados em lotes de 500 (ou customizado)
+    Con.BulkInsert(Persons);
+  finally
+    for I := 0 to 999 do Persons[I].Free;
+  end;
+end;
+
+// Exemplo 2: BulkInsert com TDeltaModelList
+var
+  List: TDeltaModelList;
+  P: TPerson;
+  I: Integer;
+begin
+  List := TDeltaModelList.Create;
+  try
+    List.SetDeltaModelClass(TPerson);
+    for I := 1 to 500 do
+    begin
+      P := TPerson.Create;
+      P.name.Value := 'Cliente ' + IntToStr(I);
+      List.Add(P);
+    end;
+
+    // Inserção direta via Engine, Lease ou Pool
+    Con.BulkInsert(List);
+
+    // Também diretamente no Pool:
+    // Pool.BulkInsert(List);
+  finally
+    List.Free;
+  end;
+end;
+```
+
 ---
 
 ## 🔍 Consultas Avançadas e Query Builder
@@ -350,6 +466,8 @@ end;
 - **`example/00-serialization`**: Demonstração de serialização, cópia profunda (`Clone`, `CopyObject`), listas e geração de Swagger Schema.
 - **`example/01-database`**: Interface Lazarus com demonstração do ORM multi-SGDB, pré-visualização de SQL para os 6 dialetos e execução de CRUD em SQLite `:memory:`.
 - **`example/02-validation`**: Testes completos do motor de validação (`TValidator`) para documentos brasileiros, e-mails e regras customizadas.
+- **`example/03-connection-pool`**: Demonstração do pool de conexões thread-safe com RAII, callbacks e transações atômicas.
+- **`example/04-bulk-insert`**: Benchmark comparativo de inserção em massa (`BulkInsert` com array e `TDeltaModelList`) vs inserção individual (`Save`), com preview de SQL para os 6 dialetos.
 
 ---
 

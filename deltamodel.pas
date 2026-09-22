@@ -12,7 +12,7 @@ uses
   DeltaAPISchema, DeltaModelMessages, DeltaModel.DataSetConverter, 
   DatabaseURLParser, DeltaModel.SQLBuilder, DeltaModel.ORM.Types, 
   DeltaModel.ORM.Interfaces, DeltaModel.ORM.Connection, DeltaModel.ORM.DDL, 
-  DeltaModel.ORM.DML, DeltaModel.ORM.Schema, LazarusPackageIntf;
+  DeltaModel.ORM.DML, DeltaModel.ORM.Schema, DeltaModel.ORM.Pool, LazarusPackageIntf;
 
 implementation
 

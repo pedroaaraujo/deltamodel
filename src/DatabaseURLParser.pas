@@ -120,9 +120,11 @@ begin
 
     if IsTripleSlash then
     begin
-      if (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') then
+      // Ex: sqlite:///C:/db.sqlite -> C:/db.sqlite (Windows)
+      if (Length(URI) >= 3) and (URI[1] = '/') and (URI[3] = ':') then
         Result.Database := Copy(URI, 2, MaxInt)
-      else if (Length(URI) > 0) and (URI[1] = '/') then
+      // Ex: sqlite:////path/db.sqlite -> /path/db.sqlite
+      else if (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') then
         Result.Database := Copy(URI, 2, MaxInt)
       else
         Result.Database := URI;

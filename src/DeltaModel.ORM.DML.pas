@@ -96,6 +96,8 @@ type
   public
     class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static; overload;
     class function InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
+    class function BulkInsertObjects(AConn: IDeltaORMEngine; AModels: array of TDeltaModel; ABatchSize: Integer = 500): Integer; static; overload;
+    class function BulkInsertObjects(AConn: IDeltaORMEngine; AList: TDeltaModelList; ABatchSize: Integer = 500): Integer; static; overload;
   end;
 
   { TSave - Decide entre Insert e Update baseado na Chave Primária }
@@ -837,6 +839,85 @@ begin
   finally
     DS.Free;
   end;
+end;
+
+class function TInsert.BulkInsertObjects(AConn: IDeltaORMEngine;
+  AModels: array of TDeltaModel; ABatchSize: Integer = 500): Integer;
+var
+  DS: TSQLQuery;
+  I, TotalCount, RowsAff: Integer;
+  OwnsTransaction: Boolean;
+begin
+  Result := 0;
+  TotalCount := Length(AModels);
+  if TotalCount = 0 then Exit;
+
+  for I := 0 to TotalCount - 1 do
+  begin
+    AModels[I].BeforeInsert;
+    AModels[I].Validate;
+    with AModels[I].Validator.Validate do
+    begin
+      if not OK then
+        raise EDeltaValidation.Create(Message);
+    end;
+  end;
+
+  OwnsTransaction := not AConn.TransactionActive;
+  if OwnsTransaction then
+    AConn.StartTransaction;
+
+  try
+    DS := AConn.NewDataset;
+    try
+      DS.SQL.Text := TDMSQLBuilder.CreateInsert(AModels[0], AConn.Dialect);
+
+      DS.Prepare;
+
+      for I := 0 to TotalCount - 1 do
+      begin
+        ToDatasetParams(AModels[I], DS);
+        DS.ExecSQL;
+
+        RowsAff := DS.RowsAffected;
+        if RowsAff <= 0 then
+          RowsAff := 1;
+
+        Result := Result + RowsAff;
+        AModels[I].AfterInsert;
+      end;
+    finally
+      DS.Free;
+    end;
+
+    if OwnsTransaction then
+      AConn.Commit;
+  except
+    if OwnsTransaction then
+    begin
+      try
+        AConn.Rollback;
+      except
+      end;
+    end;
+    raise;
+  end;
+end;
+
+class function TInsert.BulkInsertObjects(AConn: IDeltaORMEngine;
+  AList: TDeltaModelList; ABatchSize: Integer): Integer;
+var
+  Arr: array of TDeltaModel;
+  I: Integer;
+begin
+  if (AList = nil) or (AList.Records = nil) or (AList.Records.Count = 0) then
+    Exit(0);
+
+  SetLength(Arr, AList.Records.Count);
+  for I := 0 to AList.Records.Count - 1 do
+    Arr[I] := AList.Records[I];
+
+  Result := BulkInsertObjects(AConn, Arr, ABatchSize);
 end;
 
 { TSave }

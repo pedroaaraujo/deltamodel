@@ -51,6 +51,8 @@ type
     function Save(AModel: TDeltaModel): Boolean;
     function Delete(AModel: TDeltaModel): Boolean;
     function DeleteById(AModelClass: TDeltaModelClass; const AId: Variant): Boolean;
+    function BulkInsert(AModels: array of TDeltaModel; ABatchSize: Integer = 500): Integer; overload;
+    function BulkInsert(AList: TDeltaModelList; ABatchSize: Integer = 500): Integer; overload;
 
     function Find(AModelClass: TDeltaModelClass; const AId: Variant): TDeltaModel;
     function Count(AModelClass: TDeltaModelClass; const AWhere: string = ''): Int64;
@@ -320,6 +322,16 @@ function TDeltaORMEngine.DeleteById(AModelClass: TDeltaModelClass;
   const AId: Variant): Boolean;
 begin
   Result := TDelete.ExecById(Self, AModelClass, AId);
+end;
+
+function TDeltaORMEngine.BulkInsert(AModels: array of TDeltaModel; ABatchSize: Integer): Integer;
+begin
+  Result := TInsert.BulkInsertObjects(Self, AModels, ABatchSize);
+end;
+
+function TDeltaORMEngine.BulkInsert(AList: TDeltaModelList; ABatchSize: Integer): Integer;
+begin
+  Result := TInsert.BulkInsertObjects(Self, AList, ABatchSize);
 end;
 
 function TDeltaORMEngine.Find(AModelClass: TDeltaModelClass;

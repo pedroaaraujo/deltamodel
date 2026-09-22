@@ -92,6 +92,9 @@ type
     class function CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateSelect(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateCount(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
+    class function CreateBulkInsert(AModels: array of TDeltaModel; ADialect: TDatabaseDialect): string; static;
+    class function ExtractFieldNames(AModel: TDeltaModel; ADialect: TDatabaseDialect): TStringList; static;
+    class function ExtractFieldValues(AModel: TDeltaModel; ADialect: TDatabaseDialect; ASuffix: string = ''): TStringList; static;
   end;
 
 implementation
@@ -803,6 +806,139 @@ begin
     Result := Builder.Count.Where(WhereClause).Build;
   finally
     Builder.Free;
+  end;
+end;
+
+class function TDMSQLBuilder.ExtractFieldNames(AModel: TDeltaModel; ADialect: TDatabaseDialect): TStringList;
+var
+  PropList: PPropList;
+  PropInfo: PPropInfo;
+  PropCount, I: Integer;
+  Obj: TDeltaField;
+  NestedObj: TObject;
+begin
+  Result := TStringList.Create;
+  PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
+  if PropCount = 0 then Exit;
+
+  GetMem(PropList, PropCount * SizeOf(Pointer));
+  try
+    GetPropList(AModel.ClassInfo, tkProperties, PropList, False);
+    for I := 0 to PropCount - 1 do
+    begin
+      PropInfo := PropList^[I];
+      if PropInfo^.PropType^.Kind = tkClass then
+      begin
+        NestedObj := GetObjectProp(AModel, PropInfo^.Name);
+        if NestedObj is TDeltaField then
+        begin
+          Obj := NestedObj as TDeltaField;
+          if not (dboUpdate in Obj.DBOptions) then
+            Continue;
+          if (dboAutoInc in Obj.DBOptions) and (Obj.IsNull or (VarIsNumeric(Obj.Value) and (Double(Obj.Value) = 0))) then
+            Continue;
+          Result.Add(Obj.FieldName);
+        end;
+      end
+      else
+      begin
+        if (PropInfo^.SetProc = nil) then
+          Continue;
+        Result.Add(PropInfo^.Name);
+      end;
+    end;
+  finally
+    FreeMem(PropList, PropCount * SizeOf(Pointer));
+  end;
+end;
+
+class function TDMSQLBuilder.ExtractFieldValues(AModel: TDeltaModel; ADialect: TDatabaseDialect; ASuffix: string): TStringList;
+var
+  FieldNames: TStringList;
+  I: Integer;
+begin
+  FieldNames := ExtractFieldNames(AModel, ADialect);
+  try
+    Result := TStringList.Create;
+    for I := 0 to FieldNames.Count - 1 do
+      Result.Add(':' + FieldNames[I] + ASuffix);
+  finally
+    FieldNames.Free;
+  end;
+end;
+
+class function TDMSQLBuilder.CreateBulkInsert(AModels: array of TDeltaModel; ADialect: TDatabaseDialect): string;
+var
+  FieldNames: TStringList;
+  TableName, FieldsSQL: string;
+  I, J: Integer;
+  ValuesBuilder: TStringBuilder;
+begin
+  if Length(AModels) = 0 then
+    raise Exception.Create('BulkInsert requires at least one model.');
+
+  TableName := AModels[0].TableName;
+  FieldNames := ExtractFieldNames(AModels[0], ADialect);
+  if FieldNames.Count = 0 then
+  begin
+    FieldNames.Free;
+    raise Exception.Create('BulkInsert requires at least one insertable field.');
+  end;
+
+  ValuesBuilder := TStringBuilder.Create;
+  try
+    // Monta a lista de campos separada por vírgula uma única vez
+    FieldsSQL := FieldNames[0];
+    for J := 1 to FieldNames.Count - 1 do
+      FieldsSQL := FieldsSQL + ', ' + FieldNames[J];
+
+    // Constrói os parâmetros dinâmicos usando memória contígua
+    for I := 0 to High(AModels) do
+    begin
+      if I > 0 then
+      begin
+        if ADialect in [ddFirebird, ddOracle] then
+          ValuesBuilder.AppendLine // Firebird/Oracle usam uma instrução por linha
+        else
+          ValuesBuilder.Append(', ');  // Outros bancos separam os grupos por vírgula
+      end;
+
+      // Prefixos de acordo com o dialeto
+      if ADialect = ddOracle then
+        ValuesBuilder.Append('  INTO ').Append(TableName).Append(' (').Append(FieldsSQL).Append(') VALUES (')
+      else if ADialect = ddFirebird then
+        ValuesBuilder.Append('  INSERT INTO ').Append(TableName).Append(' (').Append(FieldsSQL).Append(') VALUES (')
+      else
+        ValuesBuilder.Append('(');
+
+      // Sufixos de parâmetros dinâmicos (ex: :nome_0, :nome_1)
+      for J := 0 to FieldNames.Count - 1 do
+      begin
+        if J > 0 then ValuesBuilder.Append(', ');
+        ValuesBuilder.Append(':').Append(FieldNames[J]).Append('_').Append(I);
+      end;
+
+      // Fechamentos de acordo com o dialeto
+      if ADialect = ddFirebird then
+        ValuesBuilder.Append(');')
+      else
+        ValuesBuilder.Append(')');
+    end;
+
+    // Montagem final do SQL
+    case ADialect of
+      ddFirebird:
+        Result := 'EXECUTE BLOCK AS' + sLineBreak + 'BEGIN' + sLineBreak +
+                  ValuesBuilder.ToString + sLineBreak + 'END';
+      ddOracle:
+        Result := 'INSERT ALL' + sLineBreak +
+                  ValuesBuilder.ToString + sLineBreak + 'SELECT 1 FROM DUAL';
+      else
+        Result := 'INSERT INTO ' + TableName + ' (' + FieldsSQL + ') VALUES ' + ValuesBuilder.ToString;
+    end;
+  finally
+    ValuesBuilder.Free;
+    FieldNames.Free;
   end;
 end;
 

@@ -1,9 +1,11 @@
 unit DeltaSerialization;
 
+{$mode ObjFPC}{$H+}
+
 interface
 
 uses
-  classes, sysutils, fpjson, jsonparser, TypInfo, Variants, fgl,
+  Classes, SysUtils, fpjson, jsonparser, TypInfo, Variants, fgl,
   DeltaModel.Fields, DeltaModel.List;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
@@ -19,7 +21,7 @@ procedure Deserialize(Obj: TObject; JsonString: string);
 var
   JsonData: TJSONObject;
 begin
-  if JsonString.Trim.IsEmpty then 
+  if JsonString.Trim.IsEmpty then
     Exit;
 
   JsonData := TJSONObject(GetJSON(JsonString, False));
@@ -35,51 +37,64 @@ var
   PropList: PPropList;
   PropInfo: PPropInfo;
   PropType: PTypeInfo;
-  I, PropCount: integer;
+  I, PropCount: Integer;
   PropValue: TJSONData;
   PropObj: TObject;
-  Value: string;
+  PropName, ValueStr: string;
 begin
   PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
   GetMem(PropList, PropCount * SizeOf(Pointer));
   try
-    GetPropList(Obj.ClassInfo, tkProperties, PropList);
+    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
     for I := 0 to PropCount - 1 do
     begin
       PropInfo := PropList^[I];
+
+      if PropInfo^.SetProc = nil then Continue;
+
+      PropName := PropInfo^.Name;
+
+      if not JsonData.Find(PropName, PropValue) then
+      begin
+        if not JsonData.Find(LowerCase(PropName), PropValue) then
+          Continue;
+      end;
+
       PropType := PropInfo^.PropType;
       case PropType^.Kind of
         tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
         begin
-          if JsonData.Find(PropInfo^.Name, PropValue) or
-             JsonData.Find(LowerCase(PropInfo^.Name), PropValue) then
-          begin
-            {$IFDEF MSWINDOWS}
-            Value := Utf8ToAnsi(UTF8Encode(PropValue.AsString));
-            {$ELSE}
-            Value := PropValue.AsString;
-            {$ENDIF}
-            SetPropValue(Obj, PropInfo^.Name, Value);
-          end;
+          {$IFDEF MSWINDOWS}
+          ValueStr := Utf8ToAnsi(UTF8Encode(PropValue.AsString));
+          {$ELSE}
+          ValueStr := PropValue.AsString;
+          {$ENDIF}
+          SetStrProp(Obj, PropInfo, ValueStr);
         end;
 
-        tkInteger, tkInt64, tkEnumeration, tkFloat, tkVariant, tkBool:
+        tkInteger, tkInt64:
+          SetOrdProp(Obj, PropInfo, PropValue.AsInt64);
+
+        tkBool:
+          SetOrdProp(Obj, PropInfo, Ord(PropValue.AsBoolean));
+
+        tkEnumeration:
         begin
-          if JsonData.Find(PropInfo^.Name, PropValue) or
-             JsonData.Find(LowerCase(PropInfo^.Name), PropValue) then
-          begin
-            Value := PropValue.Value;
-            SetPropValue(Obj, PropInfo^.Name, Value);
-          end;
+          if PropValue.JSONType = jtString then
+            SetOrdProp(Obj, PropInfo, GetEnumValue(PropType, PropValue.AsString))
+          else
+            SetOrdProp(Obj, PropInfo, PropValue.AsInteger);
         end;
+
+        tkFloat:
+          SetFloatProp(Obj, PropInfo, PropValue.AsFloat);
+
+        tkVariant:
+          SetVariantProp(Obj, PropInfo, PropValue.Value);
+
         tkClass:
         begin
-          if not (JsonData.Find(PropInfo^.Name, PropValue) or JsonData.Find(LowerCase(PropInfo^.Name), PropValue)) then
-          begin
-            Continue;
-          end;
-
-          PropObj := GetObjectProp(Obj, PropInfo^.Name);
+          PropObj := GetObjectProp(Obj, PropInfo);
 
           if (PropObj is TDeltaField) then
           begin
@@ -87,46 +102,32 @@ begin
               if not (PropObj as TDeltaField).Visible then
                 Continue;
 
-              if (PropObj is TDFDateRequired) or
-                 (PropObj is TDFDateNull) or
-                 (PropObj is TDFTimeRequired) or
-                 (PropObj is TDFTimeNull) or
-                 (PropObj is TDFDateTimeRequired) or
-                 (PropObj is TDFDateTimeNull) then
+              if (PropObj is TDFDateRequired) or (PropObj is TDFDateNull) or
+                 (PropObj is TDFTimeRequired) or (PropObj is TDFTimeNull) or
+                 (PropObj is TDFDateTimeRequired) or (PropObj is TDFDateTimeNull) then
               begin
                 if (PropValue.JSONType = jtNull) then
-                begin
-                  (PropObj as TDeltaField).Clear;
-                end
+                  (PropObj as TDeltaField).Clear
                 else
-                begin
                   DateTimeToField((PropObj as TDeltaField), PropValue.AsString);
-                end;
               end
               else
               begin
                 case PropValue.JSONType of
-                  jtNumber:
-                    (PropObj as TDeltaField).Value := PropValue.AsFloat;
-                  jtString:
-                    (PropObj as TDeltaField).Value := PropValue.AsString;
-                  jtBoolean:
-                    (PropObj as TDeltaField).Value := PropValue.AsBoolean;
-                  jtNull:
-                    (PropObj as TDeltaField).Value := Null;
+                  jtNumber:  (PropObj as TDeltaField).Value := PropValue.AsFloat;
+                  jtString:  (PropObj as TDeltaField).Value := PropValue.AsString;
+                  jtBoolean: (PropObj as TDeltaField).Value := PropValue.AsBoolean;
+                  jtNull:    (PropObj as TDeltaField).Value := Null;
                 else
                   raise Exception.Create('Incompatible type');
                 end;
               end;
             except
               on E: Exception do
-              begin
-                raise Exception.CreateFmt('Invalid value for "%s.%s". %s', [Obj.ClassName, PropInfo^.Name, E.Message]);
-              end;
+                raise Exception.CreateFmt('Invalid value for "%s.%s". %s', [Obj.ClassName, PropName, E.Message]);
             end;
           end
-          else
-          if Assigned(PropObj) then
+          else if Assigned(PropObj) then
           begin
             if PropValue is TJSONObject then
               DeserializeObj(PropObj, TJSONObject(PropValue));
@@ -134,7 +135,8 @@ begin
           else
           begin
             PropObj := GetTypeData(PropInfo^.PropType)^.ClassType.Create;
-            SetObjectProp(Obj, PropInfo^.Name, PropObj);
+            SetObjectProp(Obj, PropInfo, PropObj);
+
             if PropValue is TJSONObject then
               DeserializeObj(PropObj, TJSONObject(PropValue));
           end;
@@ -150,7 +152,7 @@ function Serialize(Obj: TObject): RawByteString;
 var
   JsonData: TJSONObject;
 begin
-  if Obj = nil then 
+  if Obj = nil then
     Exit('{}');
 
   JsonData := SerializeToJsonObj(Obj);
@@ -168,13 +170,13 @@ var
   PropList: PPropList;
   PropInfo: PPropInfo;
   PropType: TTypeInfo;
-  PropValue: Variant;
   I, PropCount, Item: Integer;
   NestedObj: TObject;
   ObjectItem: TObject;
   PropName: string;
+  VariantVal: Variant;
 begin
-  if (not Assigned(@Obj)) or (Obj = nil) then 
+  if (not Assigned(Obj)) or (Obj = nil) then
     Exit(nil);
 
   JsonData := TJSONObject.Create;
@@ -185,109 +187,100 @@ begin
     for I := 0 to PropCount - 1 do
     begin
       PropInfo := PropList^[I];
+
+      if PropInfo^.GetProc = nil then Continue;
+
       PropType := PropInfo^.PropType^;
       PropName := PropInfo^.Name;
-      try
-        PropValue := GetPropValue(Obj, PropName);
-      except
-        Continue;
-      end;
 
       case PropType.Kind of
-        tkInteger:
-          JsonData.Add(PropName, Integer(PropValue));
-        tkString, tkLString, tkAString:
-          JsonData.Add(PropName, string(PropValue));
+        tkInteger, tkInt64:
+          JsonData.Add(PropName, GetOrdProp(Obj, PropInfo));
+
+        tkString, tkLString, tkAString, tkWString, tkUString, tkChar, tkWChar:
+          JsonData.Add(PropName, GetStrProp(Obj, PropInfo));
+
         tkBool:
-          JsonData.Add(PropName, Boolean(PropValue));
-        tkInt64:
-          JsonData.Add(PropName, Int64(PropValue));
+          JsonData.Add(PropName, Boolean(GetOrdProp(Obj, PropInfo)));
+
         tkEnumeration:
-          JsonData.Add(PropName, VarToStr(PropValue));
+          JsonData.Add(PropName, GetEnumName(PropInfo^.PropType, GetOrdProp(Obj, PropInfo)));
+
         tkFloat:
-          JsonData.Add(PropName, Double(PropValue));
-        tkChar:
-          JsonData.Add(PropName, Char(PropValue));
-        tkWChar:
-          JsonData.Add(PropName, WideChar(PropValue));
-        tkWString:
-          JsonData.Add(PropName, WideString(PropValue));
+          JsonData.Add(PropName, GetFloatProp(Obj, PropInfo));
+
         tkVariant:
-          JsonData.Add(PropName, VarToStr(PropValue));
+          JsonData.Add(PropName, VarToStr(GetVariantProp(Obj, PropInfo)));
+
         tkClass:
+        begin
+          NestedObj := GetObjectProp(Obj, PropInfo);
+
+          if Assigned(NestedObj) then
           begin
-            NestedObj := GetObjectProp(Obj, PropInfo^.Name);
-            if Assigned(NestedObj) then
+            if NestedObj is TDeltaField then
             begin
-              if NestedObj is TDeltaField then
-              begin
-                try
-                  if (NestedObj as TDeltaField).IsNull then
-                  begin
-                    JsonData.Add(PropName, TJSONNull.Create);
-                  end
-                  else
-                  if (NestedObj is TDFDateRequired) or
-                     (NestedObj is TDFDateNull) or
-                     (NestedObj is TDFTimeRequired) or
-                     (NestedObj is TDFTimeNull) or
-                     (NestedObj is TDFDateTimeRequired) or
-                     (NestedObj is TDFDateTimeNull) then
-                  begin
-                    JsonData.Add(PropName, (NestedObj as TDeltaField).AsString);
-                  end
-                  else
-                  begin
-                    if not (NestedObj as TDeltaField).Visible then
-                      Continue;
-
-                    PropValue := (NestedObj as TDeltaField).Value;
-                    case VarType(PropValue) of
-                      varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
-                        JsonData.Add(PropName, Integer(PropValue));
-                      varSingle, varDouble, varCurrency:
-                        JsonData.Add(PropName, Double(PropValue));
-                      varUString, varString, varOleStr:
-                        JsonData.Add(PropName, string(PropValue));
-                      varBoolean:
-                        JsonData.Add(PropName, Boolean(PropValue));
-                      varNull, varEmpty:
-                        JsonData.Add(PropName, TJSONNull.Create);
-                    else
-                      raise Exception.CreateFmt('Unsupported type for property "%s".', [PropName]);
-                    end;
-                  end;
-                except
-                  JsonData.Add(PropName, TJSONNull.Create);
-                end;
-              end
-              else
-              if NestedObj is TCustomDeltaModelList then
-              begin
-                JsonData.Add(PropInfo^.Name, (NestedObj as TCustomDeltaModelList).ToJsonObj);
-              end
-              else
-              if NestedObj is TFPSList then
-              begin
-                JsonArr := TJSONArray.Create();
-                JsonData.Add(PropInfo^.Name, JsonArr);
-
-                for Item := 0 to Pred((NestedObj as TFPSList).Count) do
+              try
+                if (NestedObj as TDeltaField).IsNull then
                 begin
-                  ObjectItem := TObject(TFPSList(NestedObj).Items[Item]^);
-                  JsonArr.Add(SerializeToJsonObj(ObjectItem));
+                  JsonData.Add(PropName, TJSONNull.Create);
+                end
+                else if (NestedObj is TDFDateRequired) or (NestedObj is TDFDateNull) or
+                        (NestedObj is TDFTimeRequired) or (NestedObj is TDFTimeNull) or
+                        (NestedObj is TDFDateTimeRequired) or (NestedObj is TDFDateTimeNull) then
+                begin
+                  JsonData.Add(PropName, (NestedObj as TDeltaField).AsString);
+                end
+                else
+                begin
+                  if not (NestedObj as TDeltaField).Visible then
+                    Continue;
+
+                  VariantVal := (NestedObj as TDeltaField).Value;
+                  case VarType(VariantVal) of
+                    varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
+                      JsonData.Add(PropName, Integer(VariantVal));
+                    varSingle, varDouble, varCurrency:
+                      JsonData.Add(PropName, Double(VariantVal));
+                    varUString, varString, varOleStr:
+                      JsonData.Add(PropName, string(VariantVal));
+                    varBoolean:
+                      JsonData.Add(PropName, Boolean(VariantVal));
+                    varNull, varEmpty:
+                      JsonData.Add(PropName, TJSONNull.Create);
+                  else
+                    raise Exception.CreateFmt('Unsupported type for property "%s".', [PropName]);
+                  end;
                 end;
-              end
-              else
+              except
+                JsonData.Add(PropName, TJSONNull.Create);
+              end;
+            end
+            else if NestedObj is TCustomDeltaModelList then
+            begin
+              JsonData.Add(PropInfo^.Name, (NestedObj as TCustomDeltaModelList).ToJsonObj);
+            end
+            else if NestedObj is TFPSList then
+            begin
+              JsonArr := TJSONArray.Create();
+              JsonData.Add(PropInfo^.Name, JsonArr);
+
+              for Item := 0 to Pred((NestedObj as TFPSList).Count) do
               begin
-                JsonData.Add(PropInfo^.Name, SerializeToJsonObj(NestedObj));
+                ObjectItem := TObject(TFPSList(NestedObj).Items[Item]^);
+                JsonArr.Add(SerializeToJsonObj(ObjectItem));
               end;
             end
             else
             begin
-              JsonData.Add(PropInfo^.Name, TJSONNull.Create);
+              JsonData.Add(PropInfo^.Name, SerializeToJsonObj(NestedObj));
             end;
+          end
+          else
+          begin
+            JsonData.Add(PropInfo^.Name, TJSONNull.Create);
           end;
+        end;
       end;
     end;
     Result := JsonData;
@@ -298,66 +291,108 @@ end;
 
 procedure CopyObject(AFrom, ATo: TObject);
 var
-  PropListFrom, PropListTo: PPropList;
-  PropCountFrom, PropCountTo: Integer;
-  PropInfo: PPropInfo;
-  PropType: TTypeInfo;
-  PropValue: Variant;
+  PropList: PPropList;
+  PropCount, I: Integer;
+  PropInfoFrom, PropInfoTo: PPropInfo;
   ObjFrom, ObjTo: TObject;
-  I: Integer;
-  PropName: string;
 begin
-  PropCountFrom := GetPropList(AFrom.ClassInfo, tkProperties, nil);
-  PropCountTo := GetPropList(ATo.ClassInfo, tkProperties, nil);
-  GetMem(PropListFrom, PropCountFrom * SizeOf(Pointer));
-  GetMem(PropListTo, PropCountTo * SizeOf(Pointer));
-  try
-    GetPropList(AFrom.ClassInfo, tkProperties, PropListFrom);
-    GetPropList(ATo.ClassInfo, tkProperties, PropListTo);
+  if (AFrom = nil) or (ATo = nil) then Exit;
 
-    for I := 0 to Pred(PropCountFrom) do
-    begin
-      PropInfo := PropListFrom^[I];
-      PropType := PropInfo^.PropType^;
-      PropName := PropInfo^.Name;
-      try
-        PropValue := GetPropValue(AFrom, PropName);
-      except
-        Continue;
-      end;
+  if AFrom.ClassType = ATo.ClassType then
+  begin
+    PropCount := GetPropList(AFrom.ClassInfo, tkProperties, nil);
+    GetMem(PropList, PropCount * SizeOf(Pointer));
+    try
+      GetPropList(AFrom.ClassInfo, tkProperties, PropList, False);
+      for I := 0 to PropCount - 1 do
+      begin
+        PropInfoFrom := PropList^[I];
 
-      case PropType.Kind of
-        tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString,
-        tkInteger, tkInt64, tkEnumeration, tkFloat, tkVariant, tkBool:
-        begin
-          SetPropValue(ATo, PropInfo^.Name, PropValue);
-        end;
+        if (PropInfoFrom^.GetProc = nil) or (PropInfoFrom^.SetProc = nil) then
+          Continue;
 
-        tkClass:
-        begin
-          ObjFrom := GetObjectProp(AFrom, PropInfo^.Name);
-          ObjTo   := GetObjectProp(ATo, PropInfo^.Name);
+        case PropInfoFrom^.PropType^.Kind of
+          tkInteger, tkInt64, tkBool, tkEnumeration:
+            SetOrdProp(ATo, PropInfoFrom, GetOrdProp(AFrom, PropInfoFrom));
 
-          if (ObjFrom = nil) or (ObjTo = nil) then
+          tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
+            SetStrProp(ATo, PropInfoFrom, GetStrProp(AFrom, PropInfoFrom));
+
+          tkFloat:
+            SetFloatProp(ATo, PropInfoFrom, GetFloatProp(AFrom, PropInfoFrom));
+
+          tkVariant:
+            SetVariantProp(ATo, PropInfoFrom, GetVariantProp(AFrom, PropInfoFrom));
+
+          tkClass:
           begin
-            Continue;
+            ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
+            ObjTo   := GetObjectProp(ATo, PropInfoFrom);
+
+            if (ObjFrom = nil) or (ObjTo = nil) then Continue;
+
+            if ObjFrom is TDeltaField then
+            begin
+              if (ObjFrom as TDeltaField).Visible then
+                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+            end
+            else
+              CopyObject(ObjFrom, ObjTo);
           end;
-
-          if (ObjFrom is TDeltaField) then
-          begin
-            if not (ObjFrom as TDeltaField).Visible then
-              Continue;
-
-            (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
-          end
-          else
-            CopyObject(ObjFrom, ObjTo);
         end;
       end;
+    finally
+      FreeMem(PropList, PropCount * SizeOf(Pointer));
     end;
-  finally
-    FreeMem(PropListTo, PropCountTo * SizeOf(Pointer));
-    FreeMem(PropListFrom, PropCountFrom * SizeOf(Pointer));
+  end
+  else
+  begin
+    PropCount := GetPropList(AFrom.ClassInfo, tkProperties, nil);
+    GetMem(PropList, PropCount * SizeOf(Pointer));
+    try
+      GetPropList(AFrom.ClassInfo, tkProperties, PropList, False);
+      for I := 0 to PropCount - 1 do
+      begin
+        PropInfoFrom := PropList^[I];
+        if PropInfoFrom^.GetProc = nil then Continue;
+
+        PropInfoTo := GetPropInfo(ATo.ClassInfo, PropInfoFrom^.Name);
+        if (PropInfoTo = nil) or (PropInfoTo^.SetProc = nil) then Continue;
+        if PropInfoFrom^.PropType^.Kind <> PropInfoTo^.PropType^.Kind then Continue;
+
+        case PropInfoFrom^.PropType^.Kind of
+          tkInteger, tkInt64, tkBool, tkEnumeration:
+            SetOrdProp(ATo, PropInfoTo, GetOrdProp(AFrom, PropInfoFrom));
+
+          tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
+            SetStrProp(ATo, PropInfoTo, GetStrProp(AFrom, PropInfoFrom));
+
+          tkFloat:
+            SetFloatProp(ATo, PropInfoTo, GetFloatProp(AFrom, PropInfoFrom));
+
+          tkVariant:
+            SetVariantProp(ATo, PropInfoTo, GetVariantProp(AFrom, PropInfoFrom));
+
+          tkClass:
+          begin
+            ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
+            ObjTo   := GetObjectProp(ATo, PropInfoTo);
+
+            if (ObjFrom = nil) or (ObjTo = nil) then Continue;
+
+            if ObjFrom is TDeltaField then
+            begin
+              if (ObjFrom as TDeltaField).Visible then
+                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+            end
+            else
+              CopyObject(ObjFrom, ObjTo);
+          end;
+        end;
+      end;
+    finally
+      FreeMem(PropList, PropCount * SizeOf(Pointer));
+    end;
   end;
 end;
 

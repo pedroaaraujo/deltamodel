@@ -15,3 +15,5 @@ backup/
 
 # Binaries
 project1
+test_pool
+*.db

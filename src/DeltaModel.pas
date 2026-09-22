@@ -1,6 +1,5 @@
 unit DeltaModel;
 
-
 {$mode ObjFPC}{$H+}
 
 interface
@@ -12,66 +11,70 @@ uses
 
 type
 
- TFieldList = specialize TFPGObjectList<TDeltaField>;
+  TFieldList = specialize TFPGObjectList<TDeltaField>;
 
- { TDeltaModel }
+  { TDeltaModel }
 
- TDeltaModel = class
- private
-   FTableName: string;
-   FValidator: TValidator;
-   FFieldList: TFieldList;
-   procedure CreateFields;
-   procedure SetTableName(AValue: string);
- public
-   property TableName: string read FTableName write SetTableName;
-   procedure FromJson(JsonStr: string);
-   procedure Validate; virtual;
-   procedure BeforeDestruction; override;
-   procedure Configure; virtual;
-   procedure CopyObject(Obj: TDeltaModel);
-   function Clone: TDeltaModel;
-   function IsEmpty: Boolean;
-   function ToJson: RawByteString;
-   function ToJsonObj: TJSONObject;
-   class function SwaggerSchema(IsArray: Boolean = False): string;
-   constructor Create; virtual;
+  TDeltaModel = class
+  private
+    FTableName: string;
+    FValidator: TValidator;
+    FFieldList: TFieldList;
+    procedure CreateFields;
+    procedure SetTableName(AValue: string);
+  public
+    property TableName: string read FTableName write SetTableName;
+    procedure FromJson(JsonStr: string);
+    procedure Validate; virtual;
+    procedure BeforeDestruction; override;
+    procedure Configure; virtual;
+    procedure CopyObject(Obj: TDeltaModel);
+    function Clone: TDeltaModel;
+    function IsEmpty: Boolean;
+    function ToJson: RawByteString;
+    function ToJsonObj: TJSONObject;
+    class function SwaggerSchema(IsArray: Boolean = False): string;
+    constructor Create; virtual;
 
-   // Lifecycle hooks
-   procedure BeforeInsert; virtual;
-   procedure AfterInsert; virtual;
-   procedure BeforeUpdate; virtual;
-   procedure AfterUpdate; virtual;
-   procedure BeforeDelete; virtual;
-   procedure AfterDelete; virtual;
-   procedure BeforeSave; virtual;
-   procedure AfterSave; virtual;
- public
-   property Validator: TValidator read FValidator;
- end;
+    // Lifecycle hooks
+    procedure BeforeInsert; virtual;
+    procedure AfterInsert; virtual;
+    procedure BeforeUpdate; virtual;
+    procedure AfterUpdate; virtual;
+    procedure BeforeDelete; virtual;
+    procedure AfterDelete; virtual;
+    procedure BeforeSave; virtual;
+    procedure AfterSave; virtual;
+  public
+    property Validator: TValidator read FValidator;
+  end;
 
- TDeltaModelClass = class of TDeltaModel;
+  TDeltaModelClass = class of TDeltaModel;
 
- TDeltaModelRecords = specialize TFPGObjectList<TDeltaModel>;
+  TDeltaModelRecords = specialize TFPGObjectList<TDeltaModel>;
 
- { TDeltaModelList }
+  { TDeltaModelList }
 
- TDeltaModelList = class(TCustomDeltaModelList)
- private
-   FDeltaModelClass: TDeltaModelClass;
-   FRecords: TDeltaModelRecords;
- public
-   property DeltaModelClass: TDeltaModelClass read FDeltaModelClass write FDeltaModelClass;
-   property Records: TDeltaModelRecords read FRecords;
-   procedure FromJson(JsonStr: string); override;
-   function ToJson: RawByteString; override;
-   function ToJsonObj: TJSONArray; override;
-   function SwaggerSchema(AddExamples: Boolean): TJSONObject; override;
-   function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
+  TDeltaModelList = class(TCustomDeltaModelList)
+  private
+    FDeltaModelClass: TDeltaModelClass;
+    FRecords: TDeltaModelRecords;
+  public
+    property DeltaModelClass: TDeltaModelClass read FDeltaModelClass write FDeltaModelClass;
+    property Records: TDeltaModelRecords read FRecords;
+    procedure FromJson(JsonStr: string); override;
+    function ToJson: RawByteString; override;
+    function ToJsonObj: TJSONArray; override;
+    function SwaggerSchema(AddExamples: Boolean): TJSONObject; override;
+    function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
+    function Add(AModel: TDeltaModel): Integer;
+    function Count: Integer;
+    function GetItem(AIndex: Integer): TDeltaModel;
+    property Items[AIndex: Integer]: TDeltaModel read GetItem; default;
 
-   procedure AfterConstruction; override;
-   procedure BeforeDestruction; override;
- end;
+    procedure AfterConstruction; override;
+    procedure BeforeDestruction; override;
+  end;
 
 implementation
 
@@ -94,19 +97,29 @@ begin
     begin
       PropInfo := PropList^[I];
       PropType := PropInfo^.PropType;
+
       if (PropType^.Kind = tkClass) then
       begin
-        PropObj := GetObjectProp(Self, PropInfo^.Name);
-        if (PropObj = nil) then
+        PropClass := GetTypeData(PropType)^.ClassType;
+
+        if PropClass.InheritsFrom(TDeltaField) then
         begin
-          PropClass := GetTypeData(PropInfo^.PropType)^.ClassType;
-          if PropClass.InheritsFrom(TDeltaField) then
+          PropObj := GetObjectProp(Self, PropInfo);
+
+          if (PropObj = nil) then
           begin
             PropObj := PropClass.Create;
             (PropObj as TDeltaField).FieldName := PropInfo^.Name;
             (PropObj as TDeltaField).Visible   := True;
+
             SetObjectProp(Self, PropInfo, PropObj);
+
             FFieldList.Add(PropObj as TDeltaField);
+          end
+          else
+          begin
+             if FFieldList.IndexOf(PropObj as TDeltaField) < 0 then
+               FFieldList.Add(PropObj as TDeltaField);
           end;
         end;
       end;
@@ -184,8 +197,9 @@ begin
 
     Req := (Field as TDeltaFieldRequired);
 
+    // [Otimização] Uso de .Trim.IsEmpty para não forçar a varredura e cálculo de length desnecessários
     if (Req.IsNull) or
-        ((Req is TDFStringRequired) and ((Req as TDFStringRequired).AsString.Trim.Length = 0)) then
+       ((Req is TDFStringRequired) and ((Req as TDFStringRequired).AsString.Trim.IsEmpty)) then
     begin
       raise EDeltaValidation.CreateFmt(
         'Field %s.%s is required',
@@ -196,6 +210,9 @@ begin
       );
     end;
   end;
+
+  // [Sugestão Arquitetural] No futuro, delegue este laço acima diretamente para:
+  // FValidator.CheckRequiredFields(Self.FFieldList);
 end;
 
 function TDeltaModel.ToJson: RawByteString;
@@ -226,8 +243,8 @@ begin
   FFieldList := TFieldList.Create();
 
   CreateFields();
-  FTableName := Copy(Self.ToString, 2, Length(Self.ToString));
-  FTableName := FTableName.ToLower;
+
+  FTableName := AnsiLowerCase(Copy(Self.ClassName, 2, MaxInt));
 
   Configure();
 end;
@@ -268,6 +285,7 @@ end;
 
 procedure TDeltaModelList.FromJson(JsonStr: string);
 var
+  JsonData: TJSONData;
   Arr: TJSONArray;
   Element: TJSONObject;
   Obj: TDeltaModel;
@@ -278,8 +296,14 @@ begin
     raise Exception.Create(DeltaModelClassNotAssigned);
   end;
 
-  Arr := GetJSON(JsonStr) as TJSONArray;
+  // [Correção de Memory Leak]
+  // O JsonData é obtido genericamente. Se for um objeto e não um array, ele é destruído corretamente no Finally.
+  JsonData := GetJSON(JsonStr);
   try
+    if not (JsonData is TJSONArray) then
+      raise Exception.CreateFmt('Expected a JSON Array but got %s', [JsonData.ClassName]);
+
+    Arr := TJSONArray(JsonData);
     Self.Records.Clear;
     for I := 0 to Pred(Arr.Count) do
     begin
@@ -289,7 +313,7 @@ begin
       DeserializeObj(Obj, Element);
     end;
   finally
-    Arr.Free;
+    JsonData.Free;
   end;
 end;
 
@@ -351,9 +375,25 @@ begin
   FRecords := TDeltaModelRecords.Create;
 end;
 
+function TDeltaModelList.Add(AModel: TDeltaModel): Integer;
+begin
+  Result := FRecords.Add(AModel);
+end;
+
+function TDeltaModelList.Count: Integer;
+begin
+  Result := FRecords.Count;
+end;
+
+function TDeltaModelList.GetItem(AIndex: Integer): TDeltaModel;
+begin
+  Result := FRecords[AIndex];
+end;
+
 procedure TDeltaModelList.BeforeDestruction;
 begin
   inherited BeforeDestruction;
   FRecords.Free;
-end;                                
+end;
+
 end.

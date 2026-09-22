@@ -1,0 +1,166 @@
+object Form1: TForm1
+  Left = 400
+  Height = 600
+  Top = 200
+  Width = 850
+  Caption = 'DeltaModel - Connection Pool Benchmark & Multithread Showcase'
+  ClientHeight = 600
+  ClientWidth = 850
+  Position = poScreenCenter
+  LCLVersion = '3.8.0.0'
+  object pnlTop: TPanel
+    Left = 0
+    Height = 160
+    Top = 0
+    Width = 850
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 160
+    ClientWidth = 850
+    TabOrder = 0
+    object Label1: TLabel
+      Left = 16
+      Height = 19
+      Top = 16
+      Width = 105
+      Caption = 'Database URL:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object edtURL: TEdit
+      Left = 130
+      Height = 33
+      Top = 12
+      Width = 690
+      TabOrder = 0
+      Text = 'sqlite:///tmp/deltamodel_bench.db'
+    end
+    object Label2: TLabel
+      Left = 16
+      Height = 19
+      Top = 60
+      Width = 57
+      Caption = 'Threads:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object speThreads: TSpinEdit
+      Left = 85
+      Height = 33
+      Top = 56
+      Width = 80
+      MaxValue = 64
+      MinValue = 1
+      TabOrder = 1
+      Value = 8
+    end
+    object Label3: TLabel
+      Left = 180
+      Height = 19
+      Top = 60
+      Width = 105
+      Caption = 'Ops / Thread:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object speOps: TSpinEdit
+      Left = 295
+      Height = 33
+      Top = 56
+      Width = 80
+      MaxValue = 1000
+      MinValue = 1
+      TabOrder = 2
+      Value = 10
+    end
+    object Label4: TLabel
+      Left = 400
+      Height = 19
+      Top = 60
+      Width = 67
+      Caption = 'Min Pool:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object speMinPool: TSpinEdit
+      Left = 480
+      Height = 33
+      Top = 56
+      Width = 70
+      MaxValue = 50
+      MinValue = 0
+      TabOrder = 3
+      Value = 2
+    end
+    object Label5: TLabel
+      Left = 570
+      Height = 19
+      Top = 60
+      Width = 71
+      Caption = 'Max Pool:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object speMaxPool: TSpinEdit
+      Left = 650
+      Height = 33
+      Top = 56
+      Width = 70
+      MaxValue = 100
+      MinValue = 1
+      TabOrder = 4
+      Value = 6
+    end
+    object btnBenchWithPool: TButton
+      Left = 16
+      Height = 36
+      Top = 108
+      Width = 180
+      Caption = 'Executar COM Pool'
+      OnClick = btnBenchWithPoolClick
+      TabOrder = 5
+    end
+    object btnBenchNoPool: TButton
+      Left = 210
+      Height = 36
+      Top = 108
+      Width = 180
+      Caption = 'Executar SEM Pool'
+      OnClick = btnBenchNoPoolClick
+      TabOrder = 6
+    end
+    object btnCompare: TButton
+      Left = 405
+      Height = 36
+      Top = 108
+      Width = 200
+      Caption = 'Comparar Performance'
+      Font.Style = [fsBold]
+      OnClick = btnCompareClick
+      ParentFont = False
+      TabOrder = 7
+    end
+    object btnClear: TButton
+      Left = 620
+      Height = 36
+      Top = 108
+      Width = 120
+      Caption = 'Limpar Log'
+      OnClick = btnClearClick
+      TabOrder = 8
+    end
+  end
+  object mmoLog: TMemo
+    Left = 8
+    Height = 424
+    Top = 168
+    Width = 834
+    Align = alClient
+    BorderSpacing.Around = 8
+    Font.Name = 'Monospace'
+    ParentFont = False
+    ReadOnly = True
+    ScrollBars = ssAutoBoth
+    TabOrder = 1
+  end
+end
