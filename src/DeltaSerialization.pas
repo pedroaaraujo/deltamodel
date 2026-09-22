@@ -381,7 +381,8 @@ var
 begin
   if AList.Count = 0 then Exit('');
 
-  Obj := AList.Items[0];
+  Obj := AList.GetItemObj(0);
+
   PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
   GetMem(PropList, PropCount * SizeOf(Pointer));
   SB := TStringBuilder.Create;
@@ -396,7 +397,7 @@ begin
 
       if (PropInfo^.PropType^.Kind = tkClass) then
       begin
-        if not GetTypeData(PropInfo^.PropType^)^.ClassType.InheritsFrom(TDeltaField) then
+        if not GetTypeData(PropInfo^.PropType)^.ClassType.InheritsFrom(TDeltaField) then
           Continue;
       end;
 
@@ -412,7 +413,8 @@ begin
 
     for J := 0 to AList.Count - 1 do
     begin
-      Obj := AList.Items[J];
+      Obj := AList.GetItemObj(J);
+
       for I := 0 to High(ValidProps) do
       begin
         if I > 0 then SB.Append(ADelimiter);
@@ -465,9 +467,11 @@ var
   StrValue: string;
   NestedObj: TObject;
 begin
-  if (ACSVString.Trim.IsEmpty) or not (AList is TDeltaModelList) then Exit;
+  if ACSVString.Trim.IsEmpty then Exit;
 
-  ModelClass := (AList as TDeltaModelList).DeltaModelClass;
+  ModelClass := AList.GetModelClass;
+  if ModelClass = nil then Exit;
+
   Lines := TStringList.Create;
   Fields := TStringList.Create;
   try
@@ -485,15 +489,16 @@ begin
         PropMap[Col] := nil;
     end;
 
-    (AList as TDeltaModelList).Records.Clear;
+    AList.ClearList;
+
     for I := 1 to Lines.Count - 1 do
     begin
       if Lines[I].Trim.IsEmpty then Continue;
 
       ParseCSVLine(Lines[I], Fields, ADelimiter);
 
-      Obj := ModelClass.Create;
-      (AList as TDeltaModelList).Records.Add(Obj as TDeltaModel);
+      Obj := AList.NewItem;
+      AList.AddObj(Obj);
 
       for Col := 0 to Fields.Count - 1 do
       begin

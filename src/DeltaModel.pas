@@ -75,6 +75,12 @@ type
     procedure FromCSV(const CSVStr: string; ADelimiter: Char = ';');
     function ToCSV(ADelimiter: Char = ';'): string;
 
+    function GetItemObj(AIndex: Integer): TObject; override;
+    procedure ClearList; override;
+    procedure AddObj(AObj: TObject); override;
+    function GetModelClass: TClass; override;
+    function NewItem: TObject; override;
+
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
   end;
@@ -398,6 +404,31 @@ end;
 function TDeltaModelList.ToCSV(ADelimiter: Char): string;
 begin
   Result := DeltaSerialization.SerializeListToCSV(Self, ADelimiter);
+end;
+
+function TDeltaModelList.GetItemObj(AIndex: Integer): TObject;
+begin
+  Result := FRecords[AIndex];
+end;
+
+procedure TDeltaModelList.ClearList;
+begin
+  FRecords.Clear;
+end;
+
+procedure TDeltaModelList.AddObj(AObj: TObject);
+begin
+  FRecords.Add(AObj as TDeltaModel);
+end;
+
+function TDeltaModelList.GetModelClass: TClass;
+begin
+  Result := FDeltaModelClass;
+end;
+
+function TDeltaModelList.NewItem: TObject;
+begin
+  Result := FDeltaModelClass.Create;
 end;
 
 procedure TDeltaModelList.BeforeDestruction;
