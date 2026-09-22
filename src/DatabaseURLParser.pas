@@ -99,7 +99,6 @@ begin
 
   Delete(URI, 1, ColonPos + 2); // remove "://"
 
-  // SQLite special cases: in-memory or direct file path
   if (Result.Protocol = 'SQLite3') then
   begin
     if (URI = ':memory:') or (URI = '/:memory:') then
@@ -108,7 +107,7 @@ begin
       Exit;
     end;
 
-    // sqlite:////path/to/db.sqlite or sqlite:///path/to/db.sqlite or sqlite://db.sqlite
+    // Extrai parâmetros da URL (?param=value)
     UrlParams := TStringList.Create;
     try
       URI := ExtractURLParams(URI, UrlParams);
@@ -118,17 +117,12 @@ begin
       UrlParams.Free;
     end;
 
-    if IsTripleSlash then
-    begin
-      // Ex: sqlite:///C:/db.sqlite -> C:/db.sqlite (Windows)
-      if (Length(URI) >= 3) and (URI[1] = '/') and (URI[3] = ':') then
-        Result.Database := Copy(URI, 2, MaxInt)
-      // Ex: sqlite:////path/db.sqlite -> /path/db.sqlite
-      else if (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') then
-        Result.Database := Copy(URI, 2, MaxInt)
-      else
-        Result.Database := URI;
-    end
+    // Correção para bancos SQLite:
+    // Se for IsTripleSlash, o URI começará com '/'.
+    // Basta ignorar essa primeira '/' para que o caminho se resolva perfeitamente
+    // para Linux, Windows e caminhos relativos.
+    if IsTripleSlash and (Length(URI) > 0) and (URI[1] = '/') then
+      Result.Database := Copy(URI, 2, MaxInt)
     else
       Result.Database := URI;
 
