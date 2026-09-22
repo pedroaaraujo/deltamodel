@@ -13,9 +13,41 @@ procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);
 function Serialize(Obj: TObject): RawByteString;
 function SerializeToJsonObj(Obj: TObject): TJSONObject;
 
+procedure DeserializeCSVToList(AList: TCustomDeltaModelList; const ACSVString: string; ADelimiter: Char = ';');
+function SerializeListToCSV(AList: TCustomDeltaModelList; ADelimiter: Char = ';'): string;
+
 procedure CopyObject(AFrom, ATo: TObject);
 
 implementation
+
+type
+  { TDeltaJSONFloat }
+
+  TDeltaJSONFloat = class(TJSONFloatNumber)
+  protected
+    function GetAsJSON: TJSONStringType; override;
+  end;
+
+function TDeltaJSONFloat.GetAsJSON: TJSONStringType;
+var
+  FS: TFormatSettings;
+  S: string;
+  I: Integer;
+begin
+  FS := DefaultFormatSettings;
+  FS.DecimalSeparator := '.';
+
+  S := FloatToStrF(AsFloat, ffFixed, 18, 8, FS);
+
+  I := Length(S);
+  while (I > 0) and (S[I] = '0') do
+    Dec(I);
+
+  if S[I] = '.' then
+    Inc(I);
+
+  Result := Copy(S, 1, I);
+end;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 var
@@ -207,7 +239,7 @@ begin
           JsonData.Add(PropName, GetEnumName(PropInfo^.PropType, GetOrdProp(Obj, PropInfo)));
 
         tkFloat:
-          JsonData.Add(PropName, GetFloatProp(Obj, PropInfo));
+          JsonData.Add(PropName, TDeltaJSONFloat.Create(GetFloatProp(Obj, PropInfo)));
 
         tkVariant:
           JsonData.Add(PropName, VarToStr(GetVariantProp(Obj, PropInfo)));
@@ -241,7 +273,7 @@ begin
                     varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
                       JsonData.Add(PropName, Integer(VariantVal));
                     varSingle, varDouble, varCurrency:
-                      JsonData.Add(PropName, Double(VariantVal));
+                      JsonData.Add(PropName, TDeltaJSONFloat.Create(Double(VariantVal)));
                     varUString, varString, varOleStr:
                       JsonData.Add(PropName, string(VariantVal));
                     varBoolean:
@@ -286,6 +318,222 @@ begin
     Result := JsonData;
   finally
     FreeMem(PropList, PropCount * SizeOf(Pointer));
+  end;
+end;
+
+procedure ParseCSVLine(const Line: string; OutFields: TStrings; Delimiter: Char);
+var
+  P: PChar;
+  InString: Boolean;
+  CurrentField: string;
+begin
+  OutFields.Clear;
+  if Line = '' then Exit;
+
+  P := PChar(Line);
+  InString := False;
+  CurrentField := '';
+
+  while P^ <> #0 do
+  begin
+    if P^ = '"' then
+    begin
+      if InString and ((P + 1)^ = '"') then
+      begin
+        CurrentField := CurrentField + '"';
+        Inc(P);
+      end
+      else
+        InString := not InString;
+    end
+    else if (P^ = Delimiter) and not InString then
+    begin
+      OutFields.Add(CurrentField);
+      CurrentField := '';
+    end
+    else
+      CurrentField := CurrentField + P^;
+
+    Inc(P);
+  end;
+  OutFields.Add(CurrentField);
+end;
+
+function EscapeCSV(const Value: string; Delimiter: Char): string;
+begin
+  if (Pos(Delimiter, Value) > 0) or (Pos('"', Value) > 0) or
+     (Pos(#13, Value) > 0) or (Pos(#10, Value) > 0) then
+    Result := '"' + StringReplace(Value, '"', '""', [rfReplaceAll]) + '"'
+  else
+    Result := Value;
+end;
+
+function SerializeListToCSV(AList: TCustomDeltaModelList; ADelimiter: Char): string;
+var
+  SB: TStringBuilder;
+  PropList: PPropList;
+  PropCount, I, J: Integer;
+  Obj: TObject;
+  PropInfo: PPropInfo;
+  PropName, StrValue: string;
+  NestedObj: TObject;
+  ValidProps: array of PPropInfo;
+begin
+  if AList.Count = 0 then Exit('');
+
+  Obj := AList.Items[0];
+  PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
+  GetMem(PropList, PropCount * SizeOf(Pointer));
+  SB := TStringBuilder.Create;
+  try
+    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
+    SetLength(ValidProps, 0);
+
+    for I := 0 to PropCount - 1 do
+    begin
+      PropInfo := PropList^[I];
+      if PropInfo^.GetProc = nil then Continue;
+
+      if (PropInfo^.PropType^.Kind = tkClass) then
+      begin
+        if not GetTypeData(PropInfo^.PropType^)^.ClassType.InheritsFrom(TDeltaField) then
+          Continue;
+      end;
+
+      SetLength(ValidProps, Length(ValidProps) + 1);
+      ValidProps[High(ValidProps)] := PropInfo;
+
+      if High(ValidProps) > 0 then
+        SB.Append(ADelimiter);
+
+      SB.Append(EscapeCSV(PropInfo^.Name, ADelimiter));
+    end;
+    SB.AppendLine;
+
+    for J := 0 to AList.Count - 1 do
+    begin
+      Obj := AList.Items[J];
+      for I := 0 to High(ValidProps) do
+      begin
+        if I > 0 then SB.Append(ADelimiter);
+
+        PropInfo := ValidProps[I];
+        StrValue := '';
+
+        case PropInfo^.PropType^.Kind of
+          tkString, tkLString, tkAString, tkWString, tkUString:
+            StrValue := GetStrProp(Obj, PropInfo);
+          tkInteger, tkInt64:
+            StrValue := IntToStr(GetOrdProp(Obj, PropInfo));
+          tkFloat:
+            StrValue := FloatToStr(GetFloatProp(Obj, PropInfo));
+          tkBool:
+            StrValue := BoolToStr(Boolean(GetOrdProp(Obj, PropInfo)), 'true', 'false');
+          tkEnumeration:
+            StrValue := GetEnumName(PropInfo^.PropType, GetOrdProp(Obj, PropInfo));
+          tkClass:
+          begin
+            NestedObj := GetObjectProp(Obj, PropInfo);
+            if (NestedObj <> nil) and (NestedObj is TDeltaField) then
+            begin
+              if not (NestedObj as TDeltaField).IsNull then
+                StrValue := (NestedObj as TDeltaField).AsString;
+            end;
+          end;
+        end;
+
+        SB.Append(EscapeCSV(StrValue, ADelimiter));
+      end;
+      SB.AppendLine;
+    end;
+
+    Result := SB.ToString;
+  finally
+    FreeMem(PropList, PropCount * SizeOf(Pointer));
+    SB.Free;
+  end;
+end;
+
+procedure DeserializeCSVToList(AList: TCustomDeltaModelList; const ACSVString: string; ADelimiter: Char);
+var
+  Lines, Fields: TStringList;
+  I, Col: Integer;
+  Obj: TObject;
+  ModelClass: TClass;
+  PropInfo: PPropInfo;
+  PropMap: array of PPropInfo;
+  StrValue: string;
+  NestedObj: TObject;
+begin
+  if (ACSVString.Trim.IsEmpty) or not (AList is TDeltaModelList) then Exit;
+
+  ModelClass := (AList as TDeltaModelList).DeltaModelClass;
+  Lines := TStringList.Create;
+  Fields := TStringList.Create;
+  try
+    Lines.Text := ACSVString;
+    if Lines.Count < 2 then Exit;
+
+    ParseCSVLine(Lines[0], Fields, ADelimiter);
+    SetLength(PropMap, Fields.Count);
+    for Col := 0 to Fields.Count - 1 do
+    begin
+      PropInfo := GetPropInfo(ModelClass, Fields[Col]);
+      if (PropInfo <> nil) and (PropInfo^.SetProc <> nil) then
+        PropMap[Col] := PropInfo
+      else
+        PropMap[Col] := nil;
+    end;
+
+    (AList as TDeltaModelList).Records.Clear;
+    for I := 1 to Lines.Count - 1 do
+    begin
+      if Lines[I].Trim.IsEmpty then Continue;
+
+      ParseCSVLine(Lines[I], Fields, ADelimiter);
+
+      Obj := ModelClass.Create;
+      (AList as TDeltaModelList).Records.Add(Obj as TDeltaModel);
+
+      for Col := 0 to Fields.Count - 1 do
+      begin
+        if Col > High(PropMap) then Break;
+
+        PropInfo := PropMap[Col];
+        if PropInfo = nil then Continue;
+
+        StrValue := Fields[Col];
+        if StrValue = '' then Continue;
+
+        case PropInfo^.PropType^.Kind of
+          tkString, tkLString, tkAString, tkWString, tkUString:
+            SetStrProp(Obj, PropInfo, StrValue);
+          tkInteger, tkInt64:
+            SetOrdProp(Obj, PropInfo, StrToIntDef(StrValue, 0));
+          tkFloat:
+            SetFloatProp(Obj, PropInfo, StrToFloatDef(StrValue, 0));
+          tkBool:
+            SetOrdProp(Obj, PropInfo, Ord(SameText(StrValue, 'true') or SameText(StrValue, '1') or SameText(StrValue, 't')));
+          tkEnumeration:
+            SetOrdProp(Obj, PropInfo, GetEnumValue(PropInfo^.PropType, StrValue));
+          tkClass:
+          begin
+            NestedObj := GetObjectProp(Obj, PropInfo);
+            if (NestedObj <> nil) and (NestedObj is TDeltaField) then
+            begin
+               if (NestedObj is TDFDateRequired) or (NestedObj is TDFDateNull) or
+                  (NestedObj is TDFDateTimeRequired) or (NestedObj is TDFDateTimeNull) then
+                 DateTimeToField(NestedObj as TDeltaField, StrValue)
+               else
+                 (NestedObj as TDeltaField).Value := StrValue;
+            end;
+          end;
+        end;
+      end;
+    end;
+  finally
+    Lines.Free;
+    Fields.Free;
   end;
 end;
 

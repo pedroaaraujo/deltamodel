@@ -72,6 +72,9 @@ type
     function GetItem(AIndex: Integer): TDeltaModel;
     property Items[AIndex: Integer]: TDeltaModel read GetItem; default;
 
+    procedure FromCSV(const CSVStr: string; ADelimiter: Char = ';');
+    function ToCSV(ADelimiter: Char = ';'): string;
+
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
   end;
@@ -197,7 +200,6 @@ begin
 
     Req := (Field as TDeltaFieldRequired);
 
-    // [Otimização] Uso de .Trim.IsEmpty para não forçar a varredura e cálculo de length desnecessários
     if (Req.IsNull) or
        ((Req is TDFStringRequired) and ((Req as TDFStringRequired).AsString.Trim.IsEmpty)) then
     begin
@@ -296,8 +298,6 @@ begin
     raise Exception.Create(DeltaModelClassNotAssigned);
   end;
 
-  // [Correção de Memory Leak]
-  // O JsonData é obtido genericamente. Se for um objeto e não um array, ele é destruído corretamente no Finally.
   JsonData := GetJSON(JsonStr);
   try
     if not (JsonData is TJSONArray) then
@@ -388,6 +388,16 @@ end;
 function TDeltaModelList.GetItem(AIndex: Integer): TDeltaModel;
 begin
   Result := FRecords[AIndex];
+end;
+
+procedure TDeltaModelList.FromCSV(const CSVStr: string; ADelimiter: Char);
+begin
+  DeltaSerialization.DeserializeCSVToList(Self, CSVStr, ADelimiter);
+end;
+
+function TDeltaModelList.ToCSV(ADelimiter: Char): string;
+begin
+  Result := DeltaSerialization.SerializeListToCSV(Self, ADelimiter);
 end;
 
 procedure TDeltaModelList.BeforeDestruction;

@@ -48,6 +48,7 @@ type
   public
     procedure Configure; override;
     procedure Validate; override;
+    procedure BeforeDestruction; override;
   end;
 
   { TForm1 }
@@ -62,7 +63,6 @@ type
     edtSerializationName: TEdit;
     edtDeserializationName: TEdit;
     edtValidationName: TEdit;
-    edtSerializationEmail: TEdit;
     edtValidationEmail: TEdit;
     edtDeserializationEmail: TEdit;
     Label1: TLabel;
@@ -108,6 +108,8 @@ begin
   // Define o tamanho máximo do campo email
   Self.email.Size := 200;
   Self.name.Size  := 120;
+
+  Faddress := TAddress.Create;
 
   // Define campos invisíveis na serialização (ex: campo interno)
   // Self.someInternalField.Visible := False;
@@ -157,6 +159,12 @@ begin
     raise EDeltaValidation.Create(VResult.Message);
 end;
 
+procedure TUser.BeforeDestruction;
+begin
+  inherited BeforeDestruction;
+  Faddress.Free;
+end;
+
 { TForm1 }
 
 procedure TForm1.FormCreate(Sender: TObject);
@@ -172,7 +180,6 @@ begin
   User := TUser.Create;
   try
     User.name.Value    := edtSerializationName.Text;
-    User.email.Value   := edtSerializationEmail.Text;
     User.age.Value     := edtSerializationAge.Value;
     User.active.Value  := True;
     User.score.Value   := 8.5;
@@ -198,7 +205,6 @@ begin
   try
     User.FromJson(mmoDeserialization.Lines.Text);
     edtDeserializationName.Text  := User.name.Value;
-    edtDeserializationEmail.Text := User.email.Value;
     if not User.age.IsNull then
       edtDeserializationAge.Value := User.age.AsInteger
     else
@@ -216,7 +222,6 @@ begin
   User := TUser.Create;
   try
     User.name.Value   := edtValidationName.Text;
-    User.email.Value  := edtValidationEmail.Text;
     User.age.Value    := edtValidationAge.Value;
     User.active.Value := True;
 

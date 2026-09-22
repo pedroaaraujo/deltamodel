@@ -37,11 +37,12 @@ type
     FForeignKey: TForeignKey;
     FVisible: Boolean;
     procedure SetFieldName(AValue: string);
+    // [Otimização] Método para criar FK apenas sob demanda
+    function GetForeignKey: TForeignKey;
   protected
     FValue: Variant;
     function GetValue: Variant; virtual; abstract;
     procedure SetValue(AValue: Variant); virtual; abstract;
-    function FS: TFormatSettings;
   public
     property Value: Variant read GetValue write SetValue;
     property Visible: Boolean read FVisible write FVisible;
@@ -49,7 +50,9 @@ type
     ///to be used with ORM
     property FieldName: string read FFieldName write SetFieldName;
     property DBOptions: TDBOptionsSet read FDBOptions write FDBOptions;
-    property ForeignKey: TForeignKey read FForeignKey;
+
+    // [Otimização] Propriedade agora aciona o getter inteligente
+    property ForeignKey: TForeignKey read GetForeignKey;
 
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
@@ -295,7 +298,7 @@ type
     function SwaggerDataType: string; override;
   end;
 
-  { TDFUUIDNull - Campo UUID opcional (tipo string com format uuid) }
+  { TDFUUIDNull }
 
   TDFUUIDNull = class(TDFStringNull)
   public
@@ -304,7 +307,7 @@ type
     function IsValid: Boolean; override;
   end;
 
-  { TDFUUIDRequired - Campo UUID obrigatório }
+  { TDFUUIDRequired }
 
   TDFUUIDRequired = class(TDFStringRequired)
   public
@@ -321,6 +324,9 @@ implementation
 const
   DEFAULT_STR_SIZE = 255;
   UUID_LENGTH = 36;
+
+var
+  GlobalDeltaFS: TFormatSettings;
 
 function IsValidUUID(const S: string): Boolean;
 var
@@ -344,10 +350,7 @@ end;
 
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 begin
-  AField.Value := ISO8601ToDateDef(
-    DateTime,
-    0
-  );
+  AField.Value := ISO8601ToDateDef(DateTime, 0);
 end;
 
 { TDeltaField }
@@ -358,17 +361,17 @@ begin
   FFieldName := AValue;
 end;
 
-function TDeltaField.FS: TFormatSettings;
+function TDeltaField.GetForeignKey: TForeignKey;
 begin
-  Result.DecimalSeparator := '.';
-  Result.ThousandSeparator := ',';
+  if FForeignKey = nil then
+    FForeignKey := TForeignKey.Create;
+  Result := FForeignKey;
 end;
 
 procedure TDeltaField.AfterConstruction;
 begin
   inherited AfterConstruction;
   DBOptions := [dboUpdate];
-  FForeignKey := TForeignKey.Create;
 end;
 
 function TDeltaField.AsString: string;
@@ -551,7 +554,7 @@ end;
 
 function TDFDoubleNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
 end;
 
 function TDFDoubleNull.AsFloat: Double;
@@ -581,7 +584,7 @@ end;
 
 function TDFCurrencyNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
 end;
 
 function TDFCurrencyNull.AsCurrency: Currency;
@@ -598,10 +601,17 @@ end;
 { TDFStringNull }
 
 procedure TDFStringNull.SetValue(AValue: Variant);
+var
+  TmpStr: string;
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-    Self.FValue := Copy(Trim(string(AValue)), 1, Self.FSize);
+  begin
+    TmpStr := string(AValue);
+    if Length(TmpStr) > Self.FSize then
+      TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
+    Self.FValue := TmpStr;
+  end;
 end;
 
 procedure TDFStringNull.AfterConstruction;
@@ -677,7 +687,7 @@ end;
 
 function TDFDoubleRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
 end;
 
 function TDFDoubleRequired.AsFloat: Double;
@@ -707,7 +717,7 @@ end;
 
 function TDFCurrencyRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), FS);
+  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
 end;
 
 function TDFCurrencyRequired.AsCurrency: Currency;
@@ -724,10 +734,17 @@ end;
 { TDFStringRequired }
 
 procedure TDFStringRequired.SetValue(AValue: Variant);
+var
+  TmpStr: string;
 begin
   inherited SetValue(AValue);
   if not VarIsNull(AValue) then
-    Self.FValue := Copy(Trim(string(AValue)), 1, Self.FSize);
+  begin
+    TmpStr := string(AValue);
+    if Length(TmpStr) > Self.FSize then
+      TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
+    Self.FValue := TmpStr;
+  end;
 end;
 
 procedure TDFStringRequired.AfterConstruction;
@@ -882,7 +899,10 @@ end;
 
 procedure TDFBooleanRequired.SetValue(AValue: Variant);
 begin
-  inherited SetValue(Boolean(AValue));
+  if VarIsNull(AValue) then
+    inherited SetValue(AValue)
+  else
+    inherited SetValue(Boolean(AValue));
 end;
 
 function TDFBooleanRequired.AsBoolean: Boolean;
@@ -917,7 +937,8 @@ end;
 
 function TDFBooleanNull.AsString: string;
 begin
-  if AsBoolean then Result := 'T'
+  if IsNull then Result := ''
+  else if AsBoolean then Result := 'T'
   else Result := 'F';
 end;
 
@@ -962,5 +983,10 @@ function TDFUUIDRequired.IsValid: Boolean;
 begin
   Result := (not IsNull) and IsValidUUID(AsString);
 end;
+
+initialization
+  GlobalDeltaFS := DefaultFormatSettings;
+  GlobalDeltaFS.DecimalSeparator := '.';
+  GlobalDeltaFS.ThousandSeparator := ',';
 
 end.
