@@ -1,0 +1,67 @@
+# Translation of DeltaModel to Brazilian Portuguese (pt_BR)
+# Copyright (C) 2024 Pedro Araujo
+#
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: DeltaModelMessages.DeltaModelClassNotAssigned
+msgid "DeltaModelClass not assigned to DeltaModelList."
+msgstr "DeltaModelClass não atribuída ao DeltaModelList."
+
+#: DeltaModelMessages.ValidationFailedForField
+msgid "Validation failed for field %s: %s"
+msgstr "Validação falhou para o campo %s: %s"
+
+#: DeltaModelMessages.ValueCannotBeEmpty
+msgid "Value cannot be empty."
+msgstr "O valor não pode ser vazio."
+
+#: DeltaModelMessages.MinimumLenght
+msgid "Minimum length: %d characters."
+msgstr "Comprimento mínimo: %d caracteres."
+
+#: DeltaModelMessages.MaximumLenght
+msgid "Maximum length: %d characters."
+msgstr "Comprimento máximo: %d caracteres."
+
+#: DeltaModelMessages.ValueDoesNotMatchREGEX
+msgid "Value does not match the expected pattern."
+msgstr "O valor não corresponde ao padrão esperado."
+
+#: DeltaModelMessages.InvalidEmail
+msgid "Invalid email address."
+msgstr "Endereço de e-mail inválido."
+
+#: DeltaModelMessages.InvalidUrl
+msgid "Invalid URL. Must start with http:// or https://."
+msgstr "URL inválida. Deve começar com http:// ou https://."
+
+#: DeltaModelMessages.InvalidCPF
+msgid "Invalid CPF."
+msgstr "CPF inválido."
+
+#: DeltaModelMessages.InvalidCNPJ
+msgid "Invalid CNPJ."
+msgstr "CNPJ inválido."
+
+#: DeltaModelMessages.MinimumAllowedValue
+msgid "Minimum allowed value: %.2f."
+msgstr "Valor mínimo permitido: %.2f."
+
+#: DeltaModelMessages.MaximumAllowedValue
+msgid "Maximum allowed value: %.2f."
+msgstr "Valor máximo permitido: %.2f."
+
+#: DeltaModelMessages.ValueMustBeGreaterThanZero
+msgid "Value must be greater than zero."
+msgstr "O valor deve ser maior que zero."
+
+#: DeltaModelMessages.AllowedRange
+msgid "Allowed range: %s to %s."
+msgstr "Intervalo permitido: %s a %s."
+
+#: DeltaModelMessages.FieldIsRequired
+msgid "Field %s is required."
+msgstr "O campo %s é obrigatório."
