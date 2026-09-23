@@ -5,9 +5,6 @@ unit DeltaValidator;
 interface
 
 uses
-  {$IFDEF UNIX}
-  LazUTF8,
-  {$ENDIF}
   Classes, SysUtils, fgl, Variants, RegExpr, fpjson,
   DeltaModelMessages;
 
@@ -38,8 +35,8 @@ type
     function ValidateToJson: TValid;
   end;
 
-  // Alias para retrocompatibilidade
-  TDeltaField = TValidatorField;
+  // Alias TDeltaField removido para evitar shadowing com DeltaModel.Fields.TDeltaField
+  // TDeltaField = TValidatorField;
 
   { TValidator }
 
@@ -163,6 +160,8 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
+function IsValidCnpj(const ACnpj: string): Boolean;
+
 implementation
 
 { Helpers internos }
@@ -206,37 +205,74 @@ begin
   Result := True;
 end;
 
-function ValidateCNPJDigits(const CNPJ: string): Boolean;
+function IsValidCnpj(const ACnpj: string): Boolean;
+
+  function OnlyAlphaNumbers(const S: string): string;
+  var
+    I: Integer;
+    C: Char;
+  begin
+    Result := '';
+    for I := 1 to Length(S) do
+    begin
+      C := UpCase(S[I]);
+      if CharInSet(C, ['0'..'9', 'A'..'Z']) then
+        Result := Result + C;
+    end;
+  end;
+
+const
+  Multiplier1: array[1..12] of Integer = (5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2);
+  Multiplier2: array[1..13] of Integer = (6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2);
+  BaseSub: Integer = Ord('0');
 var
-  Weights1: array[1..12] of Integer = (5,4,3,2,9,8,7,6,5,4,3,2);
-  Weights2: array[1..13] of Integer = (6,5,4,3,2,9,8,7,6,5,4,3,2);
-  Sum, Remainder, I: Integer;
+  Cnpj: string;
+  I, Sum, Remainder, Digit1, Digit2: Integer;
+  AllEqual: Boolean;
 begin
-  Result := False;
-  if Length(CNPJ) <> 14 then Exit;
+  Cnpj := OnlyAlphaNumbers(ACnpj);
 
-  // Rejeita sequências com todos os dígitos iguais
-  if (CNPJ = StringOfChar(CNPJ[1], 14)) then Exit;
+  if Length(Cnpj) <> 14 then
+    Exit(False);
 
-  // Primeiro dígito verificador
+  // Verifica se todos os dígitos são iguais
+  AllEqual := True;
+  for I := 2 to 14 do
+    if Cnpj[I] <> Cnpj[1] then
+    begin
+      AllEqual := False;
+      Break;
+    end;
+  if AllEqual then
+    Exit(False);
+
+  // Cálculo do 1º digito verificador
   Sum := 0;
   for I := 1 to 12 do
-    Sum := Sum + StrToInt(CNPJ[I]) * Weights1[I];
+    Sum := Sum + (Ord(Cnpj[I]) - BaseSub) * Multiplier1[I];
   Remainder := Sum mod 11;
-  if Remainder < 2 then Remainder := 0
-  else Remainder := 11 - Remainder;
-  if Remainder <> StrToInt(CNPJ[13]) then Exit;
+  if Remainder < 2 then
+    Digit1 := 0
+  else
+    Digit1 := 11 - Remainder;
 
-  // Segundo dígito verificador
+  // Cálculo do 2º digito verificador
   Sum := 0;
   for I := 1 to 13 do
-    Sum := Sum + StrToInt(CNPJ[I]) * Weights2[I];
+    Sum := Sum + (Ord(Cnpj[I]) - BaseSub) * Multiplier2[I];
   Remainder := Sum mod 11;
-  if Remainder < 2 then Remainder := 0
-  else Remainder := 11 - Remainder;
-  if Remainder <> StrToInt(CNPJ[14]) then Exit;
+  if Remainder < 2 then
+    Digit2 := 0
+  else
+    Digit2 := 11 - Remainder;
 
-  Result := True;
+  Result := (Ord(Cnpj[13]) - BaseSub = Digit1) and
+            (Ord(Cnpj[14]) - BaseSub = Digit2);
+end;
+
+function ValidateCNPJDigits(const CNPJ: string): Boolean;
+begin
+  Result := IsValidCnpj(CNPJ);
 end;
 
 { TValidatorField }
@@ -382,6 +418,22 @@ begin
     Result.Message := ValueCannotBeEmpty;
 end;
 
+function UTF8CharLength(const S: string): Integer;
+var
+  P, PEnd: PChar;
+begin
+  Result := 0;
+  if S = '' then Exit;
+  P := PChar(S);
+  PEnd := P + Length(S);
+  while P < PEnd do
+  begin
+    if (Byte(P^) and $C0) <> $80 then
+      Inc(Result);
+    Inc(P);
+  end;
+end;
+
 constructor TValidatorItemMinLength.Create(MinLength: Integer);
 begin
   FMinLength := MinLength;
@@ -393,7 +445,7 @@ var
   ActualLenght: Integer;
 begin
   Str := VarToStr(Value);
-  ActualLenght := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF};
+  ActualLenght := UTF8CharLength(Str);
 
   Result.OK := ActualLenght >= FMinLength;
   if not Result.OK then
@@ -411,7 +463,7 @@ var
   ActualLenght: Integer;
 begin
   Str := VarToStr(Value);
-  ActualLenght := {$IFDEF UNIX} Utf8Length(Str) {$ELSE} Length(Str) {$ENDIF};
+  ActualLenght := UTF8CharLength(Str);
 
   Result.OK := ActualLenght <= FMaxLength;
   if not Result.OK then
@@ -489,11 +541,8 @@ end;
 { TValidatorItemCNPJ }
 
 function TValidatorItemCNPJ.Validate(Value: Variant): TValid;
-var
-  Digits: string;
 begin
-  Digits := OnlyDigits(VarToStr(Value));
-  Result.OK := ValidateCNPJDigits(Digits);
+  Result.OK := IsValidCnpj(VarToStr(Value));
   if not Result.OK then
     Result.Message := InvalidCNPJ;
 end;

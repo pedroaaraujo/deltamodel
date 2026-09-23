@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, fgl, DB, SQLDB, DeltaModel, DeltaModel.ORM.Interfaces,
-  DeltaModel.ORM.DDL;
+  DeltaModel.ORM.DDL, DeltaModel.ORM.Types;
 
 type
 
@@ -120,20 +120,46 @@ begin
   FConstraitList.Clear;
 
   CreateTables;
+
   AlterTables;
+
   CreateConstraints;
 
   if Persist and (FSQL.Count > 0) then
   begin
+    if FConnection.Dialect = ddMySQL then
+      FConnection.ExecuteDirect('SET FOREIGN_KEY_CHECKS = 0;');
+
     for I := 0 to Pred(FSQL.Count) do
     begin
       S := FSQL.Strings[I];
+      if S.Trim.IsEmpty then Continue;
+
       try
         FConnection.ExecuteDirect(S);
+
+        if FConnection.TransactionActive then
+        begin
+          FConnection.Commit;
+          FConnection.StartTransaction;
+        end;
       except
-        // Ignora eventuais instrucoes DDL que nao puderem ser aplicadas ou ja existirem
+        on E: Exception do
+        begin
+          if IsConsole then
+            Writeln(Format('Aviso DDL ignorado: %s', [E.Message]));
+
+          if FConnection.TransactionActive then
+          begin
+            FConnection.Rollback;
+            FConnection.StartTransaction;
+          end;
+        end;
       end;
     end;
+
+    if FConnection.Dialect = ddMySQL then
+      FConnection.ExecuteDirect('SET FOREIGN_KEY_CHECKS = 1;');
 
     if FConnection.TransactionActive then
       FConnection.Commit;

@@ -68,7 +68,7 @@ type
     function SwaggerSchema(AddExamples: Boolean): TJSONObject; override;
     function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
     function Add(AModel: TDeltaModel): Integer;
-    function Count: Integer;
+    function Count: Integer; override;
     function GetItem(AIndex: Integer): TDeltaModel;
     property Items[AIndex: Integer]: TDeltaModel read GetItem; default;
 
@@ -97,14 +97,21 @@ var
   I, PropCount: integer;
   PropObj: TObject;
   PropClass: TClass;
+  DeltaField: TDeltaField;
 begin
   PropCount := GetPropList(Self.ClassInfo, tkProperties, nil);
+
+  if PropCount = 0 then Exit;
+
   GetMem(PropList, PropCount * SizeOf(Pointer));
   try
     GetPropList(Self.ClassInfo, tkProperties, PropList);
     for I := 0 to PropCount - 1 do
     begin
       PropInfo := PropList^[I];
+
+      if PropInfo^.SetProc = nil then Continue;
+
       PropType := PropInfo^.PropType;
 
       if (PropType^.Kind = tkClass) then
@@ -117,18 +124,21 @@ begin
 
           if (PropObj = nil) then
           begin
-            PropObj := PropClass.Create;
-            (PropObj as TDeltaField).FieldName := PropInfo^.Name;
-            (PropObj as TDeltaField).Visible   := True;
+            PropObj := TDeltaFieldClass(PropClass).Create;
+
+            DeltaField := TDeltaField(PropObj);
+
+            DeltaField.FieldName := PropInfo^.Name;
+            DeltaField.Visible   := True;
 
             SetObjectProp(Self, PropInfo, PropObj);
-
-            FFieldList.Add(PropObj as TDeltaField);
+            FFieldList.Add(DeltaField);
           end
           else
           begin
-             if FFieldList.IndexOf(PropObj as TDeltaField) < 0 then
-               FFieldList.Add(PropObj as TDeltaField);
+            DeltaField := TDeltaField(PropObj);
+            if FFieldList.IndexOf(DeltaField) < 0 then
+              FFieldList.Add(DeltaField);
           end;
         end;
       end;
@@ -203,6 +213,10 @@ begin
     begin
       Continue;
     end;
+
+    // Chave primária auto-incremento não preenchida será gerada pelo banco
+    if (dboAutoInc in Field.DBOptions) and Field.IsNull then
+      Continue;
 
     Req := (Field as TDeltaFieldRequired);
 

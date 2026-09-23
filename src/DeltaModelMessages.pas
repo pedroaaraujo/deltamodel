@@ -11,6 +11,8 @@ resourcestring
   //Validator
   ValidationFailedForField = 'Validation failed for field %s: %s';
   ValueCannotBeEmpty = 'Value cannot be empty.';
+  MinimumLength = 'Minimum length: %d characters.';
+  MaximumLength = 'Maximum length: %d characters.';
   MinimumLenght = 'Minimum length: %d characters.';
   MaximumLenght = 'Maximum length: %d characters.';
   ValueDoesNotMatchREGEX = 'Value does not match the expected pattern.';

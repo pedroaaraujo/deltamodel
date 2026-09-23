@@ -243,10 +243,14 @@ begin
   // Booleano
   if (VType = varBoolean) then
   begin
-    if Boolean(AValue) then
-      Exit('TRUE')
+    case ADialect of
+      ddMSSQL, ddOracle, ddSQLite, ddMySQL:
+      begin
+        if Boolean(AValue) then Exit('1') else Exit('0');
+      end;
     else
-      Exit('FALSE');
+      if Boolean(AValue) then Exit('TRUE') else Exit('FALSE');
+    end;
   end;
 
   // Inteiros

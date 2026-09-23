@@ -5,7 +5,7 @@ unit DeltaModel.ORM.DML;
 interface
 
 uses
-  Classes, SysUtils, DB, SQLDB, Variants, TypInfo,
+  Classes, SysUtils, DB, SQLDB, Variants, TypInfo, fpjson,
   DeltaModel, DeltaValidator, DeltaModel.Fields, DeltaModel.ORM.Types,
   DeltaModel.SQLBuilder, DeltaModel.ORM.Interfaces, DeltaModel.DataSetConverter;
 
@@ -70,6 +70,8 @@ type
     function Count: Int64;
     function Exists: Boolean;
     function Delete: Boolean;
+
+    function AsJsonString: RawByteString;
 
     procedure Clear;
   end;
@@ -236,7 +238,10 @@ end;
 
 function TQuery.Where(const Value: string): TQuery;
 begin
-  Result := Filter(Value);
+  if FFilter.IsEmpty then
+    Result := Filter(Value)
+  else
+    Result := AndWhere(Value);
 end;
 
 function TQuery.Where(const AField: string; const AValue: Variant): TQuery;
@@ -426,13 +431,24 @@ begin
   end;
 end;
 
-function TQuery.All(ALimit: Integer; AOffset: Integer): TDeltaModelList;
+type
+  TFieldMap = record
+    PropInfo: PPropInfo;
+    Field: TField;
+    DataType: TTypeKind;
+  end;
+
+function TQuery.All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelList;
 var
-  ObjTemp, Obj: TDeltaModel;
+  Obj, ObjTemp: TDeltaModel;
   DS: TSQLQuery;
   SQLBuilder: TDMSQLBuilder;
+  Map: array of TFieldMap;
+  PropList: PPropList;
+  PropCount, I, MapCount: Integer;
   EffLimit, EffOffset: Integer;
-  I: Integer;
+  F: TField;
+  NestedObj: TObject;
 begin
   if FModelClass = nil then
     raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
@@ -442,12 +458,13 @@ begin
   EffOffset := AOffset;
   if EffOffset = -1 then EffOffset := FOffset;
 
+  Result := TDeltaModelList.Create;
+  Result.DeltaModelClass := FModelClass;
+
   ObjTemp := FModelClass.Create;
   DS := FConn.NewDataset;
   SQLBuilder := TDMSQLBuilder.Create(ObjTemp, FConn.Dialect);
-  Result := TDeltaModelList.Create;
   try
-    Result.DeltaModelClass := FModelClass;
     SQLBuilder.TableAlias(FTableAlias);
     for I := 0 to FJoins.Count - 1 do
       SQLBuilder.Join(FJoins[I]);
@@ -465,17 +482,79 @@ begin
       .OrderBy(FOrderBy)
       .Build;
     BindParams(DS);
+
+    DS.UniDirectional := False;
+    DS.PacketRecords := -1;
     DS.Open;
-    if not DS.IsEmpty then
+
+    if DS.IsEmpty then
     begin
-      DS.First;
-      while not DS.EOF do
-      begin
-        Obj := FModelClass.Create;
-        FromDataSet(Obj, DS);
-        Result.Records.Add(Obj);
-        DS.Next;
+      DS.Close;
+      Exit;
+    end;
+
+    PropCount := GetPropList(ObjTemp.ClassInfo, tkProperties, nil);
+    if PropCount > 0 then
+    begin
+      GetMem(PropList, PropCount * SizeOf(Pointer));
+      try
+        GetPropList(ObjTemp.ClassInfo, tkProperties, PropList, False);
+        SetLength(Map, PropCount);
+        MapCount := 0;
+
+        for I := 0 to PropCount - 1 do
+        begin
+          if PropList^[I]^.SetProc = nil then Continue;
+
+          F := DS.FindField(PropList^[I]^.Name);
+          if F <> nil then
+          begin
+            Map[MapCount].PropInfo := PropList^[I];
+            Map[MapCount].Field := F;
+            Map[MapCount].DataType := PropList^[I]^.PropType^.Kind;
+            Inc(MapCount);
+          end;
+        end;
+        SetLength(Map, MapCount);
+      finally
+        FreeMem(PropList, PropCount * SizeOf(Pointer));
       end;
+    end;
+
+    while not DS.EOF do
+    begin
+      Obj := FModelClass.Create;
+
+      for I := 0 to High(Map) do
+      begin
+        if Map[I].Field.IsNull then Continue;
+
+        case Map[I].DataType of
+          tkInteger, tkInt64:
+            SetOrdProp(Obj, Map[I].PropInfo, Map[I].Field.AsLargeInt);
+
+          tkString, tkLString, tkAString, tkWString, tkUString:
+            SetStrProp(Obj, Map[I].PropInfo, Map[I].Field.AsString);
+
+          tkFloat:
+            SetFloatProp(Obj, Map[I].PropInfo, Map[I].Field.AsFloat);
+
+          tkBool:
+            SetOrdProp(Obj, Map[I].PropInfo, Ord(Map[I].Field.AsBoolean));
+
+          tkClass:
+          begin
+            NestedObj := GetObjectProp(Obj, Map[I].PropInfo);
+            if (NestedObj <> nil) and (NestedObj is TDeltaField) then
+            begin
+              (NestedObj as TDeltaField).Value := Map[I].Field.AsVariant;
+            end;
+          end;
+        end;
+      end;
+
+      Result.Records.Add(Obj);
+      DS.Next;
     end;
     DS.Close;
   finally
@@ -592,6 +671,170 @@ begin
   finally
     ObjTemp.Free;
     DS.Free;
+  end;
+end;
+
+function FastJSONEscape(const S: string): string;
+const
+  HexDigits: array[0..15] of Char = '0123456789abcdef';
+var
+  P, PEnd: PChar;
+  Res: PChar;
+  Len: Integer;
+begin
+  if S = '' then Exit('""');
+
+  SetLength(Result, Length(S) * 6 + 2);
+  Res := PChar(Result);
+  Res^ := '"'; Inc(Res);
+
+  P := PChar(S);
+  PEnd := P + Length(S);
+
+  while P < PEnd do
+  begin
+    case P^ of
+      '"', '\':
+        begin
+          Res^ := '\'; Inc(Res);
+          Res^ := P^;  Inc(Res);
+        end;
+      #8:  begin Res^ := '\'; Inc(Res); Res^ := 'b'; Inc(Res); end;
+      #9:  begin Res^ := '\'; Inc(Res); Res^ := 't'; Inc(Res); end;
+      #10: begin Res^ := '\'; Inc(Res); Res^ := 'n'; Inc(Res); end;
+      #12: begin Res^ := '\'; Inc(Res); Res^ := 'f'; Inc(Res); end;
+      #13: begin Res^ := '\'; Inc(Res); Res^ := 'r'; Inc(Res); end;
+    else
+      if Byte(P^) >= 32 then
+      begin
+        Res^ := P^;
+        Inc(Res);
+      end
+      else
+      begin
+        Res^ := '\'; Inc(Res);
+        Res^ := 'u'; Inc(Res);
+        Res^ := '0'; Inc(Res);
+        Res^ := '0'; Inc(Res);
+        Res^ := HexDigits[Byte(P^) shr 4]; Inc(Res);
+        Res^ := HexDigits[Byte(P^) and $F]; Inc(Res);
+      end;
+    end;
+    Inc(P);
+  end;
+
+  Res^ := '"'; Inc(Res);
+  Len := (PtrUInt(Res) - PtrUInt(PChar(Result)));
+  SetLength(Result, Len);
+end;
+
+function TQuery.AsJsonString: RawByteString;
+type
+  TFieldCache = record
+    Field: TField;
+    DataType: TFieldType;
+    JSONKey: string;
+  end;
+var
+  DS: TSQLQuery;
+  SQLBuilder: TDMSQLBuilder;
+  SB: TStringBuilder;
+  I, FCnt: Integer;
+  StrValue: string;
+  FieldsCache: array of TFieldCache;
+  Obj: TDeltaModel;
+begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery.');
+
+  Obj := FModelClass.Create;
+  DS := FConn.NewDataset;
+  SQLBuilder := TDMSQLBuilder.Create(Obj, FConn.Dialect);
+  SB := TStringBuilder.Create;
+  try
+    SQLBuilder.TableAlias(FTableAlias);
+    for I := 0 to FJoins.Count - 1 do
+      SQLBuilder.Join(FJoins[I]);
+
+    if not FSelectFields.IsEmpty then
+      SQLBuilder.Select(FSelectFields)
+    else
+      SQLBuilder.Select;
+
+    DS.SQL.Text := SQLBuilder
+      .Limit(FLimit)
+      .Offset(FOffset)
+      .Where(FFilter)
+      .OrderBy(FOrderBy)
+      .Build;
+
+    BindParams(DS);
+
+    DS.PacketRecords := -1;
+    DS.UniDirectional := False;
+    DS.Open;
+
+    FCnt := DS.FieldCount;
+    SetLength(FieldsCache, FCnt);
+    for I := 0 to FCnt - 1 do
+    begin
+      FieldsCache[I].Field := DS.Fields[I];
+      FieldsCache[I].DataType := DS.Fields[I].DataType;
+
+      if I = 0 then
+        FieldsCache[I].JSONKey := '"' + DS.Fields[I].FieldName + '":'
+      else
+        FieldsCache[I].JSONKey := ',"' + DS.Fields[I].FieldName + '":';
+    end;
+
+    SB.Capacity := 1024 * 1024;
+
+    SB.Append('[');
+    while not DS.EOF do
+    begin
+      if SB.Length > 1 then SB.Append(',');
+
+      SB.Append('{');
+
+      for I := 0 to FCnt - 1 do
+      begin
+        SB.Append(FieldsCache[I].JSONKey);
+
+        if FieldsCache[I].Field.IsNull then
+          SB.Append('null')
+        else
+        begin
+          case FieldsCache[I].DataType of
+            ftSmallint, ftInteger, ftWord, ftLargeint, ftAutoInc:
+              SB.Append(FieldsCache[I].Field.AsLargeInt);
+
+            ftFloat, ftCurrency, ftBCD, ftFMTBcd:
+              begin
+                StrValue := FloatToStrF(FieldsCache[I].Field.AsFloat, ffFixed, 18, 4, DefaultFormatSettings);
+                StrValue := StringReplace(StrValue, ',', '.', [rfReplaceAll]);
+                SB.Append(StrValue);
+              end;
+
+            ftBoolean:
+              if FieldsCache[I].Field.AsBoolean then SB.Append('true') else SB.Append('false');
+
+          else
+            SB.Append(FastJSONEscape(FieldsCache[I].Field.AsString));
+          end;
+        end;
+      end;
+
+      SB.Append('}');
+      DS.Next;
+    end;
+    SB.Append(']');
+
+    Result := SB.ToString;
+  finally
+    DS.Free;
+    SQLBuilder.Free;
+    SB.Free;
+    Obj.Free;
   end;
 end;
 
@@ -845,12 +1088,16 @@ class function TInsert.BulkInsertObjects(AConn: IDeltaORMEngine;
   AModels: array of TDeltaModel; ABatchSize: Integer = 500): Integer;
 var
   DS: TSQLQuery;
-  I, TotalCount, RowsAff: Integer;
+  I, J, TotalCount, BatchEnd, CurrentBatchSize: Integer;
+  BatchModels: array of TDeltaModel;
   OwnsTransaction: Boolean;
 begin
   Result := 0;
   TotalCount := Length(AModels);
   if TotalCount = 0 then Exit;
+
+  if ABatchSize <= 0 then
+    ABatchSize := 500;
 
   for I := 0 to TotalCount - 1 do
   begin
@@ -868,26 +1115,35 @@ begin
     AConn.StartTransaction;
 
   try
-    DS := AConn.NewDataset;
-    try
-      DS.SQL.Text := TDMSQLBuilder.CreateInsert(AModels[0], AConn.Dialect);
+    I := 0;
+    while I < TotalCount do
+    begin
+      BatchEnd := I + ABatchSize - 1;
+      if BatchEnd >= TotalCount then
+        BatchEnd := TotalCount - 1;
+      CurrentBatchSize := BatchEnd - I + 1;
 
-      DS.Prepare;
+      SetLength(BatchModels, CurrentBatchSize);
+      for J := 0 to CurrentBatchSize - 1 do
+        BatchModels[J] := AModels[I + J];
 
-      for I := 0 to TotalCount - 1 do
-      begin
-        ToDatasetParams(AModels[I], DS);
+      DS := AConn.NewDataset;
+      try
+        DS.SQL.Text := TDMSQLBuilder.CreateBulkInsert(BatchModels, AConn.Dialect);
+
+        for J := 0 to CurrentBatchSize - 1 do
+          ToDatasetParamsIndexed(BatchModels[J], DS, J);
+
         DS.ExecSQL;
+        Result := Result + CurrentBatchSize;
 
-        RowsAff := DS.RowsAffected;
-        if RowsAff <= 0 then
-          RowsAff := 1;
-
-        Result := Result + RowsAff;
-        AModels[I].AfterInsert;
+        for J := 0 to CurrentBatchSize - 1 do
+          BatchModels[J].AfterInsert;
+      finally
+        DS.Free;
       end;
-    finally
-      DS.Free;
+
+      I := BatchEnd + 1;
     end;
 
     if OwnsTransaction then

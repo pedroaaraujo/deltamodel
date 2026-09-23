@@ -37,7 +37,7 @@ type
     procedure InTransaction(AProc: TDeltaTransactionProc); overload;
     procedure InTransaction(AProc: TDeltaTransactionStaticProc); overload;
     procedure Disconnect;
-    procedure Disconect; // Para retrocompatibilidade de escrita
+    //procedure Disconect; // Para retrocompatibilidade de escrita
 
     function ExecuteQuery(const ASQL: string): TDataSet;
     procedure ExecuteDirect(const ASQL: string);
@@ -237,10 +237,10 @@ begin
     FConnection.Close(True);
 end;
 
-procedure TDeltaORMEngine.Disconect;
-begin
-  Disconnect;
-end;
+//procedure TDeltaORMEngine.Disconect;
+//begin
+//  Disconnect;
+//end;
 
 function TDeltaORMEngine.ExecuteQuery(const ASQL: string): TDataSet;
 var

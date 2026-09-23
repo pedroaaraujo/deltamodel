@@ -8,7 +8,7 @@
 **DeltaModel** é um microframework leve, moderno e extensível para **Lazarus / Free Pascal (FPC)** que reúne em uma única biblioteca:
 
 - 🧱 **Modelagem de Dados**: Campos fortemente tipados com controle explícito de nulabilidade (`Null` vs `Required`).
-- ✅ **Motor de Validação Fluente**: Validação de CPF, CNPJ, E-mail, URL, Ranges, Regex e regras de negócio personalizadas.
+- ✅ **Motor de Validação Fluente**: Validação de CPF, CNPJ (numérico e alfanumérico - padrão RFB), E-mail, URL, Ranges, Regex e regras de negócio personalizadas.
 - 🔄 **Serialização JSON**: Conversão bidirecional entre Objetos/Listas e JSON (`ToJson`, `FromJson`), com suporte a objetos aninhados.
 - 📋 **OpenAPI / Swagger Schemas**: Geração automática de esquemas compatíveis com OpenAPI 3.0 para documentação de APIs.
 - 🗄️ **Micro-ORM Multi-SGDB**:
@@ -70,7 +70,7 @@ begin
 
 ## ⚡ Pool de Conexões (High Performance & Multithread)
 
-Para APIs web (ex: Horse, Brook) e daemons com múltiplas threads concorrentes, o DeltaModel disponibiliza um pool de conexões thread-safe de alta performance na unit [`DeltaModel.ORM.Pool`](file:///home/araujo/Desenvolvimento/Source/deltamodel/src/DeltaModel.ORM.Pool.pas).
+Para APIs web e daemons com múltiplas threads concorrentes, o DeltaModel disponibiliza um pool de conexões thread-safe de alta performance na unit [`DeltaModel.ORM.Pool`].
 
 ### Principais Vantagens:
 - **Zero Handshake Latency**: Conexões pré-aquecidas (`MinConnections`) prontas para uso.
@@ -457,6 +457,46 @@ begin
   // Esquema para array de objetos
   ArraySchema := TPerson.SwaggerSchema(True);
 end;
+```
+
+---
+
+## 🧪 Suíte de Testes Automatizados
+
+O DeltaModel possui uma cobertura abrangente de testes automatizados unitários e de integração, garantindo alta estabilidade, precisão de tipos e performance:
+
+- **`tests/test_suite.lpr`**: Suíte consolidada com **138 testes unitários (100% aprovados)** cobrindo:
+  - **Connection URL Parser** (SQLite memória/arquivo/relativo, PostgreSQL, MySQL, Firebird).
+  - **Motor de Validação** (CPF e CNPJ numérico/alfanumérico com/sem máscara e dígitos inválidos, E-mail, UTF-8 multibyte, Between, GreaterThan, etc.).
+  - **Serialização & Precisão Numérica** (JSON com escape de aspas, UTF-8, integridade de `Int64` sem truncamento, CSV tipado, `Clone`).
+  - **Geração de OpenAPI 3.0 / Swagger Schema**.
+  - **Geração de DDL Multi-Dialeto** (SQLite, PostgreSQL, Firebird, Oracle, MSSQL).
+  - **Ciclo de Vida & Hooks** (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, `AfterUpdate`, `BeforeSave`, `AfterSave`, `BeforeDelete`, `AfterDelete` e tratamento de exceções).
+  - **ORM CRUD, Query Builder & Transações** (`Where`, `WhereBetween`, `WhereIn`, `Limit`, `Offset`, `AsJsonString`, rollback automático e `InTransaction`).
+- **`tests/test_pool.lpr`**: Testes de concorrência multithread do Connection Pool (10 threads simultâneas vs pool de 4 conexões, timeouts, sanitização RAII e métricas).
+- **`tests/test_bulk_insert.lpr`**: Validação de inserção em lote para todos os dialetos suportados.
+
+### Executando os testes via linha de comando:
+
+```bash
+# Compilar e executar a suíte de testes principal
+fpc -B -FEtests -Futests -Fusrc tests/test_suite.lpr
+./tests/test_suite
+
+# Compilar e executar o teste de concorrência do pool
+fpc -B -FEtests -Futests -Fusrc tests/test_pool.lpr
+./tests/test_pool
+```
+
+---
+
+## 📦 Compilação do Pacote Lazarus
+
+O pacote Lazarus está localizado em `deltamodel_pkg.lpk` (nome diferenciado da unit `DeltaModel.pas` para evitar colisões no compilador):
+
+```bash
+# Compilar o pacote Lazarus via lazbuild
+lazbuild --build-all deltamodel_pkg.lpk
 ```
 
 ---

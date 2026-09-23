@@ -16,4 +16,6 @@ backup/
 # Binaries
 project1
 test_pool
+test_bulk_insert
+test_suite
 *.db

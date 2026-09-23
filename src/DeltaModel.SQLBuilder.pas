@@ -194,13 +194,31 @@ begin
         if NestedObj is TDeltaField then
         begin
           Obj := NestedObj as TDeltaField;
-          if Obj.IsNull or not (dboUpdate in Obj.DBOptions) then
-            Continue;
 
-          FFields.Add(QuoteIdentifier(Obj.FieldName));
+          if Obj.IsVirtual then Continue;
+
+          if FCommand = 'INSERT INTO' then
+          begin
+            if Obj.IsNull or (dboAutoInc in Obj.DBOptions) or
+               (not (dboInsert in Obj.DBOptions) and not (dboUpdate in Obj.DBOptions)) then Continue;
+          end
+          else
+          begin
+            if Obj.IsNull or not (dboUpdate in Obj.DBOptions) or (dboPrimaryKey in Obj.DBOptions) then Continue;
+          end;
+
+          if not Obj.FieldName.IsEmpty then
+            FFields.Add(QuoteIdentifier(Obj.FieldName))
+          else
+            FFields.Add(QuoteIdentifier(LowerCase(PropInfo^.Name)));
 
           if UseNamedParams then
-            FValues.Add(':' + Obj.FieldName)
+          begin
+            if not Obj.FieldName.IsEmpty then
+              FValues.Add(':' + Obj.FieldName)
+            else
+              FValues.Add(':' + LowerCase(PropInfo^.Name));
+          end
           else
           if Obj.IsNull then
             FValues.Add('NULL')
@@ -290,7 +308,6 @@ begin
       begin
         if EffOffset < 0 then EffOffset := 0;
 
-        // MSSQL OFFSET-FETCH exige cláusula ORDER BY
         if FOrderBy.IsEmpty then
           Result := ' ORDER BY (SELECT NULL)';
 
@@ -339,6 +356,9 @@ begin
         if NestedObj is TDeltaField then
         begin
           Obj := NestedObj as TDeltaField;
+
+          if Obj.IsVirtual then Continue;
+
           if Obj.IsNull or not (dboPrimaryKey in Obj.DBOptions) then
             Continue;
 
@@ -635,7 +655,6 @@ begin
       vOrderBy := IfThen(FOrderBy <> '', ' ORDER BY ' + FOrderBy, '');
       vLimitOffset := BuildLimitOffset;
 
-      // Se for MSSQL e o BuildLimitOffset adicionou ORDER BY interno, evita duplicação
       if (FDialect = ddMSSQL) and vLimitOffset.StartsWith(' ORDER BY') and (vOrderBy <> '') then
       begin
         vLimitOffset := Copy(vLimitOffset, Length(' ORDER BY (SELECT NULL)') + 1, Length(vLimitOffset));
@@ -704,14 +723,12 @@ begin
     Builder.Insert(UseNamedParams);
     case ADialect of
       ddMSSQL:
-        // Sintaxe MSSQL: INSERT INTO table (fields) OUTPUT INSERTED.* VALUES (values)
         Result := Format('INSERT INTO %s (%s) OUTPUT INSERTED.* VALUES (%s)',
           [Builder.GetTableName, Builder.FieldsToSQL, Builder.ValuesToSQL]);
 
       ddPostgreSQL, ddSQLite, ddFirebird:
         Result := Builder.Build + sLineBreak + 'RETURNING *';
     else
-      // Outros dialetos (MySQL/Oracle): retorna o insert normal
       Result := Builder.Build;
     end;
   finally
@@ -751,7 +768,6 @@ begin
     Builder.Update(UseNamedParams).Where(WherePK);
     case ADialect of
       ddMSSQL:
-        // Sintaxe MSSQL: UPDATE table SET col=val OUTPUT INSERTED.* WHERE ...
         Result := Format('UPDATE %s SET %s OUTPUT INSERTED.*%s',
           [Builder.GetTableName, Builder.FieldAndValuesToSQL, Builder.WhereToSQL]);
 
@@ -833,11 +849,19 @@ begin
         if NestedObj is TDeltaField then
         begin
           Obj := NestedObj as TDeltaField;
-          if not (dboUpdate in Obj.DBOptions) then
+
+          if Obj.IsVirtual then Continue;
+
+          if not ((dboInsert in Obj.DBOptions) or (dboUpdate in Obj.DBOptions)) then
             Continue;
+
           if (dboAutoInc in Obj.DBOptions) and (Obj.IsNull or (VarIsNumeric(Obj.Value) and (Double(Obj.Value) = 0))) then
             Continue;
-          Result.Add(Obj.FieldName);
+
+          if not Obj.FieldName.IsEmpty then
+            Result.Add(Obj.FieldName)
+          else
+            Result.Add(PropInfo^.Name);
         end;
       end
       else
@@ -892,18 +916,16 @@ begin
     for J := 1 to FieldNames.Count - 1 do
       FieldsSQL := FieldsSQL + ', ' + FieldNames[J];
 
-    // Constrói os parâmetros dinâmicos usando memória contígua
     for I := 0 to High(AModels) do
     begin
       if I > 0 then
       begin
         if ADialect in [ddFirebird, ddOracle] then
-          ValuesBuilder.AppendLine // Firebird/Oracle usam uma instrução por linha
+          ValuesBuilder.AppendLine
         else
-          ValuesBuilder.Append(', ');  // Outros bancos separam os grupos por vírgula
+          ValuesBuilder.Append(', ');
       end;
 
-      // Prefixos de acordo com o dialeto
       if ADialect = ddOracle then
         ValuesBuilder.Append('  INTO ').Append(TableName).Append(' (').Append(FieldsSQL).Append(') VALUES (')
       else if ADialect = ddFirebird then
@@ -911,21 +933,18 @@ begin
       else
         ValuesBuilder.Append('(');
 
-      // Sufixos de parâmetros dinâmicos (ex: :nome_0, :nome_1)
       for J := 0 to FieldNames.Count - 1 do
       begin
         if J > 0 then ValuesBuilder.Append(', ');
         ValuesBuilder.Append(':').Append(FieldNames[J]).Append('_').Append(I);
       end;
 
-      // Fechamentos de acordo com o dialeto
       if ADialect = ddFirebird then
         ValuesBuilder.Append(');')
       else
         ValuesBuilder.Append(')');
     end;
 
-    // Montagem final do SQL
     case ADialect of
       ddFirebird:
         Result := 'EXECUTE BLOCK AS' + sLineBreak + 'BEGIN' + sLineBreak +

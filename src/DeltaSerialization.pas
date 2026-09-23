@@ -51,16 +51,17 @@ end;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
 var
-  JsonData: TJSONObject;
+  RawData: TJSONData;
 begin
   if JsonString.Trim.IsEmpty then
     Exit;
 
-  JsonData := TJSONObject(GetJSON(JsonString, False));
+  RawData := GetJSON(JsonString, False);
   try
-    DeserializeObj(Obj, JsonData);
+    if RawData is TJSONObject then
+      DeserializeObj(Obj, TJSONObject(RawData));
   finally
-    JsonData.Free;
+    RawData.Free;
   end;
 end;
 
@@ -96,12 +97,7 @@ begin
       case PropType^.Kind of
         tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
         begin
-          {$IFDEF MSWINDOWS}
-          ValueStr := Utf8ToAnsi(UTF8Encode(PropValue.AsString));
-          {$ELSE}
-          ValueStr := PropValue.AsString;
-          {$ENDIF}
-          SetStrProp(Obj, PropInfo, ValueStr);
+          SetStrProp(Obj, PropInfo, PropValue.AsString);
         end;
 
         tkInteger, tkInt64:
@@ -146,7 +142,14 @@ begin
               else
               begin
                 case PropValue.JSONType of
-                  jtNumber:  (PropObj as TDeltaField).Value := PropValue.AsFloat;
+                  jtNumber:
+                    begin
+                      if (PropObj is TDFIntNull) or (PropObj is TDFIntRequired) or
+                         (PropObj is TDFInt64Null) or (PropObj is TDFInt64Required) then
+                        (PropObj as TDeltaField).Value := PropValue.AsInt64
+                      else
+                        (PropObj as TDeltaField).Value := PropValue.AsFloat;
+                    end;
                   jtString:  (PropObj as TDeltaField).Value := PropValue.AsString;
                   jtBoolean: (PropObj as TDeltaField).Value := PropValue.AsBoolean;
                   jtNull:    (PropObj as TDeltaField).Value := Null;
@@ -269,9 +272,14 @@ begin
                     Continue;
 
                   VariantVal := (NestedObj as TDeltaField).Value;
-                  case VarType(VariantVal) of
-                    varSmallint, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64:
-                      JsonData.Add(PropName, Integer(VariantVal));
+                  case (VarType(VariantVal) and varTypeMask) of
+                    varInt64, varLongWord:
+                      JsonData.Add(PropName, Int64(VariantVal));
+                    varSmallint, varInteger, varShortInt, varByte, varWord:
+                      if (NestedObj is TDFInt64Null) or (NestedObj is TDFInt64Required) then
+                        JsonData.Add(PropName, Int64(VariantVal))
+                      else
+                        JsonData.Add(PropName, Integer(VariantVal));
                     varSingle, varDouble, varCurrency:
                       JsonData.Add(PropName, TDeltaJSONFloat.Create(Double(VariantVal)));
                     varUString, varString, varOleStr:
@@ -529,6 +537,15 @@ begin
                if (NestedObj is TDFDateRequired) or (NestedObj is TDFDateNull) or
                   (NestedObj is TDFDateTimeRequired) or (NestedObj is TDFDateTimeNull) then
                  DateTimeToField(NestedObj as TDeltaField, StrValue)
+               else if (NestedObj is TDFIntNull) or (NestedObj is TDFIntRequired) then
+                 (NestedObj as TDeltaField).Value := StrToIntDef(StrValue, 0)
+               else if (NestedObj is TDFInt64Null) or (NestedObj is TDFInt64Required) then
+                 (NestedObj as TDeltaField).Value := StrToInt64Def(StrValue, 0)
+               else if (NestedObj is TDFDoubleNull) or (NestedObj is TDFDoubleRequired) or
+                       (NestedObj is TDFCurrencyNull) or (NestedObj is TDFCurrencyRequired) then
+                 (NestedObj as TDeltaField).Value := StrToFloatDef(StrValue, 0)
+               else if (NestedObj is TDFBooleanRequired) or (NestedObj is TDFBooleanNull) then
+                 (NestedObj as TDeltaField).Value := (SameText(StrValue, 'T') or SameText(StrValue, 'true') or (StrValue = '1'))
                else
                  (NestedObj as TDeltaField).Value := StrValue;
             end;

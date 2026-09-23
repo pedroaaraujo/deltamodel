@@ -8,25 +8,33 @@ uses
   Classes, SysUtils, DateUtils, Variants, DeltaModelMessages;
 
 type
+  TDBOption = (dboPrimaryKey, dboUpdate, dboAutoInc, dboInsert);
+  TDBOptions = set of TDBOption;
+  TDBOptionsSet = TDBOptions;
 
-  TDBOptions = (dboPrimaryKey, dboUpdate, dboAutoInc);
-  TFKOption = (fkNone, fkCascade, fkSetNull, fkRestrict);
-  TDBOptionsSet = set of TDBOptions;
+  TForeignKeyEvent = (fkNone, fkCascade, fkSetNull, fkRestrict);
+  TFKOption = TForeignKeyEvent;
+
+  TDeltaFieldKind = (dfkInteger, dfkFloat, dfkString, dfkBoolean, dfkDateTime, dfkVirtual);
 
   { TForeignKey }
 
   TForeignKey = class
   private
-    FOnDelete: TFKOption;
-    FOnUpdate: TFKOption;
+    FOnDelete: TForeignKeyEvent;
+    FOnUpdate: TForeignKeyEvent;
     FReferencesField: string;
     FReferencesTable: TClass;
   public
+    procedure References(ATable: TClass; const AField: string = 'id';
+      AOnDelete: TForeignKeyEvent = fkRestrict; AOnUpdate: TForeignKeyEvent = fkCascade);
     property ReferencesTable: TClass read FReferencesTable write FReferencesTable;
     property ReferencesField: string read FReferencesField write FReferencesField;
-    property OnDelete: TFKOption read FOnDelete write FOnDelete;
-    property OnUpdate: TFKOption read FOnUpdate write FOnUpdate;
+    property OnDelete: TForeignKeyEvent read FOnDelete write FOnDelete;
+    property OnUpdate: TForeignKeyEvent read FOnUpdate write FOnUpdate;
   end;
+
+  TRelationConfig = TForeignKey;
 
   { TDeltaField }
 
@@ -36,13 +44,24 @@ type
     FFieldName: string;
     FForeignKey: TForeignKey;
     FVisible: Boolean;
+    FIsVirtual: Boolean;
+    FIsRequired: Boolean;
+    FFieldKind: TDeltaFieldKind;
     procedure SetFieldName(AValue: string);
-    // [Otimização] Método para criar FK apenas sob demanda
     function GetForeignKey: TForeignKey;
   protected
     FValue: Variant;
     function GetValue: Variant; virtual; abstract;
     procedure SetValue(AValue: Variant); virtual; abstract;
+
+    function GetAsLargeInt: Int64; virtual;
+    procedure SetAsLargeInt(const AValue: Int64); virtual;
+    function GetAsFloat: Double; virtual;
+    procedure SetAsFloat(const AValue: Double); virtual;
+    function GetAsBoolean: Boolean; virtual;
+    procedure SetAsBoolean(const AValue: Boolean); virtual;
+    function GetAsDateTime: TDateTime; virtual;
+    procedure SetAsDateTime(const AValue: TDateTime); virtual;
   public
     property Value: Variant read GetValue write SetValue;
     property Visible: Boolean read FVisible write FVisible;
@@ -50,9 +69,16 @@ type
     ///to be used with ORM
     property FieldName: string read FFieldName write SetFieldName;
     property DBOptions: TDBOptionsSet read FDBOptions write FDBOptions;
-
-    // [Otimização] Propriedade agora aciona o getter inteligente
     property ForeignKey: TForeignKey read GetForeignKey;
+    property IsVirtual: Boolean read FIsVirtual write FIsVirtual;
+    property IsRequired: Boolean read FIsRequired write FIsRequired;
+    property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
+
+    // Acesso tipado direto de alta performance
+    property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
+    property AsFloat: Double read GetAsFloat write SetAsFloat;
+    property AsBoolean: Boolean read GetAsBoolean write SetAsBoolean;
+    property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
 
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
@@ -61,9 +87,11 @@ type
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
     function SwaggerFormat: string; virtual;
-    constructor Create;
+    constructor Create; virtual;
     destructor Destroy; override;
   end;
+
+  TDeltaFieldClass = class of TDeltaField;
 
   { TDeltaFieldNullable }
 
@@ -77,7 +105,7 @@ type
     function IsNull: Boolean; override;
     function IsValid: Boolean; override;
     function SwaggerDataType: string; override;
-    constructor Create;
+    constructor Create; override;
   end;
 
   { TDeltaFieldRequired }
@@ -91,7 +119,7 @@ type
     function IsNull: Boolean; override;
     function IsValid: Boolean; override;
     function SwaggerDataType: string; override;
-    constructor Create;
+    constructor Create; override;
   end;
 
   { TDFIntNull }
@@ -100,6 +128,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsInteger: Integer;
     function SwaggerDataType: string; override;
@@ -111,6 +140,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsInt64: Int64;
     function SwaggerDataType: string; override;
@@ -123,11 +153,14 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsFloat: Double;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
+
+  TDFFloatNull = class(TDFDoubleNull);
 
   { TDFCurrencyNull }
 
@@ -135,6 +168,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsCurrency: Currency;
     function SwaggerDataType: string; override;
@@ -148,9 +182,12 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     property Size: Integer read FSize write FSize;
     procedure AfterConstruction; override;
   end;
+
+  TDFTextNull = class(TDFStringNull);
 
   { TDFIntRequired }
 
@@ -158,6 +195,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsInteger: Integer;
     function SwaggerDataType: string; override;
@@ -169,6 +207,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsInt64: Int64;
     function SwaggerDataType: string; override;
@@ -181,11 +220,14 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsFloat: Double;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
+
+  TDFFloatRequired = class(TDFDoubleRequired);
 
   { TDFCurrencyRequired }
 
@@ -193,6 +235,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function AsCurrency: Currency;
     function SwaggerDataType: string; override;
@@ -206,9 +249,12 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     property Size: Integer read FSize write FSize;
     procedure AfterConstruction; override;
   end;
+
+  TDFTextRequired = class(TDFStringRequired);
 
   { TDFDateNull }
 
@@ -216,6 +262,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -227,6 +274,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -238,6 +286,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -249,6 +298,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -260,6 +310,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -271,6 +322,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsString: string; override;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
@@ -282,6 +334,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
@@ -293,10 +346,15 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    constructor Create; override;
     function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
   end;
+
+  { Convenient aliases }
+  TDFBoolRequired = TDFBooleanRequired;
+  TDFBoolNull = TDFBooleanNull;
 
   { TDFUUIDNull }
 
@@ -314,6 +372,32 @@ type
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
     function IsValid: Boolean; override;
+  end;
+
+  { TDFForeignKey }
+
+  TDFForeignKey = class(TDFInt64Null)
+  public
+    procedure References(ATable: TClass; const AField: string = 'id';
+      AOnDelete: TForeignKeyEvent = fkRestrict; AOnUpdate: TForeignKeyEvent = fkCascade);
+  end;
+
+  { TDFHasMany }
+
+  TDFHasMany = class(TDeltaField)
+  private
+    FRelationClass: TClass;
+  protected
+    function GetValue: Variant; override;
+    procedure SetValue(AValue: Variant); override;
+  public
+    constructor Create; override;
+    procedure References(ARelationClass: TClass);
+    function IsNull: Boolean; override;
+    function IsValid: Boolean; override;
+    function SwaggerDataType: string; override;
+    procedure Clear; override;
+    property RelationClass: TClass read FRelationClass;
   end;
 
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
@@ -353,6 +437,17 @@ begin
   AField.Value := ISO8601ToDateDef(DateTime, 0);
 end;
 
+{ TForeignKey }
+
+procedure TForeignKey.References(ATable: TClass; const AField: string;
+  AOnDelete: TForeignKeyEvent; AOnUpdate: TForeignKeyEvent);
+begin
+  FReferencesTable := ATable;
+  FReferencesField := AField;
+  FOnDelete := AOnDelete;
+  FOnUpdate := AOnUpdate;
+end;
+
 { TDeltaField }
 
 procedure TDeltaField.SetFieldName(AValue: string);
@@ -371,7 +466,7 @@ end;
 procedure TDeltaField.AfterConstruction;
 begin
   inherited AfterConstruction;
-  DBOptions := [dboUpdate];
+  FDBOptions := [dboInsert, dboUpdate];
 end;
 
 function TDeltaField.AsString: string;
@@ -386,15 +481,63 @@ end;
 
 constructor TDeltaField.Create;
 begin
-  inherited;
+  inherited Create;
   FValue := Null;
   FVisible := True;
+  FIsVirtual := False;
+  FIsRequired := False;
+  FFieldKind := dfkString;
+  FDBOptions := [dboInsert, dboUpdate];
 end;
 
 destructor TDeltaField.Destroy;
 begin
   FForeignKey.Free;
   inherited Destroy;
+end;
+
+function TDeltaField.GetAsLargeInt: Int64;
+begin
+  if IsNull then Result := 0
+  else Result := Int64(FValue);
+end;
+
+procedure TDeltaField.SetAsLargeInt(const AValue: Int64);
+begin
+  SetValue(AValue);
+end;
+
+function TDeltaField.GetAsFloat: Double;
+begin
+  if IsNull then Result := 0.0
+  else Result := Double(FValue);
+end;
+
+procedure TDeltaField.SetAsFloat(const AValue: Double);
+begin
+  SetValue(AValue);
+end;
+
+function TDeltaField.GetAsBoolean: Boolean;
+begin
+  if IsNull then Result := False
+  else Result := Boolean(FValue);
+end;
+
+procedure TDeltaField.SetAsBoolean(const AValue: Boolean);
+begin
+  SetValue(AValue);
+end;
+
+function TDeltaField.GetAsDateTime: TDateTime;
+begin
+  if IsNull then Result := 0
+  else Result := VarToDateTime(FValue);
+end;
+
+procedure TDeltaField.SetAsDateTime(const AValue: TDateTime);
+begin
+  SetValue(AValue);
 end;
 
 { TDeltaFieldNullable }
@@ -421,6 +564,7 @@ procedure TDeltaFieldNullable.AfterConstruction;
 begin
   inherited AfterConstruction;
   Self.Clear;
+  FIsRequired := False;
 end;
 
 function TDeltaFieldNullable.IsNull: Boolean;
@@ -440,7 +584,8 @@ end;
 
 constructor TDeltaFieldNullable.Create;
 begin
-  inherited;
+  inherited Create;
+  FIsRequired := False;
   Self.AfterConstruction;
 end;
 
@@ -481,11 +626,18 @@ end;
 
 constructor TDeltaFieldRequired.Create;
 begin
-  inherited;
+  inherited Create;
+  FIsRequired := True;
   Self.AfterConstruction;
 end;
 
 { TDFIntNull }
+
+constructor TDFIntNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkInteger;
+end;
 
 procedure TDFIntNull.SetValue(AValue: Variant);
 begin
@@ -496,7 +648,8 @@ end;
 
 function TDFIntNull.AsString: string;
 begin
-  Result := StrToIntDef(inherited AsString, 0).ToString;
+  if IsNull then Result := ''
+  else Result := IntToStr(Integer(FValue));
 end;
 
 function TDFIntNull.AsInteger: Integer;
@@ -514,6 +667,12 @@ end;
 
 { TDFInt64Null }
 
+constructor TDFInt64Null.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkInteger;
+end;
+
 procedure TDFInt64Null.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -523,7 +682,7 @@ end;
 
 function TDFInt64Null.AsString: string;
 begin
-  if IsNull then Result := '0'
+  if IsNull then Result := ''
   else Result := IntToStr(Int64(FValue));
 end;
 
@@ -545,6 +704,12 @@ end;
 
 { TDFDoubleNull }
 
+constructor TDFDoubleNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkFloat;
+end;
+
 procedure TDFDoubleNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -554,7 +719,8 @@ end;
 
 function TDFDoubleNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
+  if IsNull then Result := ''
+  else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
 end;
 
 function TDFDoubleNull.AsFloat: Double;
@@ -575,6 +741,12 @@ end;
 
 { TDFCurrencyNull }
 
+constructor TDFCurrencyNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkFloat;
+end;
+
 procedure TDFCurrencyNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -584,7 +756,8 @@ end;
 
 function TDFCurrencyNull.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
+  if IsNull then Result := ''
+  else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
 end;
 
 function TDFCurrencyNull.AsCurrency: Currency;
@@ -600,6 +773,13 @@ end;
 
 { TDFStringNull }
 
+constructor TDFStringNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkString;
+  FSize := DEFAULT_STR_SIZE;
+end;
+
 procedure TDFStringNull.SetValue(AValue: Variant);
 var
   TmpStr: string;
@@ -608,7 +788,7 @@ begin
   if not VarIsNull(AValue) then
   begin
     TmpStr := string(AValue);
-    if Length(TmpStr) > Self.FSize then
+    if (Self.FSize > 0) and (Length(TmpStr) > Self.FSize) then
       TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
     Self.FValue := TmpStr;
   end;
@@ -622,6 +802,12 @@ end;
 
 { TDFIntRequired }
 
+constructor TDFIntRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkInteger;
+end;
+
 procedure TDFIntRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -631,7 +817,8 @@ end;
 
 function TDFIntRequired.AsString: string;
 begin
-  Result := StrToIntDef(inherited AsString, 0).ToString;
+  if IsNull then Result := '0'
+  else Result := IntToStr(Integer(FValue));
 end;
 
 function TDFIntRequired.AsInteger: Integer;
@@ -646,6 +833,12 @@ begin
 end;
 
 { TDFInt64Required }
+
+constructor TDFInt64Required.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkInteger;
+end;
 
 procedure TDFInt64Required.SetValue(AValue: Variant);
 begin
@@ -678,6 +871,12 @@ end;
 
 { TDFDoubleRequired }
 
+constructor TDFDoubleRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkFloat;
+end;
+
 procedure TDFDoubleRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -687,7 +886,8 @@ end;
 
 function TDFDoubleRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
+  if IsNull then Result := '0'
+  else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
 end;
 
 function TDFDoubleRequired.AsFloat: Double;
@@ -708,6 +908,12 @@ end;
 
 { TDFCurrencyRequired }
 
+constructor TDFCurrencyRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkFloat;
+end;
+
 procedure TDFCurrencyRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -717,7 +923,8 @@ end;
 
 function TDFCurrencyRequired.AsString: string;
 begin
-  Result := FloatToStr(StrToFloatDef(inherited AsString, 0), GlobalDeltaFS);
+  if IsNull then Result := '0'
+  else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
 end;
 
 function TDFCurrencyRequired.AsCurrency: Currency;
@@ -733,6 +940,13 @@ end;
 
 { TDFStringRequired }
 
+constructor TDFStringRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkString;
+  FSize := DEFAULT_STR_SIZE;
+end;
+
 procedure TDFStringRequired.SetValue(AValue: Variant);
 var
   TmpStr: string;
@@ -741,7 +955,7 @@ begin
   if not VarIsNull(AValue) then
   begin
     TmpStr := string(AValue);
-    if Length(TmpStr) > Self.FSize then
+    if (Self.FSize > 0) and (Length(TmpStr) > Self.FSize) then
       TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
     Self.FValue := TmpStr;
   end;
@@ -754,6 +968,12 @@ begin
 end;
 
 { TDFDateNull }
+
+constructor TDFDateNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
 
 procedure TDFDateNull.SetValue(AValue: Variant);
 begin
@@ -779,6 +999,12 @@ begin
 end;
 
 { TDFTimeNull }
+
+constructor TDFTimeNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
 
 procedure TDFTimeNull.SetValue(AValue: Variant);
 begin
@@ -806,6 +1032,12 @@ end;
 
 { TDFDateTimeNull }
 
+constructor TDFDateTimeNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
+
 procedure TDFDateTimeNull.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -831,6 +1063,12 @@ end;
 
 { TDFDateRequired }
 
+constructor TDFDateRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
+
 procedure TDFDateRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -852,6 +1090,12 @@ begin
 end;
 
 { TDFTimeRequired }
+
+constructor TDFTimeRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
 
 procedure TDFTimeRequired.SetValue(AValue: Variant);
 begin
@@ -875,6 +1119,12 @@ end;
 
 { TDFDateTimeRequired }
 
+constructor TDFDateTimeRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkDateTime;
+end;
+
 procedure TDFDateTimeRequired.SetValue(AValue: Variant);
 begin
   inherited SetValue(AValue);
@@ -897,10 +1147,25 @@ end;
 
 { TDFBooleanRequired }
 
+constructor TDFBooleanRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkBoolean;
+end;
+
 procedure TDFBooleanRequired.SetValue(AValue: Variant);
+var
+  S: string;
 begin
   if VarIsNull(AValue) then
     inherited SetValue(AValue)
+  else if VarIsNumeric(AValue) then
+    inherited SetValue(AValue <> 0)
+  else if VarIsStr(AValue) then
+  begin
+    S := UpperCase(Trim(string(AValue)));
+    inherited SetValue((S = 'TRUE') or (S = 'T') or (S = '1') or (S = 'Y') or (S = 'S'));
+  end
   else
     inherited SetValue(Boolean(AValue));
 end;
@@ -924,9 +1189,27 @@ end;
 
 { TDFBooleanNull }
 
-procedure TDFBooleanNull.SetValue(AValue: Variant);
+constructor TDFBooleanNull.Create;
 begin
-  inherited SetValue(AValue);
+  inherited Create;
+  FFieldKind := dfkBoolean;
+end;
+
+procedure TDFBooleanNull.SetValue(AValue: Variant);
+var
+  S: string;
+begin
+  if VarIsNull(AValue) then
+    inherited SetValue(AValue)
+  else if VarIsNumeric(AValue) then
+    inherited SetValue(AValue <> 0)
+  else if VarIsStr(AValue) then
+  begin
+    S := UpperCase(Trim(string(AValue)));
+    inherited SetValue((S = 'TRUE') or (S = 'T') or (S = '1') or (S = 'Y') or (S = 'S'));
+  end
+  else
+    inherited SetValue(Boolean(AValue));
 end;
 
 function TDFBooleanNull.AsBoolean: Boolean;
@@ -982,6 +1265,57 @@ end;
 function TDFUUIDRequired.IsValid: Boolean;
 begin
   Result := (not IsNull) and IsValidUUID(AsString);
+end;
+
+{ TDFForeignKey }
+
+procedure TDFForeignKey.References(ATable: TClass; const AField: string;
+  AOnDelete: TForeignKeyEvent; AOnUpdate: TForeignKeyEvent);
+begin
+  ForeignKey.References(ATable, AField, AOnDelete, AOnUpdate);
+end;
+
+{ TDFHasMany }
+
+constructor TDFHasMany.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkVirtual;
+  FIsVirtual := True;
+end;
+
+procedure TDFHasMany.References(ARelationClass: TClass);
+begin
+  FRelationClass := ARelationClass;
+end;
+
+function TDFHasMany.GetValue: Variant;
+begin
+  Result := Null;
+end;
+
+procedure TDFHasMany.SetValue(AValue: Variant);
+begin
+  // Campos virtuais não gravam valor escalar
+end;
+
+function TDFHasMany.IsNull: Boolean;
+begin
+  Result := True;
+end;
+
+function TDFHasMany.IsValid: Boolean;
+begin
+  Result := True;
+end;
+
+function TDFHasMany.SwaggerDataType: string;
+begin
+  Result := 'array';
+end;
+
+procedure TDFHasMany.Clear;
+begin
 end;
 
 initialization

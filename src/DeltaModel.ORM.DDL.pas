@@ -66,12 +66,10 @@ begin
   if (DeltaField is TDFCurrencyNull) or (DeltaField is TDFCurrencyRequired) then
   begin
     case ADialect of
-      ddMySQL, ddMSSQL, ddOracle:
+      ddMySQL, ddMSSQL, ddOracle, ddPostgreSQL, ddFirebird:
         SQLType := 'DECIMAL(18,4)';
       ddSQLite:
         SQLType := 'REAL';
-      ddFirebird, ddPostgreSQL:
-        SQLType := 'DOUBLE PRECISION';
     end;
   end
   else
@@ -151,7 +149,20 @@ begin
     end;
   end
   else
-  // String
+  // Text (CLOB / BLOB SUB_TYPE TEXT / VARCHAR(MAX) / TEXT)
+  // Nota: Deve vir antes de TDFString porque TDFText herda de TDFString
+  if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+  begin
+    case ADialect of
+      ddOracle: SQLType := 'CLOB';
+      ddFirebird: SQLType := 'BLOB SUB_TYPE TEXT';
+      ddMSSQL: SQLType := 'VARCHAR(MAX)';
+    else
+      SQLType := 'TEXT';
+    end;
+  end
+  else
+  // String com tamanho
   if (DeltaField is TDFStringNull) or (DeltaField is TDFStringRequired) then
   begin
     if (DeltaField is TDFStringNull) then
@@ -223,23 +234,11 @@ class function TDDLBuilder.ForeignKeyDDL(const Table: string; DeltaField: TDelta
 var
   FKName, RefTable, RefField: string;
   OnDeleteClause, OnUpdateClause: string;
-  Obj: TObject;
 begin
-  if ADialect in [ddSQLite] then
-  begin
-    // SQLite não suporta ALTER TABLE ADD CONSTRAINT FOREIGN KEY
-    Exit('');
-  end;
-
   RefField := DeltaField.ForeignKey.ReferencesField;
   if DeltaField.ForeignKey.ReferencesTable = nil then Exit('');
 
-  Obj := DeltaField.ForeignKey.ReferencesTable.Create;
-  try
-    RefTable := (Obj as TDeltaModel).TableName;
-  finally
-    Obj.Free;
-  end;
+  RefTable := AnsiLowerCase(Copy(DeltaField.ForeignKey.ReferencesTable.ClassName, 2, MaxInt));
 
   case DeltaField.ForeignKey.OnDelete of
     fkCascade:  OnDeleteClause := ' ON DELETE CASCADE';
@@ -250,7 +249,6 @@ begin
     OnDeleteClause := '';
   end;
 
-  // Oracle não suporta ON UPDATE em Foreign Keys
   if ADialect = ddOracle then
     OnUpdateClause := ''
   else
@@ -263,6 +261,13 @@ begin
     else
       OnUpdateClause := '';
     end;
+  end;
+
+  // Se for SQLite, retorna a sintaxe inline para colocar dentro do CREATE TABLE
+  if ADialect in [ddSQLite] then
+  begin
+    Exit(Format('FOREIGN KEY (%s) REFERENCES %s(%s)%s%s',
+      [DeltaField.FieldName, RefTable, RefField, OnDeleteClause, OnUpdateClause]));
   end;
 
   FKName := Format('FK_%s_%s', [Table, RefTable]);
@@ -352,6 +357,10 @@ begin
          (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
+
+        // Pula campos virtuais (como TDFHasMany) para não gerar colunas físicas no banco
+        if DeltaField.IsVirtual then Continue;
+
         List.Add(sLineBreak + '  ' + FieldDDL(DeltaField, ADialect));
       end
       else
@@ -388,6 +397,8 @@ begin
 
       DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
 
+      if DeltaField.IsVirtual then Continue;
+
       if (DeltaField.ForeignKey.ReferencesTable <> nil) then
       begin
         if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
@@ -403,8 +414,6 @@ end;
 
 class procedure TDDLBuilder.GetFieldsAT(Obj: TDeltaModel;
   ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings);
-const
-  COLUMN = sLineBreak + '  COLUMN ';
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -421,16 +430,23 @@ begin
     begin
       PropInfo := PropList^[I];
 
+      if PropInfo^.GetProc = nil then Continue;
+
       if (PropInfo^.PropType^.Kind = tkClass) and
          (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
+
+        // Pula campos virtuais (TDFHasMany) no Auto-Migration
+        if DeltaField.IsVirtual then Continue;
+
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
         begin
           FieldDef := FieldDDL(DeltaField, ADialect);
           if (ADialect = ddSQLite) and (Pos(' NOT NULL', FieldDef) > 0) then
             FieldDef := StringReplace(FieldDef, ' NOT NULL', '', [rfReplaceAll]);
-          List.Add(COLUMN + FieldDef);
+
+          List.Add('  ' + FieldDef);
 
           if (DeltaField.ForeignKey.ReferencesTable <> nil) then
           begin
@@ -448,7 +464,8 @@ begin
           FieldDef := PrimitiveFieldDDL(PropInfo^.Name, PropInfo^.PropType^.Kind, ADialect);
           if (ADialect = ddSQLite) and (Pos(' NOT NULL', FieldDef) > 0) then
             FieldDef := StringReplace(FieldDef, ' NOT NULL', '', [rfReplaceAll]);
-          List.Add(COLUMN + FieldDef);
+
+          List.Add('  ' + FieldDef);
         end;
       end;
     end;
@@ -470,9 +487,13 @@ begin
     Fields.StrictDelimiter := True;
     GetFieldsCT(Obj, ADialect, Fields);
 
+    if ADialect = ddSQLite then
+    begin
+      GetConstraintsCT(Obj, ADialect, Fields);
+    end;
+
     case ADialect of
-      ddSQLite, ddPostgreSQL, ddMySQL:
-        Option := 'IF NOT EXISTS ';
+      ddSQLite, ddPostgreSQL, ddMySQL: Option := 'IF NOT EXISTS ';
     else
       Option := EmptyStr;
     end;
@@ -483,8 +504,7 @@ begin
       ');'
     );
 
-    // Se fornecido Constraints, adiciona as FKs
-    if Assigned(Constraints) then
+    if Assigned(Constraints) and (ADialect <> ddSQLite) then
       GetConstraintsCT(Obj, ADialect, Constraints);
 
     Result := SQL.Text;

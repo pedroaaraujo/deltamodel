@@ -75,7 +75,6 @@ var
   Credentials: string;
   AtPos, ColonPos, SlashPos: Integer;
   UrlParams: TStringList;
-  IsTripleSlash: Boolean;
 begin
   Result.Protocol := '';
   Result.Username := '';
@@ -94,8 +93,6 @@ begin
     raise Exception.Create('Invalid Database URL: Protocol not found');
 
   Result.Protocol := NormalizeProtocol(Copy(URI, 1, ColonPos - 1));
-
-  IsTripleSlash := Pos(':///', URI) > 0;
 
   Delete(URI, 1, ColonPos + 2); // remove "://"
 
@@ -117,11 +114,16 @@ begin
       UrlParams.Free;
     end;
 
-    // Correção para bancos SQLite:
-    // Se for IsTripleSlash, o URI começará com '/'.
-    // Basta ignorar essa primeira '/' para que o caminho se resolva perfeitamente
-    // para Linux, Windows e caminhos relativos.
-    if IsTripleSlash and (Length(URI) > 0) and (URI[1] = '/') then
+    // Normaliza múltiplas barras consecutivas no início (ex: ////var/data -> /var/data)
+    while (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') do
+      Delete(URI, 1, 1);
+
+    // No Windows: sqlite:///C:/path -> C:/path (remove a primeira barra antes da letra de unidade)
+    if (Length(URI) >= 3) and (URI[1] = '/') and (URI[2] in ['A'..'Z', 'a'..'z']) and (URI[3] = ':') then
+      Result.Database := Copy(URI, 2, MaxInt)
+    else
+    // Caminho relativo explicito: sqlite:///./data/test.db -> ./data/test.db
+    if (Length(URI) >= 3) and (URI[1] = '/') and (URI[2] = '.') and (URI[3] = '/') then
       Result.Database := Copy(URI, 2, MaxInt)
     else
       Result.Database := URI;
