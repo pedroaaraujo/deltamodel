@@ -15,17 +15,33 @@ type
 
   TEmployee = class(TDeltaModel)
   private
-    Fname:  TDFStringRequired;
-    Femail: TDFStringRequired;
-    Fcpf:   TDFStringRequired;
-    Fsalary: TDFCurrencyRequired;
-    Factive: TDFBooleanRequired;
+    Fname:             TDFStringRequired;
+    Femail:            TDFStringRequired;
+    Fcpf:              TDFStringRequired;
+    Fsalary:           TDFCurrencyRequired;
+    Factive:           TDFBooleanRequired;
+    Fage:              TDFIntNull;
+    FregistrationCode: TDFInt64Null;
+    FperformanceScore: TDFDoubleNull;
+    FbirthDate:        TDFDateNull;
+    FadmissionTime:    TDFTimeNull;
+    FregisteredAt:     TDFDateTimeNull;
+    Fnotes:            TDFTextNull;
+    FbadgeUuid:        TDFUUIDNull;
   published
-    property name:   TDFStringRequired  read Fname   write Fname;
-    property email:  TDFStringRequired  read Femail  write Femail;
-    property cpf:    TDFStringRequired  read Fcpf    write Fcpf;
-    property salary: TDFCurrencyRequired read Fsalary write Fsalary;
-    property active: TDFBooleanRequired read Factive write Factive;
+    property name:             TDFStringRequired   read Fname             write Fname;
+    property email:            TDFStringRequired   read Femail            write Femail;
+    property cpf:              TDFStringRequired   read Fcpf              write Fcpf;
+    property salary:           TDFCurrencyRequired read Fsalary           write Fsalary;
+    property active:           TDFBooleanRequired  read Factive           write Factive;
+    property age:              TDFIntNull          read Fage              write Fage;
+    property registrationCode: TDFInt64Null        read FregistrationCode write FregistrationCode;
+    property performanceScore: TDFDoubleNull       read FperformanceScore write FperformanceScore;
+    property birthDate:        TDFDateNull         read FbirthDate        write FbirthDate;
+    property admissionTime:    TDFTimeNull         read FadmissionTime    write FadmissionTime;
+    property registeredAt:     TDFDateTimeNull     read FregisteredAt     write FregisteredAt;
+    property notes:            TDFTextNull         read Fnotes            write Fnotes;
+    property badgeUuid:        TDFUUIDNull         read FbadgeUuid        write FbadgeUuid;
   public
     procedure Validate; override;
   end;
@@ -118,6 +134,20 @@ begin
     .AddValidator(TValidatorItemGreaterThanZero.Create)
     .AddValidator(TValidatorItemMaxValue.Create(999999.99));
 
+  if not Self.age.IsNull then
+  begin
+    Self.Validator
+      .AddField('age', Self.age.Value)
+      .AddValidator(TValidatorItemBetween.Create(18, 120));
+  end;
+
+  if not Self.performanceScore.IsNull then
+  begin
+    Self.Validator
+      .AddField('performanceScore', Self.performanceScore.Value)
+      .AddValidator(TValidatorItemBetween.Create(0, 100));
+  end;
+
   VResult := Self.Validator.Validate;
   if not VResult.OK then
     raise EDeltaValidation.Create(VResult.Message);
@@ -200,14 +230,22 @@ var
 begin
   Emp := TEmployee.Create;
   try
-    Emp.name.Value   := edtEmployeeName.Text;
-    Emp.email.Value  := edtEmployeeEmail.Text;
-    Emp.cpf.Value    := edtEmployeeCPF.Text;
-    Emp.salary.Value := 5000.00;
-    Emp.active.Value := True;
+    Emp.name.Value             := edtEmployeeName.Text;
+    Emp.email.Value            := edtEmployeeEmail.Text;
+    Emp.cpf.Value              := edtEmployeeCPF.Text;
+    Emp.salary.Value           := 5000.00;
+    Emp.active.Value           := True;
+    Emp.age.Value              := 32;
+    Emp.registrationCode.Value := 1029384756;
+    Emp.performanceScore.Value := 96.5;
+    Emp.birthDate.Value        := EncodeDate(1992, 8, 14);
+    Emp.admissionTime.Value    := EncodeTime(8, 0, 0, 0);
+    Emp.registeredAt.Value     := Now;
+    Emp.notes.Value            := 'Colaborador com certificações em banco de dados e arquitetura.';
+    Emp.badgeUuid.Value        := '550e8400-e29b-41d4-a716-446655440000';
     try
       Emp.Validate;
-      ShowMessage('✓ Funcionário válido!');
+      ShowMessage('✓ Funcionário com todos os tipos validado com sucesso!');
     except
       on E: EDeltaValidation do
         ShowMessageFmt('✗ Erro:%s%s', [sLineBreak, E.Message]);
@@ -229,13 +267,21 @@ begin
     if edtCompanyWebsite.Text <> '' then
       Co.website.Value := edtCompanyWebsite.Text;
 
-    // Adiciona funcionário de exemplo
+    // Adiciona funcionário com todos os tipos de exemplo
     Emp := TEmployee.Create;
-    Emp.name.Value   := edtEmployeeName.Text;
-    Emp.email.Value  := edtEmployeeEmail.Text;
-    Emp.cpf.Value    := edtEmployeeCPF.Text;
-    Emp.salary.Value := 5000;
-    Emp.active.Value := True;
+    Emp.name.Value             := edtEmployeeName.Text;
+    Emp.email.Value            := edtEmployeeEmail.Text;
+    Emp.cpf.Value              := edtEmployeeCPF.Text;
+    Emp.salary.Value           := 5000;
+    Emp.active.Value           := True;
+    Emp.age.Value              := 29;
+    Emp.registrationCode.Value := 987654321;
+    Emp.performanceScore.Value := 91.0;
+    Emp.birthDate.Value        := EncodeDate(1995, 2, 28);
+    Emp.admissionTime.Value    := EncodeTime(9, 30, 0, 0);
+    Emp.registeredAt.Value     := Now;
+    Emp.notes.Value            := 'Engenheiro full-stack sênior.';
+    Emp.badgeUuid.Value        := 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
     Co.employees.Records.Add(Emp);
 
     try

@@ -59,6 +59,7 @@ type
     ['{3A5C9B21-789E-4B0D-9E33-1F4F9C2B81A0}']
     function Engine: TDeltaORMEngine;
     procedure ReleaseToPool;
+    procedure Disconnect;
 
     // Métodos DML/ORM diretos
     function Insert(AModel: TDeltaModel): Boolean;
@@ -103,6 +104,7 @@ type
 
     function Engine: TDeltaORMEngine;
     procedure ReleaseToPool;
+    procedure Disconnect;
 
     // IDeltaORMEngine delegates
     procedure StartTransaction;
@@ -372,6 +374,11 @@ begin
         PoolRef.Release(EngRef);
     end;
   end;
+end;
+
+procedure TDeltaPooledEngine.Disconnect;
+begin
+  ReleaseToPool;
 end;
 
 procedure TDeltaPooledEngine.StartTransaction;

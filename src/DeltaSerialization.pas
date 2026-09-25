@@ -20,6 +20,9 @@ procedure CopyObject(AFrom, ATo: TObject);
 
 implementation
 
+uses
+  DeltaModel;
+
 type
   { TDeltaJSONFloat }
 
@@ -47,6 +50,16 @@ begin
     Inc(I);
 
   Result := Copy(S, 1, I);
+end;
+
+function CreateModelInstance(AClass: TClass): TObject;
+begin
+  if AClass = nil then
+    Exit(nil);
+  if AClass.InheritsFrom(TDeltaModel) then
+    Result := TDeltaModelClass(AClass).Create
+  else
+    Result := AClass.Create;
 end;
 
 procedure Deserialize(Obj: TObject; JsonString: string);
@@ -130,7 +143,22 @@ begin
               if not (PropObj as TDeltaField).Visible then
                 Continue;
 
-              if (PropObj is TDFDateRequired) or (PropObj is TDFDateNull) or
+              if (PropObj is TDFHasOne) then
+              begin
+                if (PropValue.JSONType = jtNull) then
+                  (PropObj as TDFHasOne).Clear
+                else if (PropValue is TJSONObject) then
+                begin
+                  if (PropObj as TDFHasOne).Model = nil then
+                  begin
+                    if (PropObj as TDFHasOne).RelationClass <> nil then
+                      (PropObj as TDFHasOne).Model := CreateModelInstance((PropObj as TDFHasOne).RelationClass);
+                  end;
+                  if Assigned((PropObj as TDFHasOne).Model) then
+                    DeserializeObj((PropObj as TDFHasOne).Model, TJSONObject(PropValue));
+                end;
+              end
+              else if (PropObj is TDFDateRequired) or (PropObj is TDFDateNull) or
                  (PropObj is TDFTimeRequired) or (PropObj is TDFTimeNull) or
                  (PropObj is TDFDateTimeRequired) or (PropObj is TDFDateTimeNull) then
               begin
@@ -256,7 +284,17 @@ begin
             if NestedObj is TDeltaField then
             begin
               try
-                if (NestedObj as TDeltaField).IsNull then
+                if not (NestedObj as TDeltaField).Visible then
+                  Continue;
+
+                if NestedObj is TDFHasOne then
+                begin
+                  if Assigned((NestedObj as TDFHasOne).Model) then
+                    JsonData.Add(PropName, SerializeToJsonObj((NestedObj as TDFHasOne).Model))
+                  else
+                    JsonData.Add(PropName, TJSONNull.Create);
+                end
+                else if (NestedObj as TDeltaField).IsNull then
                 begin
                   JsonData.Add(PropName, TJSONNull.Create);
                 end
@@ -604,7 +642,25 @@ begin
             if ObjFrom is TDeltaField then
             begin
               if (ObjFrom as TDeltaField).Visible then
-                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+              begin
+                if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
+                begin
+                  if (ObjFrom as TDFHasOne).Model <> nil then
+                  begin
+                    if (ObjTo as TDFHasOne).Model = nil then
+                    begin
+                      if (ObjTo as TDFHasOne).RelationClass <> nil then
+                        (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
+                    end;
+                    if (ObjTo as TDFHasOne).Model <> nil then
+                      CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
+                  end
+                  else
+                    (ObjTo as TDFHasOne).Clear;
+                end
+                else
+                  (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+              end;
             end
             else
               CopyObject(ObjFrom, ObjTo);
@@ -653,7 +709,25 @@ begin
             if ObjFrom is TDeltaField then
             begin
               if (ObjFrom as TDeltaField).Visible then
-                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+              begin
+                if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
+                begin
+                  if (ObjFrom as TDFHasOne).Model <> nil then
+                  begin
+                    if (ObjTo as TDFHasOne).Model = nil then
+                    begin
+                      if (ObjTo as TDFHasOne).RelationClass <> nil then
+                        (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
+                    end;
+                    if (ObjTo as TDFHasOne).Model <> nil then
+                      CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
+                  end
+                  else
+                    (ObjTo as TDFHasOne).Clear;
+                end
+                else
+                  (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+              end;
             end
             else
               CopyObject(ObjFrom, ObjTo);

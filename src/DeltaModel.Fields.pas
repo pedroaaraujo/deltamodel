@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, DateUtils, Variants, DeltaModelMessages;
 
 type
-  TDBOption = (dboPrimaryKey, dboUpdate, dboAutoInc, dboInsert);
+  TDBOption = (dboPrimaryKey, dboUpdate, dboAutoInc, dboInsert, dboUnique, dboIndex);
   TDBOptions = set of TDBOption;
   TDBOptionsSet = TDBOptions;
 
@@ -49,6 +49,10 @@ type
     FFieldKind: TDeltaFieldKind;
     procedure SetFieldName(AValue: string);
     function GetForeignKey: TForeignKey;
+    function GetIsUnique: Boolean;
+    procedure SetIsUnique(AValue: Boolean);
+    function GetIsIndexed: Boolean;
+    procedure SetIsIndexed(AValue: Boolean);
   protected
     FValue: Variant;
     function GetValue: Variant; virtual; abstract;
@@ -73,6 +77,8 @@ type
     property IsVirtual: Boolean read FIsVirtual write FIsVirtual;
     property IsRequired: Boolean read FIsRequired write FIsRequired;
     property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
+    property IsUnique: Boolean read GetIsUnique write SetIsUnique;
+    property IsIndexed: Boolean read GetIsIndexed write SetIsIndexed;
 
     // Acesso tipado direto de alta performance
     property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
@@ -400,6 +406,35 @@ type
     property RelationClass: TClass read FRelationClass;
   end;
 
+  { TDFHasOne }
+
+  TDFHasOne = class(TDeltaField)
+  private
+    FRelationClass: TClass;
+    FForeignKeyField: string;
+    FReferencesField: string;
+    FModel: TObject;
+    FOwnsModel: Boolean;
+    function GetModel: TObject;
+    procedure SetModel(AValue: TObject);
+  protected
+    function GetValue: Variant; override;
+    procedure SetValue(AValue: Variant); override;
+  public
+    constructor Create; override;
+    destructor Destroy; override;
+    procedure References(ARelationClass: TClass; const AForeignKey: string = ''; const AReferencesField: string = 'id');
+    function IsNull: Boolean; override;
+    function IsValid: Boolean; override;
+    function SwaggerDataType: string; override;
+    procedure Clear; override;
+    property RelationClass: TClass read FRelationClass;
+    property ForeignKeyField: string read FForeignKeyField write FForeignKeyField;
+    property ReferencesField: string read FReferencesField write FReferencesField;
+    property Model: TObject read GetModel write SetModel;
+    property OwnsModel: Boolean read FOwnsModel write FOwnsModel;
+  end;
+
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 function IsValidUUID(const S: string): Boolean;
 
@@ -461,6 +496,32 @@ begin
   if FForeignKey = nil then
     FForeignKey := TForeignKey.Create;
   Result := FForeignKey;
+end;
+
+function TDeltaField.GetIsUnique: Boolean;
+begin
+  Result := dboUnique in FDBOptions;
+end;
+
+procedure TDeltaField.SetIsUnique(AValue: Boolean);
+begin
+  if AValue then
+    Include(FDBOptions, dboUnique)
+  else
+    Exclude(FDBOptions, dboUnique);
+end;
+
+function TDeltaField.GetIsIndexed: Boolean;
+begin
+  Result := dboIndex in FDBOptions;
+end;
+
+procedure TDeltaField.SetIsIndexed(AValue: Boolean);
+begin
+  if AValue then
+    Include(FDBOptions, dboIndex)
+  else
+    Exclude(FDBOptions, dboIndex);
 end;
 
 procedure TDeltaField.AfterConstruction;
@@ -1316,6 +1377,80 @@ end;
 
 procedure TDFHasMany.Clear;
 begin
+end;
+
+{ TDFHasOne }
+
+constructor TDFHasOne.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkVirtual;
+  FIsVirtual := True;
+  FOwnsModel := True;
+  FModel := nil;
+  FReferencesField := 'id';
+end;
+
+destructor TDFHasOne.Destroy;
+begin
+  if FOwnsModel and Assigned(FModel) then
+    FreeAndNil(FModel);
+  inherited Destroy;
+end;
+
+procedure TDFHasOne.References(ARelationClass: TClass; const AForeignKey: string;
+  const AReferencesField: string);
+begin
+  FRelationClass := ARelationClass;
+  FForeignKeyField := AForeignKey;
+  if not AReferencesField.IsEmpty then
+    FReferencesField := AReferencesField;
+end;
+
+function TDFHasOne.GetModel: TObject;
+begin
+  Result := FModel;
+end;
+
+procedure TDFHasOne.SetModel(AValue: TObject);
+begin
+  if FModel = AValue then Exit;
+  if FOwnsModel and Assigned(FModel) then
+    FModel.Free;
+  FModel := AValue;
+end;
+
+function TDFHasOne.GetValue: Variant;
+begin
+  Result := Null;
+end;
+
+procedure TDFHasOne.SetValue(AValue: Variant);
+begin
+  // Campos virtuais não gravam valor escalar diretamente
+end;
+
+function TDFHasOne.IsNull: Boolean;
+begin
+  Result := (FModel = nil);
+end;
+
+function TDFHasOne.IsValid: Boolean;
+begin
+  Result := True;
+end;
+
+function TDFHasOne.SwaggerDataType: string;
+begin
+  Result := 'object';
+end;
+
+procedure TDFHasOne.Clear;
+begin
+  if FOwnsModel and Assigned(FModel) then
+    FreeAndNil(FModel)
+  else
+    FModel := nil;
 end;
 
 initialization

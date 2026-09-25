@@ -13,25 +13,55 @@ uses
 
 type
 
-  { TPerson - Modelo de teste com AutoInc e tipos variados }
+  { TProfile - Modelo 1:1 dependente com ForeignKey }
+
+  TProfile = class(TDeltaModel)
+  private
+    Fid: TDFIntNull;
+    FpersonId: TDFForeignKey;
+    Fbio: TDFStringNull;
+  published
+    property id: TDFIntNull read Fid write Fid;
+    property personId: TDFForeignKey read FpersonId write FpersonId;
+    property bio: TDFStringNull read Fbio write Fbio;
+  public
+    procedure AfterConstruction; override;
+    procedure Configure; override;
+  end;
+
+  { TPerson - Modelo com suporte a todos os tipos de dados do DeltaModel }
 
   TPerson = class(TDeltaModel)
   private
     Fid: TDFIntNull;
     Fname: TDFStringRequired;
-    Fsurname: String;
+    Fsurname: TDFStringNull;
     Fage: TDFIntRequired;
+    FbigCode: TDFInt64Null;
+    Fscore: TDFDoubleNull;
     FcreditLimit: TDFCurrencyRequired;
-    Factive: TDFBooleanRequired;
+    Fbiography: TDFTextNull;
+    FbirthDate: TDFDateNull;
+    FshiftTime: TDFTimeNull;
     Fcreated: TDFDateTimeNull;
+    Factive: TDFBooleanRequired;
+    FexternalUuid: TDFUUIDNull;
+    Fprofile: TDFHasOne;
   published
     property id: TDFIntNull read Fid write Fid;
     property name: TDFStringRequired read Fname write Fname;
-    property surname: String read Fsurname write Fsurname;
+    property surname: TDFStringNull read Fsurname write Fsurname;
     property age: TDFIntRequired read Fage write Fage;
+    property bigCode: TDFInt64Null read FbigCode write FbigCode;
+    property score: TDFDoubleNull read Fscore write Fscore;
     property creditLimit: TDFCurrencyRequired read FcreditLimit write FcreditLimit;
-    property active: TDFBooleanRequired read Factive write Factive;
+    property biography: TDFTextNull read Fbiography write Fbiography;
+    property birthDate: TDFDateNull read FbirthDate write FbirthDate;
+    property shiftTime: TDFTimeNull read FshiftTime write FshiftTime;
     property created: TDFDateTimeNull read Fcreated write Fcreated;
+    property active: TDFBooleanRequired read Factive write Factive;
+    property externalUuid: TDFUUIDNull read FexternalUuid write FexternalUuid;
+    property profile: TDFHasOne read Fprofile write Fprofile;
   public
     procedure AfterConstruction; override;
     procedure Configure; override;
@@ -80,17 +110,42 @@ implementation
 
 {$R *.lfm}
 
+{ TProfile }
+
+procedure TProfile.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  Self.id.DBOptions := [dboPrimaryKey, dboAutoInc];
+  Self.bio.Size := 255;
+end;
+
+procedure TProfile.Configure;
+begin
+  inherited Configure;
+  personId.References(TPerson, 'id');
+end;
+
 { TPerson }
 
 procedure TPerson.AfterConstruction;
 begin
   inherited AfterConstruction;
   Self.id.DBOptions := [dboPrimaryKey, dboAutoInc];
+  Self.name.Size := 120;
+  Self.surname.Size := 120;
+  // Campo com índice secundário direto
+  Self.active.IsIndexed := True;
 end;
 
 procedure TPerson.Configure;
 begin
-  Self.name.Size := 120;
+  inherited Configure;
+  // Constraint UNIQUE composta no nível de tabela
+  AddUniqueConstraint('uq_person_name_surname', ['name', 'surname']);
+  // Índice de performance composto
+  AddIndex('ix_person_created_age', ['created', 'age']);
+  // Relacionamento 1:1 HasOne
+  Profile.References(TProfile, 'personId', 'id');
 end;
 
 { TForm1 }
@@ -125,6 +180,8 @@ procedure TForm1.BuildSQL(ADialect: TDatabaseDialect);
 var
   Person: TPerson;
   Builder: TDMSQLBuilder;
+  ConstraintsList, IndexesList: TStringList;
+  DDLText: string;
 begin
   Person := TPerson.Create;
   try
@@ -143,11 +200,17 @@ begin
 
     // 2. INSERT com Returning / Output
     Person.name.Value := 'Carlos Eduardo';
-    Person.surname := 'Silveira';
+    Person.surname.Value := 'Silveira';
     Person.age.Value := 35;
+    Person.bigCode.Value := 9876543210123;
+    Person.score.Value := 9.75;
     Person.creditLimit.Value := 12500.50;
+    Person.biography.Value := 'Engenheiro sênior com vasta experiência em Pascal e Bancos de Dados.';
+    Person.birthDate.Value := EncodeDate(1989, 5, 20);
+    Person.shiftTime.Value := EncodeTime(8, 30, 0, 0);
     Person.active.Value := True;
     Person.created.Value := Now;
+    Person.externalUuid.Value := 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
     mmoInsert.Lines.Text := TDMSQLBuilder.CreateInsertReturning(
       Person,
@@ -163,17 +226,33 @@ begin
     );
 
     // 4. DELETE
+    Person.id.Value := 42;
     mmoDelete.Lines.Text := TDMSQLBuilder.CreateDelete(
       Person,
       ADialect
     );
 
-    // 5. DDL gerado para o dialeto
-    mmoDDLPreview.Lines.Text := TDDLBuilder.CreateTableAndFields(
-      Person,
-      nil,
-      ADialect
-    );
+    // 5. DDL gerado para o dialeto (Tabela, Constraints e Índices)
+    ConstraintsList := TStringList.Create;
+    IndexesList := TStringList.Create;
+    try
+      DDLText := TDDLBuilder.CreateTableAndFields(
+        Person,
+        ConstraintsList,
+        ADialect
+      );
+      if ConstraintsList.Count > 0 then
+        DDLText := DDLText + sLineBreak + ConstraintsList.Text;
+
+      TDDLBuilder.GetIndexes(Person, ADialect, IndexesList);
+      if IndexesList.Count > 0 then
+        DDLText := DDLText + sLineBreak + IndexesList.Text;
+
+      mmoDDLPreview.Lines.Text := DDLText;
+    finally
+      ConstraintsList.Free;
+      IndexesList.Free;
+    end;
   finally
     Person.Free;
   end;
@@ -194,6 +273,7 @@ begin
         mmoDDL.Lines.Add('Dialeto ativo: ' + TDatabaseDialectHelper.ToString(Con.Dialect));
 
         Schema.RegisterModel(TPerson.Create);
+        Schema.RegisterModel(TProfile.Create);
         Schema.PrepareDB(True);
 
         mmoDDL.Lines.Add('--- DDL Executado ---');
@@ -216,6 +296,7 @@ var
   Con: TDeltaORMEngine;
   Schema: TDeltaORMSchema;
   P, FoundP: TPerson;
+  Prof: TProfile;
   List: TDeltaModelList;
   I: Integer;
   Total: Int64;
@@ -229,12 +310,13 @@ begin
       Con.Connection.Open;
       mmoDDL.Lines.Add('1. Conectado ao banco (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
 
-      // 2. Prepara tabela
+      // 2. Prepara tabelas
       Schema := TDeltaORMSchema.Create(Con);
       try
         Schema.RegisterModel(TPerson.Create);
+        Schema.RegisterModel(TProfile.Create);
         Schema.PrepareDB(True);
-        mmoDDL.Lines.Add('2. Tabela person criada/verificada.');
+        mmoDDL.Lines.Add('2. Tabelas person e profile criadas/verificadas.');
       finally
         Schema.Free;
       end;
@@ -243,14 +325,33 @@ begin
       P := TPerson.Create;
       try
         P.name.Value := 'Ana Beatriz';
-        P.surname := 'Lima';
+        P.surname.Value := 'Lima';
         P.age.Value := 28;
+        P.bigCode.Value := 12345678901234;
+        P.score.Value := 9.9;
         P.creditLimit.Value := 8000;
+        P.biography.Value := 'Arquiteta de Soluções Cloud.';
+        P.birthDate.Value := EncodeDate(1996, 3, 15);
+        P.shiftTime.Value := EncodeTime(9, 0, 0, 0);
         P.active.Value := True;
         P.created.Value := Now;
+        P.externalUuid.Value := '550e8400-e29b-41d4-a716-446655440000';
 
         if Con.Save(P) then
-          mmoDDL.Lines.Add('3. [SAVE - INSERT] Registro inserido com sucesso: ' + P.name.Value);
+        begin
+          mmoDDL.Lines.Add('3. [SAVE - INSERT] Registro inserido com sucesso: ' + P.name.Value + ' (Id: ' + P.id.AsString + ')');
+
+          // Insere Profile associado
+          Prof := TProfile.Create;
+          try
+            Prof.personId.Value := P.id.Value;
+            Prof.bio.Value := 'Especialista em Microsserviços e Banco de Dados';
+            Con.Save(Prof);
+            mmoDDL.Lines.Add('   [1:1 HAS_ONE / FK] Profile criado para pessoa ' + P.id.AsString);
+          finally
+            Prof.Free;
+          end;
+        end;
       finally
         P.Free;
       end;
@@ -259,14 +360,20 @@ begin
       P := TPerson.Create;
       try
         P.name.Value := 'Bruno Martins';
-        P.surname := 'Rocha';
+        P.surname.Value := 'Rocha';
         P.age.Value := 40;
+        P.bigCode.Value := 98765432109876;
+        P.score.Value := 8.4;
         P.creditLimit.Value := 15000;
+        P.biography.Value := 'Tech Lead e Desenvolvedor Pascal.';
+        P.birthDate.Value := EncodeDate(1984, 11, 2);
+        P.shiftTime.Value := EncodeTime(10, 0, 0, 0);
         P.active.Value := True;
         P.created.Value := Now;
+        P.externalUuid.Value := 'e7b0b230-6b3a-4f51-b84a-9ef8d5f308a2';
 
         Con.Insert(P);
-        mmoDDL.Lines.Add('4. [INSERT] Segundo registro inserido: ' + P.name.Value);
+        mmoDDL.Lines.Add('4. [INSERT] Segundo registro inserido: ' + P.name.Value + ' (Id: ' + P.id.AsString + ')');
       finally
         P.Free;
       end;
@@ -281,12 +388,14 @@ begin
         .Page(1, 10)
         .All;
       try
-        mmoDDL.Lines.Add('6. [QUERY.ALL] Registros retornados pela consulta:');
+        mmoDDL.Lines.Add('6. [QUERY.ALL] Registros retornados com todos os tipos:');
         for I := 0 to Pred(List.Records.Count) do
         begin
           FoundP := List.Records[I] as TPerson;
-          mmoDDL.Lines.Add(Format('   [%d] Nome: %s, Idade: %d, Limite: R$ %.2f',
-            [I + 1, FoundP.name.Value, FoundP.age.AsInteger, FoundP.creditLimit.AsCurrency]));
+          mmoDDL.Lines.Add(Format('   [%d] Nome: %s %s | Idade: %d | BigCode: %s | Score: %.2f | Limite: R$ %.2f | Nasc: %s | UUID: %s',
+            [I + 1, FoundP.name.Value, FoundP.surname.AsString, FoundP.age.AsInteger,
+             FoundP.bigCode.AsString, FoundP.score.AsFloat, FoundP.creditLimit.AsCurrency,
+             FoundP.birthDate.AsString, FoundP.externalUuid.AsString]));
         end;
       finally
         List.Free;

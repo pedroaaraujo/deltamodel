@@ -13,6 +13,19 @@ function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: 
 
 implementation
 
+uses
+  DeltaModel;
+
+function CreateModelInstance(AClass: TClass): TObject;
+begin
+  if AClass = nil then
+    Exit(nil);
+  if AClass.InheritsFrom(TDeltaModel) then
+    Result := TDeltaModelClass(AClass).Create
+  else
+    Result := AClass.Create;
+end;
+
 function GenerateSchema(Obj: TObject; AddExamples: Boolean; IsArray: Boolean): TJSONObject;
 var
   JsonData: TJSONObject;
@@ -106,23 +119,51 @@ begin
                   Continue;
                 end;
 
-                SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
-
-                // Adiciona format quando disponível
-                SwaggerFmt := (NestedObj as TDeltaField).SwaggerFormat;
-                if not SwaggerFmt.IsEmpty then
-                  SchemaObj.Add('format', SwaggerFmt);
-
-                // Adiciona nullable para campos opcionais
-                if NestedObj is TDeltaFieldNullable then
+                if NestedObj is TDFHasOne then
                 begin
-                  {$IF FPC_FULLVERSION >= 30200}
-                  SchemaObj.Add('nullable', True);
-                  {$ENDIF}
-                end;
+                  SchemaObj.Add('type', 'object');
+                  if ((NestedObj as TDFHasOne).RelationClass <> nil) and
+                     (NestedObj as TDFHasOne).RelationClass.InheritsFrom(TObject) then
+                  begin
+                    FirstItem := CreateModelInstance((NestedObj as TDFHasOne).RelationClass);
+                    try
+                      NestedSchema := GenerateSchema(FirstItem, AddExamples, False);
+                      try
+                        PropsData := NestedSchema.Extract('properties');
+                        if Assigned(PropsData) then
+                          SchemaObj.Add('properties', PropsData)
+                        else
+                          SchemaObj.Add('properties', TJSONObject.Create);
+                      finally
+                        NestedSchema.Free;
+                      end;
+                    finally
+                      FirstItem.Free;
+                    end;
+                  end
+                  else
+                    SchemaObj.Add('properties', TJSONObject.Create);
+                end
+                else
+                begin
+                  SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
 
-                if AddExamples and not (NestedObj as TDeltaField).IsNull then
-                  SchemaObj.Add('example', (NestedObj as TDeltaField).AsString);
+                  // Adiciona format quando disponível
+                  SwaggerFmt := (NestedObj as TDeltaField).SwaggerFormat;
+                  if not SwaggerFmt.IsEmpty then
+                    SchemaObj.Add('format', SwaggerFmt);
+
+                  // Adiciona nullable para campos opcionais
+                  if NestedObj is TDeltaFieldNullable then
+                  begin
+                    {$IF FPC_FULLVERSION >= 30200}
+                    SchemaObj.Add('nullable', True);
+                    {$ENDIF}
+                  end;
+
+                  if AddExamples and not (NestedObj as TDeltaField).IsNull then
+                    SchemaObj.Add('example', (NestedObj as TDeltaField).AsString);
+                end;
               end
               else
               if NestedObj is TCustomDeltaModelList then

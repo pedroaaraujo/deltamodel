@@ -1032,6 +1032,21 @@ begin
                       if not VarIsNull(LastId) then
                         Obj.Value := LastId;
                     end;
+                    ddFirebird:
+                    begin
+                      try
+                        LastId := AConn.ExecuteScalar(Format(
+                          'SELECT TRIM(RDB$GENERATOR_NAME) FROM RDB$RELATION_FIELDS WHERE UPPER(RDB$RELATION_NAME) = ''%s'' AND UPPER(RDB$FIELD_NAME) = ''%s''',
+                          [UpperCase(AModel.TableName), UpperCase(Obj.FieldName)]));
+                        if not VarIsNull(LastId) and (VarToStr(LastId) <> '') then
+                        begin
+                          LastId := AConn.ExecuteScalar(Format('SELECT GEN_ID(%s, 0) FROM RDB$DATABASE', [VarToStr(LastId)]));
+                          if not VarIsNull(LastId) then
+                            Obj.Value := LastId;
+                        end;
+                      except
+                      end;
+                    end;
                   end;
                   Break;
                 end;

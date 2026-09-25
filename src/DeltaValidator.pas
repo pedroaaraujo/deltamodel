@@ -91,6 +91,8 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
+  TValidatorItemEmail = TValidatorEmail;
+
   { TValidatorItemUrl - Valida URL com http/https }
 
   TValidatorItemUrl = class(TInterfacedObject, IDeltaValidatorItem)
@@ -160,6 +162,7 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
+function IsValidEmail(const AEmail: string): Boolean;
 function IsValidCnpj(const ACnpj: string): Boolean;
 
 implementation
@@ -489,23 +492,94 @@ begin
   end;
 end;
 
+const
+  EmailPattern =
+    '^[a-zA-Z0-9_%+\-]+(\.[a-zA-Z0-9_%+\-]+)*@([a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}$';
+
+function IsValidEmail(const AEmail: string): Boolean;
+var
+  S: string;
+  Regex: TRegExpr;
+  AtPos, DotPos, I, Len: Integer;
+  LocalPart, DomainPart: string;
+begin
+  Result := False;
+  S := Trim(AEmail);
+  Len := Length(S);
+  if Len < 6 then Exit; // Mínimo: a@b.co
+
+  // 1. Validação via Regex com hífens devidamente escapados (\-) para total compatibilidade x86_64, AArch64 e ARM
+  try
+    Regex := TRegExpr.Create(EmailPattern);
+    try
+      Regex.ModifierI := True;
+      if Regex.Exec(S) then
+        Exit(True);
+    finally
+      Regex.Free;
+    end;
+  except
+    // Fallback de segurança caso a engine TRegExpr lance exceção de alinhamento/memória em AArch64/ARM
+  end;
+
+  // 2. Validação algorítmica pura como garantia de robustez em todas as arquiteturas
+  AtPos := Pos('@', S);
+  if (AtPos <= 1) or (AtPos = Len) then Exit;
+
+  // Não pode conter múltiplos '@'
+  if Pos('@', Copy(S, AtPos + 1, Len)) > 0 then Exit;
+
+  LocalPart := Copy(S, 1, AtPos - 1);
+  DomainPart := Copy(S, AtPos + 1, Len);
+
+  if (Length(LocalPart) < 1) or (Length(LocalPart) > 64) then Exit;
+  for I := 1 to Length(LocalPart) do
+  begin
+    if not (LocalPart[I] in ['a'..'z', 'A'..'Z', '0'..'9', '.', '_', '%', '+', '-']) then
+      Exit;
+  end;
+  if (LocalPart[1] = '.') or (LocalPart[Length(LocalPart)] = '.') or (Pos('..', LocalPart) > 0) then
+    Exit;
+
+  if (Length(DomainPart) < 4) or (Length(DomainPart) > 255) then Exit;
+  if (DomainPart[1] = '.') or (DomainPart[Length(DomainPart)] = '.') or (Pos('..', DomainPart) > 0) then
+    Exit;
+  if (DomainPart[1] = '-') or (DomainPart[Length(DomainPart)] = '-') then
+    Exit;
+
+  DotPos := 0;
+  for I := Length(DomainPart) downto 1 do
+  begin
+    if DomainPart[I] = '.' then
+    begin
+      DotPos := I;
+      Break;
+    end;
+  end;
+  if (DotPos = 0) or ((Length(DomainPart) - DotPos) < 2) then Exit;
+
+  for I := DotPos + 1 to Length(DomainPart) do
+  begin
+    if not (DomainPart[I] in ['a'..'z', 'A'..'Z']) then
+      Exit;
+  end;
+
+  for I := 1 to Length(DomainPart) do
+  begin
+    if not (DomainPart[I] in ['a'..'z', 'A'..'Z', '0'..'9', '.', '-']) then
+      Exit;
+  end;
+
+  Result := True;
+end;
+
 { TValidatorEmail }
 
 function TValidatorEmail.Validate(Value: Variant): TValid;
-const
-  EmailPattern =
-    '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
-var
-  Regex: TRegExpr;
 begin
-  Regex := TRegExpr.Create(EmailPattern);
-  try
-    Result.OK := Regex.Exec(VarToStr(Value));
-    if not Result.OK then
-      Result.Message := InvalidEmail;
-  finally
-    Regex.Free;
-  end;
+  Result.OK := IsValidEmail(VarToStr(Value));
+  if not Result.OK then
+    Result.Message := InvalidEmail;
 end;
 
 { TValidatorItemUrl }

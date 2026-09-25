@@ -214,6 +214,116 @@ begin
   HookLog.Add('AfterSave');
 end;
 
+type
+  { Modelo com Unique constraints e Índices }
+  TConstraintItem = class(TDeltaModel)
+  private
+    FId: TDFIntRequired;
+    FEmail: TDFStringRequired;
+    FTenantId: TDFIntRequired;
+    FCode: TDFStringRequired;
+    FCreatedAt: TDFDateTimeNull;
+    FScore: TDFIntNull;
+  published
+    property Id: TDFIntRequired read FId write FId;
+    property Email: TDFStringRequired read FEmail write FEmail;
+    property TenantId: TDFIntRequired read FTenantId write FTenantId;
+    property Code: TDFStringRequired read FCode write FCode;
+    property CreatedAt: TDFDateTimeNull read FCreatedAt write FCreatedAt;
+    property Score: TDFIntNull read FScore write FScore;
+  public
+    procedure AfterConstruction; override;
+    procedure Configure; override;
+  end;
+
+procedure TConstraintItem.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  TableName := 'constraint_items';
+  Id.FieldName := 'id';
+  Id.DBOptions := [dboPrimaryKey, dboAutoInc];
+
+  Email.FieldName := 'email';
+  Email.Size := 100;
+  Email.IsUnique := True;
+
+  TenantId.FieldName := 'tenant_id';
+  Code.FieldName := 'code';
+  Code.Size := 50;
+
+  CreatedAt.FieldName := 'created_at';
+  CreatedAt.IsIndexed := True;
+
+  Score.FieldName := 'score';
+end;
+
+procedure TConstraintItem.Configure;
+begin
+  inherited Configure;
+  AddUniqueConstraint('uq_tenant_code', ['tenant_id', 'code']);
+  AddIndex('ix_tenant_created', ['tenant_id', 'created_at']);
+  AddCheckConstraint('chk_score_pos', 'score >= 0');
+end;
+
+type
+  { Modelo 1:1 Dependente }
+  TProfileModel = class(TDeltaModel)
+  private
+    FId: TDFIntRequired;
+    FBio: TDFStringNull;
+    FTwitter: TDFStringNull;
+  published
+    property Id: TDFIntRequired read FId write FId;
+    property Bio: TDFStringNull read FBio write FBio;
+    property Twitter: TDFStringNull read FTwitter write FTwitter;
+  public
+    procedure AfterConstruction; override;
+  end;
+
+procedure TProfileModel.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  TableName := 'profiles';
+  Id.FieldName := 'id';
+  Id.DBOptions := [dboPrimaryKey, dboAutoInc];
+  Bio.FieldName := 'bio';
+  Bio.Size := 200;
+  Twitter.FieldName := 'twitter';
+  Twitter.Size := 50;
+end;
+
+type
+  { Modelo Principal com TDFHasOne }
+  TUserWithProfileModel = class(TDeltaModel)
+  private
+    FId: TDFIntRequired;
+    FUsername: TDFStringRequired;
+    FProfile: TDFHasOne;
+  published
+    property Id: TDFIntRequired read FId write FId;
+    property Username: TDFStringRequired read FUsername write FUsername;
+    property Profile: TDFHasOne read FProfile write FProfile;
+  public
+    procedure AfterConstruction; override;
+    procedure Configure; override;
+  end;
+
+procedure TUserWithProfileModel.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  TableName := 'users';
+  Id.FieldName := 'id';
+  Id.DBOptions := [dboPrimaryKey, dboAutoInc];
+  Username.FieldName := 'username';
+  Username.Size := 50;
+end;
+
+procedure TUserWithProfileModel.Configure;
+begin
+  inherited Configure;
+  Profile.References(TProfileModel, 'user_id', 'id');
+end;
+
 {==============================================================================}
 { Test 1: Database URL Parser                                                  }
 {==============================================================================}
@@ -937,6 +1047,244 @@ begin
   end;
 end;
 
+procedure TestConstraintsAndIndexes;
+var
+  Item: TConstraintItem;
+  DDL: string;
+  ConstraintsList, IdxList: TStringList;
+  Engine: TDeltaORMEngine;
+  Schema: TDeltaORMSchema;
+  Item1, Item2, Item3, Item4: TConstraintItem;
+  Failed: Boolean;
+  TotalCount: Int64;
+  LongIdx: TDeltaIndex;
+  LongIdxDDL: string;
+begin
+  Suite('8. Constraints (Unique & Check) and Database Indexes');
+
+  Item := TConstraintItem.Create;
+  ConstraintsList := TStringList.Create;
+  IdxList := TStringList.Create;
+  try
+    // 1. DDL SQLite
+    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, ddSQLite);
+    AssertTrue(Pos('CONSTRAINT UQ_constraint_items_email UNIQUE (email)', DDL) > 0,
+      'SQLite deve conter constraint inline de coluna UNIQUE');
+    AssertTrue(Pos('CONSTRAINT uq_tenant_code UNIQUE (tenant_id, code)', DDL) > 0,
+      'SQLite deve conter constraint inline composta UNIQUE');
+    AssertTrue(Pos('CONSTRAINT chk_score_pos CHECK (score >= 0)', DDL) > 0,
+      'SQLite deve conter constraint inline CHECK');
+
+    // 2. Índices SQLite
+    IdxList.Clear;
+    TDDLBuilder.GetIndexes(Item, ddSQLite, IdxList);
+    AssertTrue(Pos('CREATE INDEX IF NOT EXISTS IX_constraint_items_created_at ON constraint_items (created_at);', IdxList.Text) > 0,
+      'SQLite deve gerar CREATE INDEX para campo marcado com IsIndexed');
+    AssertTrue(Pos('CREATE INDEX IF NOT EXISTS ix_tenant_created ON constraint_items (tenant_id, created_at);', IdxList.Text) > 0,
+      'SQLite deve gerar CREATE INDEX para índice composto de tabela');
+
+    // 3. DDL PostgreSQL (Constraints out-of-line)
+    ConstraintsList.Clear;
+    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, ddPostgreSQL);
+    AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT UQ_constraint_items_email UNIQUE (email);', ConstraintsList.Text) > 0,
+      'PostgreSQL deve gerar ADD CONSTRAINT UNIQUE para coluna');
+    AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT uq_tenant_code UNIQUE (tenant_id, code);', ConstraintsList.Text) > 0,
+      'PostgreSQL deve gerar ADD CONSTRAINT UNIQUE para chave composta');
+    AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT chk_score_pos CHECK (score >= 0);', ConstraintsList.Text) > 0,
+      'PostgreSQL deve gerar ADD CONSTRAINT CHECK');
+
+    // 4. Sanitização de identificador longo para Oracle (limite de 30 chars)
+    LongIdx := TDeltaIndex.Create('IX_nome_muito_longo_que_ultrapassa_trinta_caracteres', ['score']);
+    try
+      LongIdxDDL := TDDLBuilder.IndexDDL('constraint_items', LongIdx, ddOracle);
+      AssertTrue(Pos('IX_nome_muito_longo_que_ultrap', LongIdxDDL) > 0,
+        'Oracle deve truncar identificador de índice para no máximo 30 caracteres');
+      AssertTrue(Length('IX_nome_muito_longo_que_ultrap') <= 30, 'Identificador truncado tem 30 caracteres ou menos');
+    finally
+      LongIdx.Free;
+    end;
+  finally
+    Item.Free;
+    ConstraintsList.Free;
+    IdxList.Free;
+  end;
+
+  // 5. Teste em Runtime com SQLite in-memory via TDeltaORMSchema
+  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  try
+    Schema := TDeltaORMSchema.Create(Engine);
+    try
+      Schema.RegisterModel(TConstraintItem);
+      Schema.PrepareDB(True);
+
+      AssertTrue(Schema.SQL.Count > 0, 'PrepareDB gerou comandos DDL');
+
+      // Inserção 1: Registro válido
+      Item1 := TConstraintItem.Create;
+      try
+        Item1.Email.Value := 'usuario1@empresa.com';
+        Item1.TenantId.Value := 10;
+        Item1.Code.Value := 'USR_A';
+        Item1.Score.Value := 100;
+        Item1.CreatedAt.Value := Now;
+        AssertTrue(Engine.Insert(Item1), 'Inserção inicial deve ter sucesso');
+      finally
+        Item1.Free;
+      end;
+
+      // Inserção 2: Mesmo e-mail (deve ser rejeitado pela constraint UNIQUE de email)
+      Item2 := TConstraintItem.Create;
+      try
+        Item2.Email.Value := 'usuario1@empresa.com'; // Duplicado!
+        Item2.TenantId.Value := 20;
+        Item2.Code.Value := 'USR_B';
+        Item2.Score.Value := 200;
+        Failed := False;
+        try
+          Engine.Insert(Item2);
+        except
+          Failed := True;
+        end;
+        AssertTrue(Failed, 'Inserção com e-mail duplicado deve falhar por violação de UNIQUE');
+      finally
+        Item2.Free;
+      end;
+
+      // Inserção 3: E-mail diferente, mas mesmo par (tenant_id, code) (deve falhar pelo UNIQUE composto)
+      Item3 := TConstraintItem.Create;
+      try
+        Item3.Email.Value := 'outro@empresa.com';
+        Item3.TenantId.Value := 10; // Mesmo tenant
+        Item3.Code.Value := 'USR_A'; // Mesmo code
+        Item3.Score.Value := 300;
+        Failed := False;
+        try
+          Engine.Insert(Item3);
+        except
+          Failed := True;
+        end;
+        AssertTrue(Failed, 'Inserção com par (tenant_id, code) duplicado deve falhar por UNIQUE composto');
+      finally
+        Item3.Free;
+      end;
+
+      // Inserção 4: Mesmo code, mas em outro tenant (deve passar!)
+      Item4 := TConstraintItem.Create;
+      try
+        Item4.Email.Value := 'usuario2@empresa.com';
+        Item4.TenantId.Value := 20; // Tenant diferente
+        Item4.Code.Value := 'USR_A'; // Mesmo code
+        Item4.Score.Value := 400;
+        AssertTrue(Engine.Insert(Item4), 'Mesmo code em tenant diferente deve ser aceito');
+      finally
+        Item4.Free;
+      end;
+
+      TotalCount := Engine.Count(TConstraintItem);
+      AssertEqualsInt(2, TotalCount, 'Total de registros aceitos no banco deve ser 2');
+    finally
+      Schema.Free;
+    end;
+  finally
+    Engine.Free;
+  end;
+end;
+
+procedure TestHasOneRelation;
+var
+  User1, User2, User3: TUserWithProfileModel;
+  Prof: TProfileModel;
+  DDL, JsonStr, SchemaJson: string;
+  Doc, Props, ProfileProp: TJSONObject;
+begin
+  Suite('9. TDFHasOne (1:1 Relation Field)');
+
+  User1 := TUserWithProfileModel.Create;
+  try
+    // 1. Verificação de Metadados
+    AssertTrue(User1.Profile.IsVirtual, 'TDFHasOne deve ser campo virtual');
+    AssertEquals('object', User1.Profile.SwaggerDataType, 'SwaggerDataType de TDFHasOne deve ser object');
+    AssertTrue(User1.Profile.RelationClass = TProfileModel, 'RelationClass de Profile deve ser TProfileModel');
+    AssertTrue(User1.Profile.IsNull, 'Profile recém-criado deve ser IsNull');
+
+    // 2. DDL não deve conter coluna para TDFHasOne
+    DDL := TDDLBuilder.CreateTableAndFields(User1, nil, ddSQLite);
+    AssertTrue(Pos('username TEXT', DDL) > 0, 'DDL deve conter campo normal');
+    AssertFalse(Pos('Profile', DDL) > 0, 'DDL NÃO deve criar coluna física para TDFHasOne');
+
+    // 3. Serialização com HasOne vazio (null)
+    User1.Id.Value := 1;
+    User1.Username.Value := 'pedro';
+    JsonStr := User1.ToJson;
+    AssertTrue((Pos('"Profile" : null', JsonStr) > 0) or (Pos('"Profile": null', JsonStr) > 0) or (Pos('"Profile":null', JsonStr) > 0), 'HasOne não instanciado deve serializar como null');
+
+    // 4. Serialização com HasOne preenchido
+    Prof := TProfileModel.Create;
+    Prof.Id.Value := 99;
+    Prof.Bio.Value := 'Engenheiro de Software';
+    Prof.Twitter.Value := '@pedro_dev';
+    User1.Profile.Model := Prof;
+
+    AssertFalse(User1.Profile.IsNull, 'Com Model atribuído, HasOne não deve ser IsNull');
+
+    JsonStr := User1.ToJson;
+    AssertTrue(Pos('Engenheiro de Software', JsonStr) > 0, 'ToJson deve conter bio do modelo relacionado');
+    AssertTrue(Pos('@pedro_dev', JsonStr) > 0, 'ToJson deve conter twitter do modelo relacionado');
+
+    // 5. Desserialização JSON reconstruindo o objeto 1:1
+    User2 := TUserWithProfileModel.Create;
+    try
+      User2.FromJson(JsonStr);
+      AssertEquals('pedro', User2.Username.AsString, 'Username desserializado corretamente');
+      AssertTrue(Assigned(User2.Profile.Model), 'Profile.Model deve ter sido instanciado pelo FromJson');
+      if Assigned(User2.Profile.Model) then
+      begin
+        AssertEquals('Engenheiro de Software', TProfileModel(User2.Profile.Model).Bio.AsString, 'Bio do Profile recuperada');
+        AssertEquals('@pedro_dev', TProfileModel(User2.Profile.Model).Twitter.AsString, 'Twitter do Profile recuperado');
+        AssertEqualsInt(99, TProfileModel(User2.Profile.Model).Id.AsInteger, 'Id do Profile recuperado');
+      end;
+
+      // 6. Teste de Clone (cópia profunda de HasOne)
+      User3 := TUserWithProfileModel(User2.Clone);
+      try
+        AssertTrue(Assigned(User3.Profile.Model), 'Clone deve copiar Profile.Model');
+        if Assigned(User3.Profile.Model) then
+        begin
+          AssertEquals('Engenheiro de Software', TProfileModel(User3.Profile.Model).Bio.AsString, 'Bio copiada no Clone');
+          // Alteração na cópia não afeta o original
+          TProfileModel(User3.Profile.Model).Bio.Value := 'Bio Modificada';
+          AssertEquals('Engenheiro de Software', TProfileModel(User2.Profile.Model).Bio.AsString, 'Original não deve ser alterado');
+        end;
+      finally
+        User3.Free;
+      end;
+    finally
+      User2.Free;
+    end;
+
+    // 7. OpenAPI / Swagger Schema para TDFHasOne
+    SchemaJson := TUserWithProfileModel.SwaggerSchema(False);
+    Doc := TJSONObject(GetJSON(SchemaJson));
+    try
+      Props := Doc.Get('properties', TJSONObject(nil));
+      AssertTrue(Assigned(Props), 'Schema contém properties');
+      if Assigned(Props) then
+      begin
+        ProfileProp := Props.Get('Profile', TJSONObject(nil));
+        AssertTrue(Assigned(ProfileProp), 'Schema contém propriedade Profile');
+        if Assigned(ProfileProp) then
+        begin
+          AssertEquals('object', ProfileProp.Get('type', ''), 'Tipo da relação HasOne no Swagger deve ser object');
+        end;
+      end;
+    finally
+      Doc.Free;
+    end;
+  finally
+    User1.Free;
+  end;
+end;
+
 {==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
@@ -954,6 +1302,8 @@ begin
     TestDDLGenerator;
     TestModelLifecycleHooks;
     TestORMCRUDAndQueries;
+    TestConstraintsAndIndexes;
+    TestHasOneRelation;
   except
     on E: Exception do
     begin

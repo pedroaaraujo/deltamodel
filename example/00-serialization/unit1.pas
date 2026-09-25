@@ -13,6 +13,19 @@ type
 
   { TAddress - Modelo aninhado de endereço }
 
+  { TUserProfile - Modelo 1:1 HasOne }
+
+  TUserProfile = class(TDeltaModel)
+  private
+    Ftitle: TDFStringNull;
+    Fdepartment: TDFStringNull;
+  published
+    property title: TDFStringNull read Ftitle write Ftitle;
+    property department: TDFStringNull read Fdepartment write Fdepartment;
+  end;
+
+  { TAddress - Modelo aninhado de endereço }
+
   TAddress = class(TDeltaModel)
   private
     Fcity:    TDFStringRequired;
@@ -24,7 +37,7 @@ type
     property zipcode: TDFStringNull     read Fzipcode write Fzipcode;
   end;
 
-  { TUser - Modelo principal com nested model e UUID }
+  { TUser - Modelo com suporte a todos os tipos de dados do DeltaModel }
 
   TUser = class(TDeltaModel)
   private
@@ -32,19 +45,31 @@ type
     Fname:      TDFStringRequired;
     Femail:     TDFStringRequired;
     Fage:       TDFIntNull;
+    FbigCode:   TDFInt64Null;
     Fscore:     TDFDoubleNull;
+    Fsalary:    TDFCurrencyRequired;
+    FbirthDate: TDFDateNull;
+    FloginTime: TDFTimeNull;
     Factive:    TDFBooleanRequired;
     Fcreated:   TDFDateTimeNull;
+    Fbio:       TDFTextNull;
     Faddress:   TAddress;
+    Fprofile:   TDFHasOne;
   published
-    property id:      TDFUUIDNull      read Fid      write Fid;
-    property name:    TDFStringRequired read Fname    write Fname;
-    property email:   TDFStringRequired read Femail   write Femail;
-    property age:     TDFIntNull        read Fage     write Fage;
-    property score:   TDFDoubleNull     read Fscore   write Fscore;
-    property active:  TDFBooleanRequired read Factive write Factive;
-    property created: TDFDateTimeNull   read Fcreated write Fcreated;
-    property address: TAddress          read Faddress write Faddress;
+    property id:        TDFUUIDNull        read Fid        write Fid;
+    property name:      TDFStringRequired  read Fname      write Fname;
+    property email:     TDFStringRequired  read Femail     write Femail;
+    property age:       TDFIntNull         read Fage       write Fage;
+    property bigCode:   TDFInt64Null       read FbigCode   write FbigCode;
+    property score:     TDFDoubleNull      read Fscore     write Fscore;
+    property salary:    TDFCurrencyRequired read Fsalary   write Fsalary;
+    property birthDate: TDFDateNull        read FbirthDate write FbirthDate;
+    property loginTime: TDFTimeNull        read FloginTime write FloginTime;
+    property active:    TDFBooleanRequired read Factive    write Factive;
+    property created:   TDFDateTimeNull    read Fcreated   write Fcreated;
+    property bio:       TDFTextNull        read Fbio       write Fbio;
+    property address:   TAddress           read Faddress   write Faddress;
+    property profile:   TDFHasOne          read Fprofile   write Fprofile;
   public
     procedure Configure; override;
     procedure Validate; override;
@@ -110,6 +135,7 @@ begin
   Self.name.Size  := 120;
 
   Faddress := TAddress.Create;
+  Profile.References(TUserProfile);
 
   // Define campos invisíveis na serialização (ex: campo interno)
   // Self.someInternalField.Visible := False;
@@ -136,6 +162,11 @@ begin
     .AddField('email', Self.email.Value)
     .AddValidator(TValidatorItemNotEmpty.Create)
     .AddValidator(TValidatorEmail.Create);
+
+  // Validação de salário
+  Self.Validator
+    .AddField('salary', Self.salary.Value)
+    .AddValidator(TValidatorItemMinValue.Create(0));
 
   // Validação de idade (campo opcional, só valida se preenchido)
   if not Self.age.IsNull then
@@ -172,23 +203,37 @@ begin
   pgcBase.ActivePageIndex := 0;
 end;
 
-// Serialização: preenche um TUser com dados e exibe o JSON resultante
+// Serialização: preenche um TUser com dados de todos os tipos e exibe o JSON resultante
 procedure TForm1.Button1Click(Sender: TObject);
 var
   User: TUser;
+  Prof: TUserProfile;
 begin
   User := TUser.Create;
   try
-    User.name.Value    := edtSerializationName.Text;
-    User.age.Value     := edtSerializationAge.Value;
-    User.active.Value  := True;
-    User.score.Value   := 8.5;
-    User.created.Value := Now;
+    User.id.Value        := '550e8400-e29b-41d4-a716-446655440000';
+    User.name.Value      := edtSerializationName.Text;
+    User.email.Value     := 'franz.schubert@exemplo.com';
+    User.age.Value       := edtSerializationAge.Value;
+    User.bigCode.Value   := 922337203685477580;
+    User.score.Value     := 8.5;
+    User.salary.Value    := 7850.75;
+    User.birthDate.Value := EncodeDate(1995, 6, 15);
+    User.loginTime.Value := EncodeTime(14, 30, 0, 0);
+    User.active.Value    := True;
+    User.created.Value   := Now;
+    User.bio.Value       := 'Compositor e entusiasta de sistemas distribuídos de alta performance.';
 
     // Endereço aninhado
     User.address.city.Value    := 'São Paulo';
     User.address.state.Value   := 'SP';
     User.address.zipcode.Value := '01310-100';
+
+    // Relação 1:1 HasOne
+    Prof := TUserProfile.Create;
+    Prof.title.Value := 'Tech Lead';
+    Prof.department.Value := 'Engenharia de Software';
+    User.profile.Model := Prof;
 
     mmoSerialization.Lines.Text := User.ToJson;
   finally
@@ -222,7 +267,9 @@ begin
   User := TUser.Create;
   try
     User.name.Value   := edtValidationName.Text;
+    User.email.Value  := edtValidationEmail.Text;
     User.age.Value    := edtValidationAge.Value;
+    User.salary.Value := 5000.00;
     User.active.Value := True;
 
     // Endereço obrigatório para o exemplo
@@ -241,7 +288,7 @@ begin
   end;
 end;
 
-// Schema: gera o Swagger/OpenAPI schema do modelo
+// Schema: gera o Swagger/OpenAPI schema do modelo com todos os tipos
 procedure TForm1.Button4Click(Sender: TObject);
 begin
   mmoSchema.Lines.Text := TUser.SwaggerSchema(False);

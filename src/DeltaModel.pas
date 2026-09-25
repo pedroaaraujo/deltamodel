@@ -13,6 +13,46 @@ type
 
   TFieldList = specialize TFPGObjectList<TDeltaField>;
 
+  TConstraintKind = (ckUnique, ckCheck);
+
+  { TDeltaConstraint }
+
+  TDeltaConstraint = class
+  private
+    FName: string;
+    FKind: TConstraintKind;
+    FFields: TStringList;
+    FCheckExpression: string;
+  public
+    constructor CreateUnique(const AName: string; const AFields: array of string);
+    constructor CreateCheck(const AName: string; const AExpression: string);
+    destructor Destroy; override;
+    function GetFieldsSQL: string;
+    property Name: string read FName write FName;
+    property Kind: TConstraintKind read FKind write FKind;
+    property Fields: TStringList read FFields;
+    property CheckExpression: string read FCheckExpression write FCheckExpression;
+  end;
+
+  { TDeltaIndex }
+
+  TDeltaIndex = class
+  private
+    FName: string;
+    FFields: TStringList;
+    FIsUnique: Boolean;
+  public
+    constructor Create(const AName: string; const AFields: array of string; AIsUnique: Boolean = False);
+    destructor Destroy; override;
+    function GetFieldsSQL: string;
+    property Name: string read FName write FName;
+    property Fields: TStringList read FFields;
+    property IsUnique: Boolean read FIsUnique write FIsUnique;
+  end;
+
+  TConstraintList = specialize TFPGObjectList<TDeltaConstraint>;
+  TIndexList = specialize TFPGObjectList<TDeltaIndex>;
+
   { TDeltaModel }
 
   TDeltaModel = class
@@ -20,10 +60,15 @@ type
     FTableName: string;
     FValidator: TValidator;
     FFieldList: TFieldList;
+    FConstraints: TConstraintList;
+    FIndexes: TIndexList;
     procedure CreateFields;
     procedure SetTableName(AValue: string);
   public
     property TableName: string read FTableName write SetTableName;
+    property FieldList: TFieldList read FFieldList;
+    property Constraints: TConstraintList read FConstraints;
+    property Indexes: TIndexList read FIndexes;
     procedure FromJson(JsonStr: string);
     procedure Validate; virtual;
     procedure BeforeDestruction; override;
@@ -35,6 +80,15 @@ type
     function ToJsonObj: TJSONObject;
     class function SwaggerSchema(IsArray: Boolean = False): string;
     constructor Create; virtual;
+
+    function AddUniqueConstraint(const AName: string; const AFields: array of string): TDeltaConstraint; overload;
+    function AddUniqueConstraint(const AFields: array of string): TDeltaConstraint; overload;
+    function AddCheckConstraint(const AName: string; const AExpression: string): TDeltaConstraint;
+
+    function AddIndex(const AName: string; const AFields: array of string; AIsUnique: Boolean = False): TDeltaIndex; overload;
+    function AddIndex(const AFields: array of string; AIsUnique: Boolean = False): TDeltaIndex; overload;
+    function AddUniqueIndex(const AName: string; const AFields: array of string): TDeltaIndex; overload;
+    function AddUniqueIndex(const AFields: array of string): TDeltaIndex; overload;
 
     // Lifecycle hooks
     procedure BeforeInsert; virtual;
@@ -86,6 +140,84 @@ type
   end;
 
 implementation
+
+{ TDeltaConstraint }
+
+constructor TDeltaConstraint.CreateUnique(const AName: string;
+  const AFields: array of string);
+var
+  I: Integer;
+begin
+  inherited Create;
+  FName := AName;
+  FKind := ckUnique;
+  FFields := TStringList.Create;
+  for I := Low(AFields) to High(AFields) do
+    FFields.Add(Trim(AFields[I]));
+end;
+
+constructor TDeltaConstraint.CreateCheck(const AName: string;
+  const AExpression: string);
+begin
+  inherited Create;
+  FName := AName;
+  FKind := ckCheck;
+  FFields := TStringList.Create;
+  FCheckExpression := AExpression;
+end;
+
+destructor TDeltaConstraint.Destroy;
+begin
+  FFields.Free;
+  inherited Destroy;
+end;
+
+function TDeltaConstraint.GetFieldsSQL: string;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 0 to FFields.Count - 1 do
+  begin
+    if I > 0 then
+      Result := Result + ', ';
+    Result := Result + FFields[I];
+  end;
+end;
+
+{ TDeltaIndex }
+
+constructor TDeltaIndex.Create(const AName: string;
+  const AFields: array of string; AIsUnique: Boolean);
+var
+  I: Integer;
+begin
+  inherited Create;
+  FName := AName;
+  FIsUnique := AIsUnique;
+  FFields := TStringList.Create;
+  for I := Low(AFields) to High(AFields) do
+    FFields.Add(Trim(AFields[I]));
+end;
+
+destructor TDeltaIndex.Destroy;
+begin
+  FFields.Free;
+  inherited Destroy;
+end;
+
+function TDeltaIndex.GetFieldsSQL: string;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 0 to FFields.Count - 1 do
+  begin
+    if I > 0 then
+      Result := Result + ', ';
+    Result := Result + FFields[I];
+  end;
+end;
 
 { TDeltaModel }
 
@@ -153,6 +285,8 @@ begin
   inherited BeforeDestruction;
   FValidator.Free;
   FFieldList.Free;
+  FConstraints.Free;
+  FIndexes.Free;
 end;
 
 procedure TDeltaModel.Configure;
@@ -263,12 +397,59 @@ constructor TDeltaModel.Create;
 begin
   FValidator := TValidator.Create;
   FFieldList := TFieldList.Create();
+  FConstraints := TConstraintList.Create();
+  FIndexes := TIndexList.Create();
 
   CreateFields();
 
   FTableName := AnsiLowerCase(Copy(Self.ClassName, 2, MaxInt));
 
   Configure();
+end;
+
+function TDeltaModel.AddUniqueConstraint(const AName: string;
+  const AFields: array of string): TDeltaConstraint;
+begin
+  Result := TDeltaConstraint.CreateUnique(AName, AFields);
+  FConstraints.Add(Result);
+end;
+
+function TDeltaModel.AddUniqueConstraint(
+  const AFields: array of string): TDeltaConstraint;
+begin
+  Result := AddUniqueConstraint('', AFields);
+end;
+
+function TDeltaModel.AddCheckConstraint(const AName: string;
+  const AExpression: string): TDeltaConstraint;
+begin
+  Result := TDeltaConstraint.CreateCheck(AName, AExpression);
+  FConstraints.Add(Result);
+end;
+
+function TDeltaModel.AddIndex(const AName: string;
+  const AFields: array of string; AIsUnique: Boolean): TDeltaIndex;
+begin
+  Result := TDeltaIndex.Create(AName, AFields, AIsUnique);
+  FIndexes.Add(Result);
+end;
+
+function TDeltaModel.AddIndex(const AFields: array of string;
+  AIsUnique: Boolean): TDeltaIndex;
+begin
+  Result := AddIndex('', AFields, AIsUnique);
+end;
+
+function TDeltaModel.AddUniqueIndex(const AName: string;
+  const AFields: array of string): TDeltaIndex;
+begin
+  Result := AddIndex(AName, AFields, True);
+end;
+
+function TDeltaModel.AddUniqueIndex(
+  const AFields: array of string): TDeltaIndex;
+begin
+  Result := AddIndex('', AFields, True);
 end;
 
 procedure TDeltaModel.BeforeInsert;

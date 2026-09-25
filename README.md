@@ -12,7 +12,7 @@
 - 🔄 **Serialização JSON**: Conversão bidirecional entre Objetos/Listas e JSON (`ToJson`, `FromJson`), com suporte a objetos aninhados.
 - 📋 **OpenAPI / Swagger Schemas**: Geração automática de esquemas compatíveis com OpenAPI 3.0 para documentação de APIs.
 - 🗄️ **Micro-ORM Multi-SGDB**:
-  - DDL automatizado que inspeciona e cria/atualiza tabelas, colunas, chaves primárias e estrangeiras.
+  - DDL automatizado que inspeciona e cria/atualiza tabelas, colunas, chaves primárias, chaves estrangeiras, constraints (`UNIQUE`, `CHECK`) e índices de banco de dados (simples e compostos).
   - Construtor fluente de consultas SQL com suporte a condições tipadas (`Where`, `WhereBetween`, `WhereIn`, etc.) e Joins (`InnerJoin`, `LeftJoin`, etc.).
   - Operações CRUD inteligentes (`Save`, `Insert`, `Update`, `Delete`, `Find`, `Count`).
   - Hooks de ciclo de vida (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, etc.).
@@ -159,6 +159,7 @@ type
     property created: TDFDateTimeNull read Fcreated write Fcreated;
   public
     procedure AfterConstruction; override;
+    procedure Configure; override;
     procedure Validate; override;
     procedure BeforeInsert; override;
   end;
@@ -174,6 +175,18 @@ begin
   Self.name.Size := 120;
   Self.email.Size := 150;
   Self.cpf.Size := 14;
+
+  // Constraints e Índices a nível de campo
+  Self.email.IsUnique := True;    // Garante coluna UNIQUE no banco
+  Self.created.IsIndexed := True; // Cria índice secundário para performance
+end;
+
+procedure TPerson.Configure;
+begin
+  inherited Configure;
+  // Constraints e Índices compostos a nível de tabela
+  AddUniqueConstraint('uq_person_cpf', ['cpf']);
+  AddIndex('ix_person_name_salary', ['name', 'salary']);
 end;
 
 procedure TPerson.Validate;
@@ -212,12 +225,125 @@ end.
 | `TDFCurrencyNull` | `TDFCurrencyRequired` | `Currency` |
 | `TDFDateTimeNull` | `TDFDateTimeRequired` | `TDateTime` |
 | `TDFDateNull` | `TDFDateRequired` | `TDate` |
+| `TDFHasOne` | *(Virtual 1:1)* | `TObject / TDeltaModel` |
+| `TDFHasMany` | *(Virtual 1:N)* | `TCustomDeltaModelList` |
+
+---
+
+## 🔗 Relacionamentos entre Modelos
+
+### Relacionamento 1:1 (`TDFHasOne`)
+
+O `TDFHasOne` permite associar um modelo dependente a outro modelo de forma transparente:
+- **Campo Virtual**: Não gera coluna física na tabela pai durante o DDL (`CREATE TABLE` / `ALTER TABLE`).
+- **Serialização JSON Completa**: Serializa como objeto JSON aninhado quando preenchido e como `null` quando vazio.
+- **Desserialização Automática**: Ao chamar `FromJson`, instancia e popula automaticamente a classe relacionada configurada.
+- **Cópia Profunda (Clone)**: Operações de `Clone` e `CopyObject` clonam recursivamente a instância do modelo dependente.
+- **OpenAPI / Swagger 3.0**: Gera esquema com `type: 'object'` incorporando as propriedades do modelo relacionado.
+
+```pascal
+type
+  { Modelo Dependente (Ex: Perfil) }
+  TProfileModel = class(TDeltaModel)
+  private
+    FId: TDFIntRequired;
+    FBio: TDFStringNull;
+    FTwitter: TDFStringNull;
+  published
+    property Id: TDFIntRequired read FId write FId;
+    property Bio: TDFStringNull read FBio write FBio;
+    property Twitter: TDFStringNull read FTwitter write FTwitter;
+  public
+    procedure AfterConstruction; override;
+  end;
+
+  { Modelo Principal (Ex: Usuário) com HasOne }
+  TUserModel = class(TDeltaModel)
+  private
+    FId: TDFIntRequired;
+    FUsername: TDFStringRequired;
+    FProfile: TDFHasOne;
+  published
+    property Id: TDFIntRequired read FId write FId;
+    property Username: TDFStringRequired read FUsername write FUsername;
+    property Profile: TDFHasOne read FProfile write FProfile;
+  public
+    procedure Configure; override;
+  end;
+
+procedure TUserModel.Configure;
+begin
+  inherited Configure;
+  // Configura a relação 1:1 apontando para a classe dependente e as chaves
+  Profile.References(TProfileModel, 'user_id', 'id');
+end;
+```
+
+## 🛡️ Constraints e Índices de Banco de Dados
+
+O DeltaModel oferece suporte completo e declarativo para restrições de integridade e índices de performance em todos os 6 dialetos de SGBD:
+
+### 1. Nível de Coluna (Fluente e Direto)
+
+Defina restrições diretamente nos campos em `AfterConstruction` ou `Configure`:
+
+```pascal
+// Marca a coluna como UNIQUE
+email.IsUnique := True; 
+// Ou via DBOptions:
+email.DBOptions := email.DBOptions + [dboUnique];
+
+// Cria índice de performance para a coluna
+createdAt.IsIndexed := True;
+// Ou via DBOptions:
+createdAt.DBOptions := createdAt.DBOptions + [dboIndex];
+```
+
+### 2. Nível de Tabela (Compostas e Nomeadas)
+
+No método `Configure` do seu modelo, declare índices e constraints compostas multi-coluna:
+
+```pascal
+procedure TTenantUser.Configure;
+begin
+  inherited Configure;
+
+  // 1. Constraint UNIQUE Composta (Multi-column)
+  AddUniqueConstraint('uq_tenant_email', ['tenant_id', 'email']);
+  // Sem nome (gera UQ_tablename_cols automaticamente):
+  AddUniqueConstraint(['company_id', 'code']);
+
+  // 2. Índices Secundários (B-Tree de alta performance)
+  AddIndex('ix_tenant_status_date', ['tenant_id', 'status', 'created_at']);
+  // Sem nome (gera IX_tablename_cols automaticamente):
+  AddIndex(['category_id', 'created_at']);
+
+  // 3. Índice Único Composto
+  AddUniqueIndex('ix_tenant_cpf', ['tenant_id', 'cpf']);
+
+  // 4. Constraint CHECK
+  AddCheckConstraint('chk_age_adult', 'age >= 18');
+end;
+```
+
+### 3. Comportamento Multi-Dialeto Automatizado
+
+O DDL Builder e o Schema Migrator traduzem as definições para a sintaxe nativa de cada SGBD:
+
+| Dialeto | `UNIQUE` no `CREATE TABLE` | `UNIQUE` via `ALTER TABLE` | Índices Secundários / Únicos | Sanitização de Nomes |
+| :--- | :--- | :--- | :--- | :--- |
+| **SQLite** | `CONSTRAINT ... UNIQUE(...)` | `CREATE UNIQUE INDEX IF NOT EXISTS` | `CREATE [UNIQUE] INDEX IF NOT EXISTS` | Padrão |
+| **PostgreSQL** | `ADD CONSTRAINT ... UNIQUE` | `ADD CONSTRAINT ... UNIQUE` | `CREATE [UNIQUE] INDEX IF NOT EXISTS` | Padrão |
+| **MySQL** | `ADD CONSTRAINT ... UNIQUE` | `ADD CONSTRAINT ... UNIQUE` | `CREATE [UNIQUE] INDEX` | Padrão |
+| **Firebird** | `ADD CONSTRAINT ... UNIQUE` | `ADD CONSTRAINT ... UNIQUE` | `CREATE [UNIQUE] INDEX` | Padrão |
+| **MSSQL** | `ADD CONSTRAINT ... UNIQUE` | `ADD CONSTRAINT ... UNIQUE` | `CREATE [UNIQUE] INDEX` | Padrão |
+| **Oracle** | `ADD CONSTRAINT ... UNIQUE` | `ADD CONSTRAINT ... UNIQUE` | `CREATE [UNIQUE] INDEX` | Truncamento automático para <= 30 chars |
 
 ---
 
 ## 🗄️ DDL Automatizado (`TDeltaORMSchema`)
 
-O `TDeltaORMSchema` inspeciona a estrutura das classes e cria ou atualiza as tabelas no SGDB conectado:
+O `TDeltaORMSchema` inspeciona a estrutura das classes e cria ou atualiza as tabelas, colunas, constraints e índices no SGDB conectado:
 
 ```pascal
 var
@@ -228,10 +354,10 @@ begin
     Schema.RegisterModel(TPerson.Create);
     // Schema.RegisterModel(TOrder.Create);
 
-    // True para executar diretamente no banco conectado
+    // True para executar diretamente no banco conectado (cria tabelas, campos, FKs, Unique e Índices)
     Schema.PrepareDB(True);
 
-    // Você também pode inspecionar o SQL gerado:
+    // Inspecione o SQL gerado para o dialeto ativo:
     // WriteLn(Schema.SQL.Text);
   finally
     Schema.Free;
@@ -465,7 +591,7 @@ end;
 
 O DeltaModel possui uma cobertura abrangente de testes automatizados unitários e de integração, garantindo alta estabilidade, precisão de tipos e performance:
 
-- **`tests/test_suite.lpr`**: Suíte consolidada com **138 testes unitários (100% aprovados)** cobrindo:
+- **`tests/test_suite.lpr`**: Suíte consolidada com **175 testes unitários (100% aprovados)** cobrindo:
   - **Connection URL Parser** (SQLite memória/arquivo/relativo, PostgreSQL, MySQL, Firebird).
   - **Motor de Validação** (CPF e CNPJ numérico/alfanumérico com/sem máscara e dígitos inválidos, E-mail, UTF-8 multibyte, Between, GreaterThan, etc.).
   - **Serialização & Precisão Numérica** (JSON com escape de aspas, UTF-8, integridade de `Int64` sem truncamento, CSV tipado, `Clone`).
@@ -473,6 +599,8 @@ O DeltaModel possui uma cobertura abrangente de testes automatizados unitários 
   - **Geração de DDL Multi-Dialeto** (SQLite, PostgreSQL, Firebird, Oracle, MSSQL).
   - **Ciclo de Vida & Hooks** (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, `AfterUpdate`, `BeforeSave`, `AfterSave`, `BeforeDelete`, `AfterDelete` e tratamento de exceções).
   - **ORM CRUD, Query Builder & Transações** (`Where`, `WhereBetween`, `WhereIn`, `Limit`, `Offset`, `AsJsonString`, rollback automático e `InTransaction`).
+  - **Constraints (`UNIQUE`, `CHECK`) & Índices de Banco de Dados** (restrições a nível de campo e tabela, geração de índices secundários e únicos, sanitização de identificadores para Oracle e validação de violação de integridade em runtime com SQLite).
+  - **Relacionamento 1:1 (`TDFHasOne`)** (metadados virtuais sem coluna física em DDL, serialização aninhada/null, desserialização com instanciação dinâmica, cópia profunda em `Clone` e esquema Swagger com `type: 'object'`).
 - **`tests/test_pool.lpr`**: Testes de concorrência multithread do Connection Pool (10 threads simultâneas vs pool de 4 conexões, timeouts, sanitização RAII e métricas).
 - **`tests/test_bulk_insert.lpr`**: Validação de inserção em lote para todos os dialetos suportados.
 

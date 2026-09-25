@@ -23,6 +23,7 @@ type
     procedure CreateTables;
     procedure AlterTables;
     procedure CreateConstraints;
+    procedure CreateIndexes;
   public
     property SQL: TStringList read FSQL;
     procedure RegisterModel(Model: TDeltaModel); overload;
@@ -101,6 +102,30 @@ begin
   end;
 end;
 
+procedure TDeltaORMSchema.CreateIndexes;
+var
+  I, J: Integer;
+  Obj: TDeltaModel;
+  IdxList: TStringList;
+begin
+  IdxList := TStringList.Create;
+  try
+    for I := 0 to Pred(FModels.Count) do
+    begin
+      Obj := FModels.Items[I];
+      TDDLBuilder.GetIndexes(Obj, FConnection.Dialect, IdxList);
+    end;
+
+    for J := 0 to Pred(IdxList.Count) do
+    begin
+      if not IdxList[J].IsEmpty then
+        FSQL.Add(IdxList[J]);
+    end;
+  finally
+    IdxList.Free;
+  end;
+end;
+
 procedure TDeltaORMSchema.RegisterModel(Model: TDeltaModel);
 begin
   FModels.Add(Model);
@@ -124,6 +149,8 @@ begin
   AlterTables;
 
   CreateConstraints;
+
+  CreateIndexes;
 
   if Persist and (FSQL.Count > 0) then
   begin

@@ -22,6 +22,9 @@ type
     class procedure GetConstraintsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
     class procedure GetFieldsAT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings);
   public
+    class function SanitizeIdentifier(const AName: string; ADialect: TDatabaseDialect): string;
+    class function IndexDDL(const Table: string; IndexDef: TDeltaIndex; ADialect: TDatabaseDialect): string;
+    class procedure GetIndexes(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
     class function CreateTableAndFields(Obj: TDeltaModel; Constraints: TStrings; ADialect: TDatabaseDialect): string;
     class function CreateFields(Obj: TDeltaModel; ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings): string;
   end;
@@ -174,9 +177,20 @@ begin
       ddSQLite:
         SQLType := 'TEXT';
       ddOracle:
-        SQLType := Format('VARCHAR2(%d)', [Size]);
+        if Size > 4000 then
+          SQLType := 'CLOB'
+        else
+          SQLType := Format('VARCHAR2(%d)', [Size]);
+      ddFirebird:
+        if Size > 8191 then
+          SQLType := 'BLOB SUB_TYPE TEXT'
+        else
+          SQLType := Format('VARCHAR(%d)', [Size]);
     else
-      SQLType := Format('VARCHAR(%d)', [Size]);
+      if Size > 8191 then
+        SQLType := 'TEXT'
+      else
+        SQLType := Format('VARCHAR(%d)', [Size]);
     end;
   end;
 
@@ -373,42 +387,172 @@ begin
   end;
 end;
 
+class function TDDLBuilder.SanitizeIdentifier(const AName: string;
+  ADialect: TDatabaseDialect): string;
+begin
+  Result := AName;
+  if (ADialect = ddOracle) and (Length(Result) > 30) then
+    Result := Copy(Result, 1, 30);
+end;
+
+class function TDDLBuilder.IndexDDL(const Table: string; IndexDef: TDeltaIndex;
+  ADialect: TDatabaseDialect): string;
+var
+  IdxName, FieldsList, UniqueClause, IfNotExistsClause, S: string;
+  I: Integer;
+begin
+  IdxName := IndexDef.Name;
+  if IdxName.IsEmpty then
+  begin
+    S := '';
+    for I := 0 to Pred(IndexDef.Fields.Count) do
+    begin
+      if not S.IsEmpty then S := S + '_';
+      S := S + IndexDef.Fields[I];
+    end;
+    if IndexDef.IsUnique then
+      IdxName := 'UQ_' + Table + '_' + S
+    else
+      IdxName := 'IX_' + Table + '_' + S;
+  end;
+  IdxName := SanitizeIdentifier(IdxName, ADialect);
+
+  FieldsList := IndexDef.GetFieldsSQL;
+
+  if IndexDef.IsUnique then
+    UniqueClause := 'UNIQUE '
+  else
+    UniqueClause := '';
+
+  if ADialect in [ddSQLite, ddPostgreSQL] then
+    IfNotExistsClause := 'IF NOT EXISTS '
+  else
+    IfNotExistsClause := '';
+
+  Result := Format('CREATE %sINDEX %s%s ON %s (%s);',
+    [UniqueClause, IfNotExistsClause, IdxName, Table, FieldsList]);
+end;
+
+class procedure TDDLBuilder.GetIndexes(Obj: TDeltaModel;
+  ADialect: TDatabaseDialect; List: TStrings);
+var
+  I: Integer;
+  DeltaField: TDeltaField;
+  TmpIdx: TDeltaIndex;
+begin
+  // 1. Índices a nível de campo (dboIndex)
+  for I := 0 to Pred(Obj.FieldList.Count) do
+  begin
+    DeltaField := Obj.FieldList[I];
+    if DeltaField.IsVirtual then Continue;
+
+    if (dboIndex in DeltaField.DBOptions) then
+    begin
+      TmpIdx := TDeltaIndex.Create('IX_' + Obj.TableName + '_' + DeltaField.FieldName, [DeltaField.FieldName], False);
+      try
+        List.Add(IndexDDL(Obj.TableName, TmpIdx, ADialect));
+      finally
+        TmpIdx.Free;
+      end;
+    end;
+  end;
+
+  // 2. Índices a nível de tabela (Obj.Indexes)
+  for I := 0 to Pred(Obj.Indexes.Count) do
+  begin
+    List.Add(IndexDDL(Obj.TableName, Obj.Indexes[I], ADialect));
+  end;
+end;
+
 class procedure TDDLBuilder.GetConstraintsCT(Obj: TDeltaModel;
   ADialect: TDatabaseDialect; List: TStrings);
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
-  PropCount, I: Integer;
+  PropCount, I, J: Integer;
   DeltaField: TDeltaField;
+  CName, S: string;
+  C: TDeltaConstraint;
 begin
   PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
-  if PropCount = 0 then Exit;
-  GetMem(PropList, PropCount * SizeOf(Pointer));
-  try
-    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
-    for I := 0 to PropCount - 1 do
-    begin
-      PropInfo := PropList^[I];
-      if not (PropInfo^.PropType^.Kind = tkClass) then
-        Continue;
-
-      if not (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
-        Continue;
-
-      DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
-
-      if DeltaField.IsVirtual then Continue;
-
-      if (DeltaField.ForeignKey.ReferencesTable <> nil) then
+  if PropCount > 0 then
+  begin
+    GetMem(PropList, PropCount * SizeOf(Pointer));
+    try
+      GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
+      for I := 0 to PropCount - 1 do
       begin
-        if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
-          raise Exception.CreateFmt('%s foreign key references a non TDeltaModel class.', [DeltaField.ClassName]);
+        PropInfo := PropList^[I];
+        if not (PropInfo^.PropType^.Kind = tkClass) then
+          Continue;
 
-        List.Add(ForeignKeyDDL(Obj.TableName, DeltaField, ADialect));
+        if not (TObject(GetObjectProp(Obj, PropInfo)) is TDeltaField) then
+          Continue;
+
+        DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
+
+        if DeltaField.IsVirtual then Continue;
+
+        // 1. Chaves Estrangeiras
+        if (DeltaField.ForeignKey.ReferencesTable <> nil) then
+        begin
+          if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
+            raise Exception.CreateFmt('%s foreign key references a non TDeltaModel class.', [DeltaField.ClassName]);
+
+          List.Add(ForeignKeyDDL(Obj.TableName, DeltaField, ADialect));
+        end;
+
+        // 2. Constraints UNIQUE a nível de campo (dboUnique)
+        if (dboUnique in DeltaField.DBOptions) then
+        begin
+          CName := SanitizeIdentifier('UQ_' + Obj.TableName + '_' + DeltaField.FieldName, ADialect);
+          if ADialect = ddSQLite then
+            List.Add(Format('CONSTRAINT %s UNIQUE (%s)', [CName, DeltaField.FieldName]))
+          else
+            List.Add(Format('ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s);', [Obj.TableName, CName, DeltaField.FieldName]));
+        end;
       end;
+    finally
+      FreeMem(PropList, PropCount * SizeOf(Pointer));
     end;
-  finally
-    FreeMem(PropList, PropCount * SizeOf(Pointer));
+  end;
+
+  // 3. Constraints a nível de tabela (Obj.Constraints)
+  for I := 0 to Pred(Obj.Constraints.Count) do
+  begin
+    C := Obj.Constraints[I];
+    CName := C.Name;
+    if C.Kind = ckUnique then
+    begin
+      if CName.IsEmpty then
+      begin
+        S := '';
+        for J := 0 to Pred(C.Fields.Count) do
+        begin
+          if not S.IsEmpty then S := S + '_';
+          S := S + C.Fields[J];
+        end;
+        CName := 'UQ_' + Obj.TableName + '_' + S;
+      end;
+      CName := SanitizeIdentifier(CName, ADialect);
+
+      if ADialect = ddSQLite then
+        List.Add(Format('CONSTRAINT %s UNIQUE (%s)', [CName, C.GetFieldsSQL]))
+      else
+        List.Add(Format('ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s);', [Obj.TableName, CName, C.GetFieldsSQL]));
+    end
+    else
+    if C.Kind = ckCheck then
+    begin
+      if CName.IsEmpty then
+        CName := 'CHK_' + Obj.TableName + '_' + IntToStr(I + 1);
+      CName := SanitizeIdentifier(CName, ADialect);
+
+      if ADialect = ddSQLite then
+        List.Add(Format('CONSTRAINT %s CHECK (%s)', [CName, C.CheckExpression]))
+      else
+        List.Add(Format('ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s);', [Obj.TableName, CName, C.CheckExpression]));
+    end;
   end;
 end;
 
@@ -455,6 +599,16 @@ begin
             else
               raise Exception.CreateFmt('%s foreign key references a non TDeltaModel class.', [DeltaField.ClassName]);
           end;
+
+          if (dboUnique in DeltaField.DBOptions) then
+          begin
+            if ADialect = ddSQLite then
+              Constraints.Add(Format('CREATE UNIQUE INDEX IF NOT EXISTS %s ON %s (%s);',
+                [SanitizeIdentifier('UQ_' + Obj.TableName + '_' + DeltaField.FieldName, ADialect), Obj.TableName, DeltaField.FieldName]))
+            else
+              Constraints.Add(Format('ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s);',
+                [Obj.TableName, SanitizeIdentifier('UQ_' + Obj.TableName + '_' + DeltaField.FieldName, ADialect), DeltaField.FieldName]));
+          end;
         end;
       end
       else
@@ -478,13 +632,12 @@ class function TDDLBuilder.CreateTableAndFields(Obj: TDeltaModel;
   Constraints: TStrings; ADialect: TDatabaseDialect): string;
 var
   SQL, Fields: TStringList;
-  Option: string;
+  Option, FieldsBlock, S: string;
+  I: Integer;
 begin
   SQL := TStringList.Create;
   Fields := TStringList.Create;
   try
-    Fields.Delimiter := ',';
-    Fields.StrictDelimiter := True;
     GetFieldsCT(Obj, ADialect, Fields);
 
     if ADialect = ddSQLite then
@@ -498,9 +651,19 @@ begin
       Option := EmptyStr;
     end;
 
+    FieldsBlock := '';
+    for I := 0 to Fields.Count - 1 do
+    begin
+      S := Trim(Fields[I]);
+      if S.IsEmpty then Continue;
+      if not FieldsBlock.IsEmpty then
+        FieldsBlock := FieldsBlock + ',' + sLineBreak;
+      FieldsBlock := FieldsBlock + '  ' + S;
+    end;
+
     SQL.Add(
-      'CREATE TABLE ' + Option + Obj.TableName + ' (' +
-      Fields.DelimitedText + sLineBreak +
+      'CREATE TABLE ' + Option + Obj.TableName + ' (' + sLineBreak +
+      FieldsBlock + sLineBreak +
       ');'
     );
 
