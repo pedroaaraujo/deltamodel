@@ -342,6 +342,9 @@ begin
   Cfg := ParseDatabaseURL('sqlite:///./data/test.db');
   AssertEquals('./data/test.db', Cfg.Database, 'SQLite caminho relativo explicito ./ preservado');
 
+  Cfg := ParseDatabaseURL('sqlite:///dados.db');
+  AssertEquals('dados.db', Cfg.Database, 'SQLite arquivo relativo simples com 3 barras');
+
   Cfg := ParseDatabaseURL('sqlite:////var/lib/app.db');
   AssertEquals('/var/lib/app.db', Cfg.Database, 'SQLite caminho absoluto unix com 4 barras');
 

@@ -126,6 +126,13 @@ begin
     if (Length(URI) >= 3) and (URI[1] = '/') and (URI[2] = '.') and (URI[3] = '/') then
       Result.Database := Copy(URI, 2, MaxInt)
     else
+    // Arquivo relativo direto com 3 barras: sqlite:///dados.db -> dados.db
+    // Se o caminho inicia com '/' mas não possui outros separadores de diretório ('/'),
+    // trata-se de um nome de arquivo local relativo no diretório de trabalho/aplicação,
+    // e não de um arquivo na raiz do sistema operacional (/dados.db).
+    if (Length(URI) > 1) and (URI[1] = '/') and (Pos('/', Copy(URI, 2, MaxInt)) = 0) then
+      Result.Database := Copy(URI, 2, MaxInt)
+    else
       Result.Database := URI;
 
     Exit;
