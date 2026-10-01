@@ -139,7 +139,10 @@ begin
       FConnection.CharSet := 'UTF8';
 
     if Config.Port > 0 then
+    begin
+      FConnection.Params.Values['Port'] := Config.Port.ToString;
       FConnection.Params.Values['port'] := Config.Port.ToString;
+    end;
 
     // Transfere quaisquer parâmetros adicionais da URL
     if Assigned(Config.Params) then

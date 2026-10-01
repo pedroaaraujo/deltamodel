@@ -10,6 +10,8 @@ uses
 
 function GenerateSchema(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): TJSONObject;
 function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: Boolean = False): string;
+function GeneratePaginatedSchema(Obj: TObject; AddExamples: Boolean = False): TJSONObject;
+function GeneratePaginatedSchemaStr(Obj: TObject; AddExamples: Boolean = False): string;
 
 implementation
 
@@ -169,7 +171,17 @@ begin
               if NestedObj is TCustomDeltaModelList then
               begin
                 SchemaObj.Add('type', 'array');
-                SchemaObj.Add('items', (NestedObj as TCustomDeltaModelList).SwaggerSchema(AddExamples));
+                if (NestedObj as TCustomDeltaModelList).GetModelClass <> nil then
+                begin
+                  FirstItem := CreateModelInstance((NestedObj as TCustomDeltaModelList).GetModelClass);
+                  try
+                    SchemaObj.Add('items', GenerateSchema(FirstItem, AddExamples, False));
+                  finally
+                    FirstItem.Free;
+                  end;
+                end
+                else
+                  SchemaObj.Add('items', TJSONObject.Create);
               end
               else
               if NestedObj is TFPSList then
@@ -230,6 +242,67 @@ var
   Json: TJSONObject;
 begin
   Json := GenerateSchema(Obj, AddExamples, IsArray);
+  try
+    Result := Json.AsJSON;
+  finally
+    Json.Free;
+  end;
+end;
+
+function GeneratePaginatedSchema(Obj: TObject; AddExamples: Boolean): TJSONObject;
+var
+  RootObj, PropsObj, ItemsArray, ItemSchema: TJSONObject;
+  TotalProp, PageProp, PageSizeProp, TotalPagesProp: TJSONObject;
+begin
+  RootObj := TJSONObject.Create;
+  RootObj.Add('type', 'object');
+
+  PropsObj := TJSONObject.Create;
+
+  // 1. items (lista genérica)
+  ItemSchema := GenerateSchema(Obj, AddExamples, False);
+  if not Assigned(ItemSchema) then
+    ItemSchema := TJSONObject.Create;
+
+  ItemsArray := TJSONObject.Create;
+  ItemsArray.Add('type', 'array');
+  ItemsArray.Add('items', ItemSchema);
+  PropsObj.Add('items', ItemsArray);
+
+  // 2. page (inteiro)
+  PageProp := TJSONObject.Create;
+  PageProp.Add('type', 'integer');
+  if AddExamples then PageProp.Add('example', 1);
+  PropsObj.Add('page', PageProp);
+
+  // 3. page_size (inteiro)
+  PageSizeProp := TJSONObject.Create;
+  PageSizeProp.Add('type', 'integer');
+  if AddExamples then PageSizeProp.Add('example', 20);
+  PropsObj.Add('page_size', PageSizeProp);
+
+  // 4. total_records (inteiro)
+  TotalProp := TJSONObject.Create;
+  TotalProp.Add('type', 'integer');
+  TotalProp.Add('format', 'int64');
+  if AddExamples then TotalProp.Add('example', 100);
+  PropsObj.Add('total_records', TotalProp);
+
+  // 5. total_pages (inteiro)
+  TotalPagesProp := TJSONObject.Create;
+  TotalPagesProp.Add('type', 'integer');
+  if AddExamples then TotalPagesProp.Add('example', 5);
+  PropsObj.Add('total_pages', TotalPagesProp);
+
+  RootObj.Add('properties', PropsObj);
+  Result := RootObj;
+end;
+
+function GeneratePaginatedSchemaStr(Obj: TObject; AddExamples: Boolean): string;
+var
+  Json: TJSONObject;
+begin
+  Json := GeneratePaginatedSchema(Obj, AddExamples);
   try
     Result := Json.AsJSON;
   finally

@@ -192,7 +192,9 @@ begin
           end
           else if Assigned(PropObj) then
           begin
-            if PropValue is TJSONObject then
+            if PropObj is TCustomDeltaModelList then
+              TCustomDeltaModelList(PropObj).FromJson(PropValue.AsJSON)
+            else if PropValue is TJSONObject then
               DeserializeObj(PropObj, TJSONObject(PropValue));
           end
           else
@@ -200,7 +202,9 @@ begin
             PropObj := GetTypeData(PropInfo^.PropType)^.ClassType.Create;
             SetObjectProp(Obj, PropInfo, PropObj);
 
-            if PropValue is TJSONObject then
+            if PropObj is TCustomDeltaModelList then
+              TCustomDeltaModelList(PropObj).FromJson(PropValue.AsJSON)
+            else if PropValue is TJSONObject then
               DeserializeObj(PropObj, TJSONObject(PropValue));
           end;
         end;

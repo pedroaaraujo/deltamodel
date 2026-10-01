@@ -86,6 +86,9 @@ type
     procedure Validate; override;
   end;
 
+  TProductGenericList = specialize TGDeltaModelList<TProductModel>;
+  TProductPaginatedGenericList = specialize TGDeltaModelPaginatedList<TProductModel>;
+
 procedure TProductModel.AfterConstruction;
 begin
   inherited AfterConstruction;
@@ -720,6 +723,50 @@ begin
     finally
       Doc.Free;
     end;
+
+    // Teste de SwaggerSchemaObject (Novo método explícito)
+    SchemaJson := TProductModel.SwaggerSchemaObject(False);
+    Doc := TJSONObject(GetJSON(SchemaJson));
+    try
+      AssertEquals('object', Doc.Get('type', ''), 'SwaggerSchemaObject raiz é do tipo object');
+      AssertTrue(Assigned(Doc.Get('properties', TJSONObject(nil))), 'SwaggerSchemaObject contém properties');
+    finally
+      Doc.Free;
+    end;
+
+    // Teste de SwaggerSchemaArray (Novo método explícito)
+    SchemaJson := TProductModel.SwaggerSchemaArray(False);
+    Doc := TJSONObject(GetJSON(SchemaJson));
+    try
+      AssertEquals('array', Doc.Get('type', ''), 'SwaggerSchemaArray raiz é do tipo array');
+      AssertTrue(Assigned(Doc.Get('items', TJSONObject(nil))), 'SwaggerSchemaArray contém items');
+      if Assigned(Doc.Get('items', TJSONObject(nil))) then
+        AssertEquals('object', Doc.Get('items', TJSONObject(nil)).Get('type', ''), 'items de SwaggerSchemaArray é object');
+    finally
+      Doc.Free;
+    end;
+
+    // Teste do OpenAPI Schema Paginado
+    SchemaJson := TProductModel.SwaggerSchemaPaginated(False);
+    Doc := TJSONObject(GetJSON(SchemaJson));
+    try
+      AssertEquals('object', Doc.Get('type', ''), 'Schema paginado raiz é do tipo object');
+      Props := Doc.Get('properties', TJSONObject(nil));
+      AssertTrue(Assigned(Props), 'Schema paginado contém seção properties');
+
+      // items
+      AssertTrue(Assigned(Props.Get('items', TJSONObject(nil))), 'Schema paginado contém items');
+      if Assigned(Props.Get('items', TJSONObject(nil))) then
+        AssertEquals('array', Props.Get('items', TJSONObject(nil)).Get('type', ''), 'items é do tipo array');
+
+      // page, page_size, total_records, total_pages
+      AssertTrue(Assigned(Props.Get('page', TJSONObject(nil))), 'Schema paginado contém page');
+      AssertTrue(Assigned(Props.Get('page_size', TJSONObject(nil))), 'Schema paginado contém page_size');
+      AssertTrue(Assigned(Props.Get('total_records', TJSONObject(nil))), 'Schema paginado contém total_records');
+      AssertTrue(Assigned(Props.Get('total_pages', TJSONObject(nil))), 'Schema paginado contém total_pages');
+    finally
+      Doc.Free;
+    end;
 end;
 
 {==============================================================================}
@@ -1289,6 +1336,174 @@ begin
 end;
 
 {==============================================================================}
+{ Test 10: TDeltaModelPaginatedList Pagination & Resilient Deserialization    }
+{==============================================================================}
+
+procedure TestPaginatedList;
+var
+  PagList: TDeltaModelPaginatedList;
+  RegList: TDeltaModelList;
+  GenList: TProductGenericList;
+  GenPagList: TProductPaginatedGenericList;
+  Prod1, Prod2: TProductModel;
+  JsonOut: RawByteString;
+  Doc: TJSONObject;
+  ParsedJson: TJSONData;
+begin
+  Suite('10. TDeltaModelPaginatedList & Serialization');
+
+  PagList := TDeltaModelPaginatedList.Create;
+  try
+    PagList.SetDeltaModelClass(TProductModel);
+
+    Prod1 := TProductModel.Create;
+    Prod1.Id.Value := 1;
+    Prod1.Name.Value := 'Produto Pag 1';
+    Prod1.Price.Value := 10.50;
+    Prod1.Active.Value := True;
+    PagList.Add(Prod1);
+
+    Prod2 := TProductModel.Create;
+    Prod2.Id.Value := 2;
+    Prod2.Name.Value := 'Produto Pag 2';
+    Prod2.Price.Value := 25.00;
+    Prod2.Active.Value := True;
+    PagList.Add(Prod2);
+
+    PagList.total_records := 50;
+    PagList.page := 2;
+    PagList.page_size := 2;
+
+    JsonOut := PagList.ToJson;
+    Doc := TJSONObject(GetJSON(JsonOut));
+    try
+      AssertTrue(Assigned(Doc.Get('items', TJSONArray(nil))), 'Payload contém items array');
+      if Assigned(Doc.Get('items', TJSONArray(nil))) then
+      begin
+        AssertEqualsInt(2, Doc.Get('items', TJSONArray(nil)).Count, 'items contém 2 registros');
+      end;
+      AssertEqualsInt(50, Doc.Get('total_records', 0), 'total_records correto');
+      AssertEqualsInt(2, Doc.Get('page', 0), 'page correto');
+      AssertEqualsInt(2, Doc.Get('page_size', 0), 'page_size correto');
+      AssertEqualsInt(25, Doc.Get('total_pages', 0), 'total_pages correto');
+    finally
+      Doc.Free;
+    end;
+
+    // Teste de FromJson do TDeltaModelPaginatedList
+    PagList.ClearList;
+    PagList.FromJson(JsonOut);
+    AssertEqualsInt(50, PagList.total_records, 'PagList.total_records recuperado do JSON');
+    AssertEqualsInt(2, PagList.page, 'PagList.page recuperado do JSON');
+    AssertEqualsInt(2, PagList.page_size, 'PagList.page_size recuperado do JSON');
+    AssertEqualsInt(25, PagList.total_pages, 'PagList.total_pages recuperado do JSON');
+    AssertEqualsInt(2, PagList.Count, 'PagList.Records.Count recuperado');
+    AssertEquals('Produto Pag 1', TProductModel(PagList[0]).Name.AsString, 'Item 0 recuperado');
+    AssertEquals('Produto Pag 2', TProductModel(PagList[1]).Name.AsString, 'Item 1 recuperado');
+
+    // Teste canônico: TDeltaModelList tradicional recebendo payload paginado { items: [...], page: ..., page_size: ..., total_records: ..., total_pages: ... }
+    RegList := TDeltaModelList.Create;
+    try
+      RegList.SetDeltaModelClass(TProductModel);
+      RegList.FromJson(JsonOut);
+      AssertEqualsInt(2, RegList.Count, 'TDeltaModelList padrão desserializou items com sucesso');
+      AssertEqualsInt(50, RegList.total_records, 'RegList.total_records desserializado com sucesso');
+      AssertEqualsInt(2, RegList.page, 'RegList.page desserializado com sucesso');
+      AssertEquals('Produto Pag 1', TProductModel(RegList[0]).Name.AsString, 'Item 0 do RegList correto');
+    finally
+      RegList.Free;
+    end;
+
+    // Teste: TDeltaModelList.ToJson gera apenas um JSON Array de objetos
+    RegList := TDeltaModelList.Create;
+    try
+      RegList.SetDeltaModelClass(TProductModel);
+      Prod1 := TProductModel.Create;
+      Prod1.Id.Value := 10;
+      Prod1.Name.Value := 'Produto Lista Simples';
+      Prod1.Price.Value := 99.00;
+      Prod1.Active.Value := True;
+      RegList.Add(Prod1);
+
+      JsonOut := RegList.ToJson;
+      AssertTrue((Length(JsonOut) > 0) and (JsonOut[1] = '['), 'TDeltaModelList.ToJson inicia com array "["');
+      ParsedJson := GetJSON(JsonOut);
+      try
+        AssertTrue(ParsedJson is TJSONArray, 'TDeltaModelList.ToJson produz exclusivamente um TJSONArray');
+        AssertEqualsInt(1, TJSONArray(ParsedJson).Count, 'TDeltaModelList.ToJson contém 1 item');
+      finally
+        ParsedJson.Free;
+      end;
+    finally
+      RegList.Free;
+    end;
+
+    // Teste: TGDeltaModelList<TProductModel> ToJson gera somente JSON Array de objetos
+    GenList := TProductGenericList.Create;
+    try
+      Prod1 := TProductModel.Create;
+      Prod1.Id.Value := 20;
+      Prod1.Name.Value := 'Produto Generico';
+      Prod1.Price.Value := 150.00;
+      Prod1.Active.Value := True;
+      GenList.Add(Prod1);
+
+      JsonOut := GenList.ToJson;
+      AssertTrue((Length(JsonOut) > 0) and (JsonOut[1] = '['), 'TGDeltaModelList.ToJson inicia com array "["');
+      ParsedJson := GetJSON(JsonOut);
+      try
+        AssertTrue(ParsedJson is TJSONArray, 'TGDeltaModelList.ToJson produz exclusivamente um TJSONArray');
+      finally
+        ParsedJson.Free;
+      end;
+
+      // Desserialização na lista genérica
+      GenList.ClearList;
+      GenList.FromJson(JsonOut);
+      AssertEqualsInt(1, GenList.Count, 'TGDeltaModelList desserializou do JSON Array');
+      AssertEquals('Produto Generico', GenList[0].Name.AsString, 'Item tipado acessível diretamente via Item[0]');
+    finally
+      GenList.Free;
+    end;
+
+    // Teste: TGDeltaModelPaginatedList<TProductModel> serializa envelope paginado
+    GenPagList := TProductPaginatedGenericList.Create;
+    try
+      Prod1 := TProductModel.Create;
+      Prod1.Id.Value := 30;
+      Prod1.Name.Value := 'Produto Paginado Gen';
+      Prod1.Price.Value := 200.00;
+      Prod1.Active.Value := True;
+      GenPagList.Add(Prod1);
+      GenPagList.page := 1;
+      GenPagList.page_size := 10;
+      GenPagList.total_records := 1;
+
+      JsonOut := GenPagList.ToJson;
+      AssertTrue((Length(JsonOut) > 0) and (JsonOut[1] = '{'), 'TGDeltaModelPaginatedList.ToJson inicia com objeto "{"');
+      Doc := TJSONObject(GetJSON(JsonOut));
+      try
+        AssertTrue(Assigned(Doc.Get('items', TJSONArray(nil))), 'Payload genérico paginado contém items');
+        AssertEqualsInt(1, Doc.Get('total_records', 0), 'total_records correto em lista genérica paginada');
+      finally
+        Doc.Free;
+      end;
+
+      // Desserialização
+      GenPagList.ClearList;
+      GenPagList.FromJson(JsonOut);
+      AssertEqualsInt(1, GenPagList.Count, 'TGDeltaModelPaginatedList desserializou items');
+      AssertEquals('Produto Paginado Gen', GenPagList[0].Name.AsString, 'Item tipado acessível diretamente via Item[0]');
+    finally
+      GenPagList.Free;
+    end;
+
+  finally
+    PagList.Free;
+  end;
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -1307,6 +1522,7 @@ begin
     TestORMCRUDAndQueries;
     TestConstraintsAndIndexes;
     TestHasOneRelation;
+    TestPaginatedList;
   except
     on E: Exception do
     begin

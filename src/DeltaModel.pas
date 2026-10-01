@@ -78,7 +78,10 @@ type
     function IsEmpty: Boolean;
     function ToJson: RawByteString;
     function ToJsonObj: TJSONObject;
-    class function SwaggerSchema(IsArray: Boolean = False): string;
+    class function SwaggerSchema(IsArray: Boolean = False; IsPaginated: Boolean = False): string; deprecated 'Use SwaggerSchemaObject, SwaggerSchemaArray, or SwaggerSchemaPaginated instead';
+    class function SwaggerSchemaObject(AddExamples: Boolean = False): string;
+    class function SwaggerSchemaArray(AddExamples: Boolean = False): string;
+    class function SwaggerSchemaPaginated(AddExamples: Boolean = False): string;
     constructor Create; virtual;
 
     function AddUniqueConstraint(const AName: string; const AFields: array of string): TDeltaConstraint; overload;
@@ -113,18 +116,51 @@ type
   private
     FDeltaModelClass: TDeltaModelClass;
     FRecords: TDeltaModelRecords;
+    FPage: Integer;
+    FPageSize: Integer;
+    FTotalRecords: Int64;
+    FTotalPages: Integer;
+    function GetTotal: Int64;
+    procedure SetTotal(AValue: Int64);
+    function GetLimit: Integer;
+    procedure SetLimit(AValue: Integer);
   public
+    function GetPage: Integer; override;
+    procedure SetPage(AValue: Integer); override;
+    function GetPageSize: Integer; override;
+    procedure SetPageSize(AValue: Integer); override;
+    function GetTotalRecords: Int64; override;
+    procedure SetTotalRecords(AValue: Int64); override;
+    function GetTotalPages: Integer; override;
+    procedure SetTotalPages(AValue: Integer); override;
+
     property DeltaModelClass: TDeltaModelClass read FDeltaModelClass write FDeltaModelClass;
     property Records: TDeltaModelRecords read FRecords;
+    property items: TDeltaModelRecords read FRecords;
+    property page: Integer read GetPage write SetPage;
+    property page_size: Integer read GetPageSize write SetPageSize;
+    property total_records: Int64 read GetTotalRecords write SetTotalRecords;
+    property total_pages: Integer read GetTotalPages write SetTotalPages;
+
+    // Aliases para retrocompatibilidade
+    property Total: Int64 read GetTotal write SetTotal;
+    property Limit: Integer read GetLimit write SetLimit;
+    property PageSize: Integer read GetPageSize write SetPageSize;
+    property TotalRecords: Int64 read GetTotalRecords write SetTotalRecords;
+    property TotalPages: Integer read GetTotalPages write SetTotalPages;
+
     procedure FromJson(JsonStr: string); override;
     function ToJson: RawByteString; override;
     function ToJsonObj: TJSONArray; override;
-    function SwaggerSchema(AddExamples: Boolean): TJSONObject; override;
+    function ToPaginatedJsonObj: TJSONObject; override;
+    function SwaggerSchema(AddExamples: Boolean = False): TJSONObject; override; deprecated 'Use SwaggerSchemaArray or SwaggerSchemaPaginated instead';
+    function SwaggerSchemaArray(AddExamples: Boolean = False): TJSONObject; override;
+    function SwaggerSchemaPaginated(AddExamples: Boolean = False): TJSONObject; override;
     function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
     function Add(AModel: TDeltaModel): Integer;
     function Count: Integer; override;
     function GetItem(AIndex: Integer): TDeltaModel;
-    property Items[AIndex: Integer]: TDeltaModel read GetItem; default;
+    property Item[AIndex: Integer]: TDeltaModel read GetItem; default;
 
     procedure FromCSV(const CSVStr: string; ADelimiter: Char = ';');
     function ToCSV(ADelimiter: Char = ';'): string;
@@ -137,6 +173,36 @@ type
 
     procedure AfterConstruction; override;
     procedure BeforeDestruction; override;
+  end;
+
+  generic TGDeltaModelList<T: TDeltaModel> = class(TDeltaModelList)
+  public
+    constructor Create;
+    function Add(AModel: T): Integer;
+    function GetTypedItem(AIndex: Integer): T;
+    property Item[AIndex: Integer]: T read GetTypedItem; default;
+    function First: T;
+    function Last: T;
+  end;
+
+  DeltaModelList = TDeltaModelList;
+
+  { TDeltaModelPaginatedList }
+
+  TDeltaModelPaginatedList = class(TDeltaModelList)
+  public
+    function ToJson: RawByteString; override;
+    function SwaggerSchema(AddExamples: Boolean = False): TJSONObject; override; deprecated 'Use SwaggerSchemaPaginated instead';
+  end;
+
+  generic TGDeltaModelPaginatedList<T: TDeltaModel> = class(TDeltaModelPaginatedList)
+  public
+    constructor Create;
+    function Add(AModel: T): Integer;
+    function GetTypedItem(AIndex: Integer): T;
+    property Item[AIndex: Integer]: T read GetTypedItem; default;
+    function First: T;
+    function Last: T;
   end;
 
 implementation
@@ -381,13 +447,45 @@ begin
   Result := SerializeToJsonObj(Self);
 end;
 
-class function TDeltaModel.SwaggerSchema(IsArray: Boolean): string;
+class function TDeltaModel.SwaggerSchema(IsArray: Boolean; IsPaginated: Boolean): string;
+begin
+  if IsPaginated or IsArray then
+    Result := SwaggerSchemaPaginated(False)
+  else
+    Result := SwaggerSchemaObject(False);
+end;
+
+class function TDeltaModel.SwaggerSchemaObject(AddExamples: Boolean): string;
 var
   Obj: TDeltaModel;
 begin
   Obj := Create;
   try
-    Result := GenerateSchemaStr(Obj, False, IsArray);
+    Result := GenerateSchemaStr(Obj, AddExamples, False);
+  finally
+    Obj.Free;
+  end;
+end;
+
+class function TDeltaModel.SwaggerSchemaArray(AddExamples: Boolean): string;
+var
+  Obj: TDeltaModel;
+begin
+  Obj := Create;
+  try
+    Result := GenerateSchemaStr(Obj, AddExamples, True);
+  finally
+    Obj.Free;
+  end;
+end;
+
+class function TDeltaModel.SwaggerSchemaPaginated(AddExamples: Boolean): string;
+var
+  Obj: TDeltaModel;
+begin
+  Obj := Create;
+  try
+    Result := GeneratePaginatedSchemaStr(Obj, AddExamples);
   finally
     Obj.Free;
   end;
@@ -486,6 +584,66 @@ end;
 
 { TDeltaModelList }
 
+function TDeltaModelList.GetPage: Integer;
+begin
+  Result := FPage;
+end;
+
+procedure TDeltaModelList.SetPage(AValue: Integer);
+begin
+  FPage := AValue;
+end;
+
+function TDeltaModelList.GetPageSize: Integer;
+begin
+  Result := FPageSize;
+end;
+
+procedure TDeltaModelList.SetPageSize(AValue: Integer);
+begin
+  FPageSize := AValue;
+end;
+
+function TDeltaModelList.GetTotalRecords: Int64;
+begin
+  Result := FTotalRecords;
+end;
+
+procedure TDeltaModelList.SetTotalRecords(AValue: Int64);
+begin
+  FTotalRecords := AValue;
+end;
+
+function TDeltaModelList.GetTotalPages: Integer;
+begin
+  Result := FTotalPages;
+end;
+
+procedure TDeltaModelList.SetTotalPages(AValue: Integer);
+begin
+  FTotalPages := AValue;
+end;
+
+function TDeltaModelList.GetTotal: Int64;
+begin
+  Result := FTotalRecords;
+end;
+
+procedure TDeltaModelList.SetTotal(AValue: Int64);
+begin
+  FTotalRecords := AValue;
+end;
+
+function TDeltaModelList.GetLimit: Integer;
+begin
+  Result := FPageSize;
+end;
+
+procedure TDeltaModelList.SetLimit(AValue: Integer);
+begin
+  FPageSize := AValue;
+end;
+
 procedure TDeltaModelList.FromJson(JsonStr: string);
 var
   JsonData: TJSONData;
@@ -493,6 +651,8 @@ var
   Element: TJSONObject;
   Obj: TDeltaModel;
   I: Integer;
+  MetaObj, JObj: TJSONObject;
+  ItemsData: TJSONData;
 begin
   if FDeltaModelClass = nil then
   begin
@@ -501,41 +661,101 @@ begin
 
   JsonData := GetJSON(JsonStr);
   try
-    if not (JsonData is TJSONArray) then
-      raise Exception.CreateFmt('Expected a JSON Array but got %s', [JsonData.ClassName]);
-
-    Arr := TJSONArray(JsonData);
     Self.Records.Clear;
-    for I := 0 to Pred(Arr.Count) do
+    if JsonData is TJSONObject then
     begin
-      Obj := FDeltaModelClass.Create;
-      Self.Records.Add(Obj);
-      Element := Arr.Items[I] as TJSONObject;
-      DeserializeObj(Obj, Element);
-    end;
+      JObj := TJSONObject(JsonData);
+
+      FPage := JObj.Get('page', 1);
+      FPageSize := JObj.Get('page_size', 20);
+      FTotalRecords := JObj.Get('total_records', Int64(0));
+      FTotalPages := JObj.Get('total_pages', 1);
+
+      Arr := nil;
+      ItemsData := JObj.Find('items');
+      if (ItemsData <> nil) and (ItemsData is TJSONArray) then
+        Arr := TJSONArray(ItemsData);
+
+      if Assigned(Arr) then
+      begin
+        for I := 0 to Pred(Arr.Count) do
+        begin
+          Obj := FDeltaModelClass.Create;
+          Self.Records.Add(Obj);
+          Element := Arr.Items[I] as TJSONObject;
+          DeserializeObj(Obj, Element);
+        end;
+        if (FTotalRecords = 0) and (Arr.Count > 0) then
+          FTotalRecords := Arr.Count;
+      end;
+    end
+    else if JsonData is TJSONArray then
+    begin
+      Arr := TJSONArray(JsonData);
+      FTotalRecords := Arr.Count;
+      FPage := 1;
+      FPageSize := Arr.Count;
+      if FPageSize < 1 then FPageSize := 20;
+      FTotalPages := 1;
+
+      for I := 0 to Pred(Arr.Count) do
+      begin
+        Obj := FDeltaModelClass.Create;
+        Self.Records.Add(Obj);
+        Element := Arr.Items[I] as TJSONObject;
+        DeserializeObj(Obj, Element);
+      end;
+    end
+    else
+      raise Exception.CreateFmt('Expected a JSON Array or Paginated Object with items/data array, but got %s', [JsonData.ClassName]);
   finally
     JsonData.Free;
   end;
 end;
 
+function TDeltaModelList.ToPaginatedJsonObj: TJSONObject;
+var
+  JObj: TJSONObject;
+  CalcTotalPages: Integer;
+  CurLimit: Integer;
+  CurTotal: Int64;
+begin
+  CurLimit := FPageSize;
+  if CurLimit <= 0 then CurLimit := 20;
+  FPageSize := CurLimit;
+
+  if FPage <= 0 then FPage := 1;
+
+  CurTotal := FTotalRecords;
+  if (CurTotal = 0) and (FRecords.Count > 0) then
+    CurTotal := FRecords.Count;
+  FTotalRecords := CurTotal;
+
+  CalcTotalPages := (CurTotal + CurLimit - 1) div CurLimit;
+  if CalcTotalPages < 1 then CalcTotalPages := 1;
+  FTotalPages := CalcTotalPages;
+
+  JObj := TJSONObject.Create;
+  // Estrutura canônica DeltaModelList:
+  // items, page, page_size, total_records, total_pages
+  JObj.Add('items', Self.ToJsonObj);
+  JObj.Add('page', FPage);
+  JObj.Add('page_size', FPageSize);
+  JObj.Add('total_records', FTotalRecords);
+  JObj.Add('total_pages', FTotalPages);
+
+  Result := JObj;
+end;
+
 function TDeltaModelList.ToJson: RawByteString;
 var
-  JsonArr: TJSONArray;
-  I: Integer;
+  JObj: TJSONObject;
 begin
-  JsonArr := TJSONArray.Create();
+  JObj := ToPaginatedJsonObj;
   try
-    for I := 0 to Pred(Self.Records.Count) do
-    begin
-      JsonArr.Add(
-        SerializeToJsonObj(
-          Self.Records.Items[I]
-        )
-      );
-    end;
-    Result := JsonArr.AsJSON;
+    Result := JObj.AsJSON;
   finally
-    JsonArr.Free;
+    JObj.Free;
   end;
 end;
 
@@ -553,12 +773,33 @@ begin
 end;
 
 function TDeltaModelList.SwaggerSchema(AddExamples: Boolean): TJSONObject;
+begin
+  Result := SwaggerSchemaPaginated(AddExamples);
+end;
+
+function TDeltaModelList.SwaggerSchemaArray(AddExamples: Boolean): TJSONObject;
 var
   Obj: TDeltaModel;
 begin
-  Obj := Self.DeltaModelClass.Create;
+  if FDeltaModelClass = nil then
+    raise Exception.Create(DeltaModelClassNotAssigned);
+  Obj := FDeltaModelClass.Create;
   try
-    Result := GenerateSchema(Obj, AddExamples);
+    Result := GenerateSchema(Obj, AddExamples, True);
+  finally
+    Obj.Free;
+  end;
+end;
+
+function TDeltaModelList.SwaggerSchemaPaginated(AddExamples: Boolean): TJSONObject;
+var
+  Obj: TDeltaModel;
+begin
+  if FDeltaModelClass = nil then
+    raise Exception.Create(DeltaModelClassNotAssigned);
+  Obj := FDeltaModelClass.Create;
+  try
+    Result := GeneratePaginatedSchema(Obj, AddExamples);
   finally
     Obj.Free;
   end;
@@ -574,6 +815,10 @@ procedure TDeltaModelList.AfterConstruction;
 begin
   inherited AfterConstruction;
   FRecords := TDeltaModelRecords.Create;
+  FPage := 1;
+  FPageSize := 20;
+  FTotalRecords := 0;
+  FTotalPages := 1;
 end;
 
 function TDeltaModelList.Add(AModel: TDeltaModel): Integer;
@@ -609,6 +854,9 @@ end;
 procedure TDeltaModelList.ClearList;
 begin
   FRecords.Clear;
+  FTotalRecords := 0;
+  FPage := 1;
+  FTotalPages := 1;
 end;
 
 procedure TDeltaModelList.AddObj(AObj: TObject);
@@ -630,6 +878,93 @@ procedure TDeltaModelList.BeforeDestruction;
 begin
   inherited BeforeDestruction;
   FRecords.Free;
+end;
+
+{ TGDeltaModelList }
+
+constructor TGDeltaModelList.Create;
+begin
+  inherited Create;
+  FDeltaModelClass := T;
+end;
+
+function TGDeltaModelList.Add(AModel: T): Integer;
+begin
+  Result := FRecords.Add(AModel);
+end;
+
+function TGDeltaModelList.GetTypedItem(AIndex: Integer): T;
+begin
+  Result := T(FRecords[AIndex]);
+end;
+
+function TGDeltaModelList.First: T;
+begin
+  if FRecords.Count > 0 then
+    Result := T(FRecords[0])
+  else
+    Result := nil;
+end;
+
+function TGDeltaModelList.Last: T;
+begin
+  if FRecords.Count > 0 then
+    Result := T(FRecords[FRecords.Count - 1])
+  else
+    Result := nil;
+end;
+
+{ TDeltaModelPaginatedList }
+
+function TDeltaModelPaginatedList.ToJson: RawByteString;
+var
+  JObj: TJSONObject;
+begin
+  JObj := ToPaginatedJsonObj;
+  try
+    Result := JObj.AsJSON;
+  finally
+    JObj.Free;
+  end;
+end;
+
+function TDeltaModelPaginatedList.SwaggerSchema(AddExamples: Boolean): TJSONObject;
+begin
+  Result := SwaggerSchemaPaginated(AddExamples);
+end;
+
+{ TGDeltaModelPaginatedList }
+
+constructor TGDeltaModelPaginatedList.Create;
+begin
+  inherited Create;
+  FDeltaModelClass := T;
+end;
+
+function TGDeltaModelPaginatedList.Add(AModel: T): Integer;
+begin
+  Result := FRecords.Add(AModel);
+end;
+
+function TGDeltaModelPaginatedList.GetTypedItem(AIndex: Integer): T;
+begin
+  Result := T(FRecords[AIndex]);
+end;
+
+function TGDeltaModelPaginatedList.First: T;
+begin
+  if FRecords.Count > 0 then
+    Result := T(FRecords[0])
+  else
+    Result := nil;
+end;
+
+function TGDeltaModelPaginatedList.Last: T;
+begin
+  if FRecords.Count > 0 then
+    Result := T(FRecords[FRecords.Count - 1])
+  else
+    Result := nil;
 end;
 
 end.

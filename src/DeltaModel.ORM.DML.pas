@@ -65,7 +65,7 @@ type
     function SetModel(AModel: TDeltaModelClass): TQuery;
 
     function First: TDeltaModel;
-    function All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelList;
+    function All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelPaginatedList;
     function FindById(const AId: Variant): TDeltaModel;
     function Count: Int64;
     function Exists: Boolean;
@@ -416,15 +416,18 @@ begin
       .Build;
     BindParams(DS);
     DS.Open;
-    if DS.IsEmpty then
-    begin
-      Result.Free;
-      Result := nil;
-      Exit;
-    end;
+    try
+      if DS.IsEmpty then
+      begin
+        Result.Free;
+        Result := nil;
+        Exit;
+      end;
 
-    FromDataSet(Result, DS);
-    DS.Close;
+      FromDataSet(Result, DS);
+    finally
+      DS.Close;
+    end;
   finally
     SQLBuilder.Free;
     DS.Free;
@@ -438,7 +441,8 @@ type
     DataType: TTypeKind;
   end;
 
-function TQuery.All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelList;
+function TQuery.All(ALimit: Integer; AOffset: Integer
+  ): TDeltaModelPaginatedList;
 var
   Obj, ObjTemp: TDeltaModel;
   DS: TSQLQuery;
@@ -458,7 +462,7 @@ begin
   EffOffset := AOffset;
   if EffOffset = -1 then EffOffset := FOffset;
 
-  Result := TDeltaModelList.Create;
+  Result := TDeltaModelPaginatedList.Create;
   Result.DeltaModelClass := FModelClass;
 
   ObjTemp := FModelClass.Create;
@@ -557,7 +561,29 @@ begin
       DS.Next;
     end;
     DS.Close;
+
+    if EffLimit > 0 then
+    begin
+      Result.page_size := EffLimit;
+      if EffOffset >= 0 then
+        Result.page := (EffOffset div EffLimit) + 1
+      else
+        Result.page := 1;
+      Result.total_records := Result.Records.Count;
+      Result.total_pages := (Result.total_records + EffLimit - 1) div EffLimit;
+      if Result.total_pages < 1 then Result.total_pages := 1;
+    end
+    else
+    begin
+      Result.page := 1;
+      Result.page_size := Result.Records.Count;
+      if Result.page_size < 1 then Result.page_size := 20;
+      Result.total_records := Result.Records.Count;
+      Result.total_pages := 1;
+    end;
   finally
+    if DS.Active then
+      DS.Close;
     SQLBuilder.Free;
     ObjTemp.Free;
     DS.Free;
@@ -637,9 +663,12 @@ begin
     DS.SQL.Text := SQLBuilder.Count.Where(FFilter).Build;
     BindParams(DS);
     DS.Open;
-    if not DS.IsEmpty then
-      Result := DS.Fields[0].AsLargeInt;
-    DS.Close;
+    try
+      if not DS.IsEmpty then
+        Result := DS.Fields[0].AsLargeInt;
+    finally
+      DS.Close;
+    end;
   finally
     SQLBuilder.Free;
     ObjTemp.Free;
@@ -969,6 +998,7 @@ var
   Obj: DeltaModel.Fields.TDeltaField;
   NestedObj: TObject;
   LastId: Variant;
+  ReturningFields: string;
 begin
   AModel.BeforeInsert;
   AModel.Validate;
@@ -986,6 +1016,36 @@ begin
     );
     ToDatasetParams(AModel, DS);
 
+    if AConn.Dialect = ddFirebird then
+    begin
+      ReturningFields := '';
+      for I := 0 to AModel.FieldList.Count - 1 do
+      begin
+        Obj := AModel.FieldList[I];
+        if Obj.IsVirtual or not (dboAutoInc in Obj.DBOptions) then Continue;
+        if ReturningFields <> '' then ReturningFields := ReturningFields + ', ';
+        ReturningFields := ReturningFields + Obj.FieldName;
+      end;
+      if ReturningFields <> '' then
+      begin
+        { Read the values from this INSERT, never the shared generator counter.
+          Explicit column names work on both legacy and identity Firebird. }
+        DS.SQL.Add('RETURNING ' + ReturningFields);
+        ToDatasetParams(AModel, DS);
+        DS.Open;
+        Result := not DS.EOF;
+        if Result then
+          for I := 0 to AModel.FieldList.Count - 1 do
+          begin
+            Obj := AModel.FieldList[I];
+            if not Obj.IsVirtual and (dboAutoInc in Obj.DBOptions) then
+              Obj.Value := DS.FieldByName(Obj.FieldName).Value;
+          end;
+        DS.Close;
+        if Result then AModel.AfterInsert;
+        Exit;
+      end;
+    end;
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
     if Result then
@@ -1031,21 +1091,6 @@ begin
                       LastId := AConn.ExecuteScalar('SELECT SCOPE_IDENTITY()');
                       if not VarIsNull(LastId) then
                         Obj.Value := LastId;
-                    end;
-                    ddFirebird:
-                    begin
-                      try
-                        LastId := AConn.ExecuteScalar(Format(
-                          'SELECT TRIM(RDB$GENERATOR_NAME) FROM RDB$RELATION_FIELDS WHERE UPPER(RDB$RELATION_NAME) = ''%s'' AND UPPER(RDB$FIELD_NAME) = ''%s''',
-                          [UpperCase(AModel.TableName), UpperCase(Obj.FieldName)]));
-                        if not VarIsNull(LastId) and (VarToStr(LastId) <> '') then
-                        begin
-                          LastId := AConn.ExecuteScalar(Format('SELECT GEN_ID(%s, 0) FROM RDB$DATABASE', [VarToStr(LastId)]));
-                          if not VarIsNull(LastId) then
-                            Obj.Value := LastId;
-                        end;
-                      except
-                      end;
                     end;
                   end;
                   Break;
@@ -1144,12 +1189,27 @@ begin
 
       DS := AConn.NewDataset;
       try
-        DS.SQL.Text := TDMSQLBuilder.CreateBulkInsert(BatchModels, AConn.Dialect);
-
-        for J := 0 to CurrentBatchSize - 1 do
-          ToDatasetParamsIndexed(BatchModels[J], DS, J);
-
-        DS.ExecSQL;
+        if AConn.Dialect = ddFirebird then
+        begin
+          { SQLDB binds :parameters as DSQL placeholders. They cannot appear
+            inside an EXECUTE BLOCK body without typed input declarations.
+            Reuse an ordinary parameterized INSERT within the same transaction;
+            retain bulk semantics (no generated IDs assigned to the models). }
+          for J := 0 to CurrentBatchSize - 1 do
+          begin
+            if DS.SQL.Text <> TDMSQLBuilder.CreateInsert(BatchModels[J], AConn.Dialect) then
+              DS.SQL.Text := TDMSQLBuilder.CreateInsert(BatchModels[J], AConn.Dialect);
+            ToDatasetParams(BatchModels[J], DS);
+            DS.ExecSQL;
+          end;
+        end
+        else
+        begin
+          DS.SQL.Text := TDMSQLBuilder.CreateBulkInsert(BatchModels, AConn.Dialect);
+          for J := 0 to CurrentBatchSize - 1 do
+            ToDatasetParamsIndexed(BatchModels[J], DS, J);
+          DS.ExecSQL;
+        end;
         Result := Result + CurrentBatchSize;
 
         for J := 0 to CurrentBatchSize - 1 do

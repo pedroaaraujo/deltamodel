@@ -34,10 +34,8 @@ begin
       Result := 'PostgreSQL';
     'mysql':
       Result := 'MySQL 5.7';
-    'mysql8', 'mysql80', 'mysql8.0':
+    'mysql8', 'mysql80', 'mysql8.0', 'mariadb':
       Result := 'MySQL 8.0';
-    'mariadb':
-      Result := 'MariaDB';
     'mssql', 'mssqlserver', 'sqlserver':
       Result := 'MSSQLServer';
     'oracle', 'ora':
@@ -73,7 +71,7 @@ function ParseDatabaseURL(const ADatabaseURL: string): TDatabaseConfig;
 var
   URI: string;
   Credentials: string;
-  AtPos, ColonPos, SlashPos: Integer;
+  AtPos, ColonPos, SlashPos, I: Integer;
   UrlParams: TStringList;
 begin
   Result.Protocol := '';
@@ -138,8 +136,39 @@ begin
     Exit;
   end;
 
+  // Extract query params (?param=value&...)
+  UrlParams := TStringList.Create;
+  try
+    URI := ExtractURLParams(URI, UrlParams);
+    Result.Charset := UrlParams.Values['charset'];
+    Result.Params.Assign(UrlParams);
+  finally
+    UrlParams.Free;
+  end;
+
   // Extract credentials (if any)
-  AtPos := Pos('@', URI);
+  // Encontra o último '@' antes da primeira barra do database (caso a senha contenha '@')
+  SlashPos := Pos('/', URI);
+  AtPos := 0;
+  if SlashPos > 0 then
+  begin
+    for I := SlashPos - 1 downto 1 do
+      if URI[I] = '@' then
+      begin
+        AtPos := I;
+        Break;
+      end;
+  end
+  else
+  begin
+    for I := Length(URI) downto 1 do
+      if URI[I] = '@' then
+      begin
+        AtPos := I;
+        Break;
+      end;
+  end;
+
   if AtPos > 0 then
   begin
     Credentials := Copy(URI, 1, AtPos - 1);
@@ -153,16 +182,6 @@ begin
     end
     else
       Result.Username := Credentials;
-  end;
-
-  // Extract query params (?param=value&...)
-  UrlParams := TStringList.Create;
-  try
-    URI := ExtractURLParams(URI, UrlParams);
-    Result.Charset := UrlParams.Values['charset'];
-    Result.Params.Assign(UrlParams);
-  finally
-    UrlParams.Free;
   end;
 
   // Extract host and port

@@ -14,27 +14,79 @@ type
 
   TDDLBuilder = class
   protected
-    class function FieldDDL(DeltaField: TDeltaField; ADialect: TDatabaseDialect): string;
+    class function FieldDDL(DeltaField: TDeltaField; ADialect: TDatabaseDialect; FirebirdMajor: Integer): string;
+    class function PrimitiveFieldDDL(Name: string; Kind: TTypeKind; ADialect: TDatabaseDialect): string;
+    class procedure GetFieldsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings; FirebirdMajor: Integer);
+    class procedure GetConstraintsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings; IncludeForeignKeys: Boolean);
+    class procedure GetFieldsAT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings; IncludeForeignKeys: Boolean; FirebirdMajor: Integer);
+  public
+    class function ParseFirebirdMajor(const Version: string): Integer;
+    class function FirebirdObjectName(const Prefix, Table, Field: string): string;
+    class procedure FirebirdAutoIncrement(Obj: TDeltaModel; Field: TDeltaField;
+      Statements: TStrings; FirebirdMajor: Integer);
+    class function ReferencedTableName(DeltaField: TDeltaField): string;
     class function ForeignKeyDDL(const Table: string; DeltaField: TDeltaField;
       ADialect: TDatabaseDialect): string;
-    class function PrimitiveFieldDDL(Name: string; Kind: TTypeKind; ADialect: TDatabaseDialect): string;
-    class procedure GetFieldsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
-    class procedure GetConstraintsCT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
-    class procedure GetFieldsAT(Obj: TDeltaModel; ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings);
-  public
     class function SanitizeIdentifier(const AName: string; ADialect: TDatabaseDialect): string;
+    class function IndexName(const Table: string; IndexDef: TDeltaIndex; ADialect: TDatabaseDialect): string;
     class function IndexDDL(const Table: string; IndexDef: TDeltaIndex; ADialect: TDatabaseDialect): string;
-    class procedure GetIndexes(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings);
-    class function CreateTableAndFields(Obj: TDeltaModel; Constraints: TStrings; ADialect: TDatabaseDialect): string;
-    class function CreateFields(Obj: TDeltaModel; ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings): string;
+    class procedure GetIndexes(Obj: TDeltaModel; ADialect: TDatabaseDialect; List: TStrings; ExistingNames: TStrings = nil);
+    class function CreateTableAndFields(Obj: TDeltaModel; Constraints: TStrings; ADialect: TDatabaseDialect; IncludeForeignKeys: Boolean = True; FirebirdMajor: Integer = 3): string;
+    class procedure AddFieldStatements(Obj: TDeltaModel; ADialect: TDatabaseDialect;
+      ActualFieldList, Constraints, Statements: TStrings; IncludeForeignKeys: Boolean = True; FirebirdMajor: Integer = 3);
+    class function CreateFields(Obj: TDeltaModel; ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings; IncludeForeignKeys: Boolean = True; FirebirdMajor: Integer = 3): string;
   end;
 
 implementation
 
 { TDDLBuilder }
 
+class function TDDLBuilder.ParseFirebirdMajor(const Version: string): Integer;
+var
+  S: string;
+  P: Integer;
+begin
+  S := Trim(Version);
+  P := Pos('.', S);
+  if P > 0 then S := Copy(S, 1, P - 1);
+  if not TryStrToInt(S, Result) then
+    raise Exception.Create('Cannot identify Firebird server version: ' + Version);
+  if Result < 2 then
+    raise Exception.Create('Unsupported Firebird server version: ' + Version);
+end;
+
+class function TDDLBuilder.FirebirdObjectName(const Prefix, Table, Field: string): string;
+var
+  I: Integer;
+  Hash: QWord;
+begin
+  Result := UpperCase(Prefix + '_' + Table + '_' + Field);
+  if Length(Result) <= 31 then Exit;
+  Hash := 2166136261;
+  for I := 1 to Length(Result) do
+    Hash := ((Hash xor Ord(Result[I])) * 16777619) and $FFFFFFFF;
+  Result := Copy(Result, 1, 22) + '_' + IntToHex(Hash, 8);
+end;
+
+class procedure TDDLBuilder.FirebirdAutoIncrement(Obj: TDeltaModel;
+  Field: TDeltaField; Statements: TStrings; FirebirdMajor: Integer);
+var
+  GeneratorName, TriggerName: string;
+begin
+  if (FirebirdMajor >= 3) or not (dboAutoInc in Field.DBOptions) then Exit;
+  if Statements = nil then
+    raise Exception.Create('Firebird legacy auto increment requires a statements list');
+  GeneratorName := FirebirdObjectName('GEN', Obj.TableName, Field.FieldName);
+  TriggerName := FirebirdObjectName('BI', Obj.TableName, Field.FieldName);
+  Statements.Add('CREATE GENERATOR ' + GeneratorName + ';');
+  { A trigger is one DSQL statement, including its internal semicolon. }
+  Statements.Add('CREATE TRIGGER ' + TriggerName + ' FOR ' + Obj.TableName +
+    ' ACTIVE BEFORE INSERT POSITION 0 AS BEGIN IF (NEW.' + Field.FieldName +
+    ' IS NULL) THEN NEW.' + Field.FieldName + ' = GEN_ID(' + GeneratorName + ', 1); END');
+end;
+
 class function TDDLBuilder.FieldDDL(DeltaField: TDeltaField;
-  ADialect: TDatabaseDialect): string;
+  ADialect: TDatabaseDialect; FirebirdMajor: Integer): string;
 var
   SQLType, AutoIncClause, NotNullClause: string;
   Size: Integer;
@@ -197,6 +249,21 @@ begin
   if SQLType.IsEmpty then
     raise Exception.CreateFmt('Field %s has an invalid datatype for DDL.', [DeltaField.ClassName]);
 
+  if IsAutoInc and not ((DeltaField is TDFIntNull) or
+    (DeltaField is TDFIntRequired) or (DeltaField is TDFInt64Null) or
+    (DeltaField is TDFInt64Required)) then
+    raise Exception.Create('Auto increment requires an integer field: ' + DeltaField.FieldName);
+
+  if IsAutoInc and (ADialect = ddFirebird) then
+  begin
+    Result := DeltaField.FieldName + ' ' + SQLType;
+    if FirebirdMajor >= 3 then
+      Result := Result + ' GENERATED BY DEFAULT AS IDENTITY';
+    if IsPK then Result := Result + ' PRIMARY KEY';
+    Result := Result + ' NOT NULL';
+    Exit;
+  end;
+
   // Tratamento de Chave Primária e Auto-Incremento por dialeto
   if IsPK and IsAutoInc then
   begin
@@ -243,21 +310,43 @@ begin
   end;
 end;
 
+class function TDDLBuilder.ReferencedTableName(DeltaField: TDeltaField): string;
+var
+  Model: TDeltaModel;
+begin
+  Result := '';
+  if DeltaField.ForeignKey.ReferencesTable = nil then Exit;
+  if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
+    raise Exception.Create('Foreign key must reference a TDeltaModel class');
+  Model := TDeltaModelClass(DeltaField.ForeignKey.ReferencesTable).Create;
+  try
+    Result := Model.TableName;
+  finally
+    Model.Free;
+  end;
+end;
+
 class function TDDLBuilder.ForeignKeyDDL(const Table: string; DeltaField: TDeltaField;
   ADialect: TDatabaseDialect): string;
 var
   FKName, RefTable, RefField: string;
   OnDeleteClause, OnUpdateClause: string;
+  Hash: QWord;
+  I: Integer;
 begin
   RefField := DeltaField.ForeignKey.ReferencesField;
   if DeltaField.ForeignKey.ReferencesTable = nil then Exit('');
 
-  RefTable := AnsiLowerCase(Copy(DeltaField.ForeignKey.ReferencesTable.ClassName, 2, MaxInt));
+  RefTable := ReferencedTableName(DeltaField);
 
   case DeltaField.ForeignKey.OnDelete of
     fkCascade:  OnDeleteClause := ' ON DELETE CASCADE';
     fkSetNull:  OnDeleteClause := ' ON DELETE SET NULL';
-    fkRestrict: OnDeleteClause := ' ON DELETE RESTRICT';
+    fkRestrict:
+      if ADialect = ddFirebird then
+        OnDeleteClause := ' ON DELETE NO ACTION'
+      else
+        OnDeleteClause := ' ON DELETE RESTRICT';
     fkNone:     OnDeleteClause := ' ON DELETE NO ACTION';
   else
     OnDeleteClause := '';
@@ -270,7 +359,11 @@ begin
     case DeltaField.ForeignKey.OnUpdate of
       fkCascade:  OnUpdateClause := ' ON UPDATE CASCADE';
       fkSetNull:  OnUpdateClause := ' ON UPDATE SET NULL';
-      fkRestrict: OnUpdateClause := ' ON UPDATE RESTRICT';
+      fkRestrict:
+        if ADialect = ddFirebird then
+          OnUpdateClause := ' ON UPDATE NO ACTION'
+        else
+          OnUpdateClause := ' ON UPDATE RESTRICT';
       fkNone:     OnUpdateClause := ' ON UPDATE NO ACTION';
     else
       OnUpdateClause := '';
@@ -284,8 +377,15 @@ begin
       [DeltaField.FieldName, RefTable, RefField, OnDeleteClause, OnUpdateClause]));
   end;
 
-  FKName := Format('FK_%s_%s', [Table, RefTable]);
-  FKName := Copy(FKName, 1, 30); // Limite de 30 caracteres para Oracle e compatibilidade
+  FKName := Format('FK_%s_%s_%s', [Table, DeltaField.FieldName, RefTable]);
+  { Retain a stable suffix when shortening, so long column names do not collide. }
+  if Length(FKName) > 30 then
+  begin
+    Hash := 2166136261;
+    for I := 1 to Length(FKName) do
+      Hash := ((Hash xor Ord(FKName[I])) * 16777619) and $FFFFFFFF;
+    FKName := Copy(FKName, 1, 21) + '_' + IntToHex(Hash, 8);
+  end;
 
   Result := Format(
     'ALTER TABLE %s ADD CONSTRAINT %s ' +
@@ -352,7 +452,7 @@ begin
 end;
 
 class procedure TDDLBuilder.GetFieldsCT(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; List: TStrings);
+  ADialect: TDatabaseDialect; List: TStrings; FirebirdMajor: Integer);
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -375,7 +475,7 @@ begin
         // Pula campos virtuais (como TDFHasMany) para não gerar colunas físicas no banco
         if DeltaField.IsVirtual then Continue;
 
-        List.Add(sLineBreak + '  ' + FieldDDL(DeltaField, ADialect));
+        List.Add(sLineBreak + '  ' + FieldDDL(DeltaField, ADialect, FirebirdMajor));
       end
       else
       begin
@@ -395,10 +495,10 @@ begin
     Result := Copy(Result, 1, 30);
 end;
 
-class function TDDLBuilder.IndexDDL(const Table: string; IndexDef: TDeltaIndex;
+class function TDDLBuilder.IndexName(const Table: string; IndexDef: TDeltaIndex;
   ADialect: TDatabaseDialect): string;
 var
-  IdxName, FieldsList, UniqueClause, IfNotExistsClause, S: string;
+  IdxName, S: string;
   I: Integer;
 begin
   IdxName := IndexDef.Name;
@@ -415,7 +515,15 @@ begin
     else
       IdxName := 'IX_' + Table + '_' + S;
   end;
-  IdxName := SanitizeIdentifier(IdxName, ADialect);
+  Result := SanitizeIdentifier(IdxName, ADialect);
+end;
+
+class function TDDLBuilder.IndexDDL(const Table: string; IndexDef: TDeltaIndex;
+  ADialect: TDatabaseDialect): string;
+var
+  IdxName, FieldsList, UniqueClause, IfNotExistsClause: string;
+begin
+  IdxName := IndexName(Table, IndexDef, ADialect);
 
   FieldsList := IndexDef.GetFieldsSQL;
 
@@ -434,7 +542,7 @@ begin
 end;
 
 class procedure TDDLBuilder.GetIndexes(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; List: TStrings);
+  ADialect: TDatabaseDialect; List: TStrings; ExistingNames: TStrings);
 var
   I: Integer;
   DeltaField: TDeltaField;
@@ -450,7 +558,9 @@ begin
     begin
       TmpIdx := TDeltaIndex.Create('IX_' + Obj.TableName + '_' + DeltaField.FieldName, [DeltaField.FieldName], False);
       try
-        List.Add(IndexDDL(Obj.TableName, TmpIdx, ADialect));
+        if (ExistingNames = nil) or
+           (ExistingNames.IndexOf(IndexName(Obj.TableName, TmpIdx, ADialect)) = -1) then
+          List.Add(IndexDDL(Obj.TableName, TmpIdx, ADialect));
       finally
         TmpIdx.Free;
       end;
@@ -460,12 +570,14 @@ begin
   // 2. Índices a nível de tabela (Obj.Indexes)
   for I := 0 to Pred(Obj.Indexes.Count) do
   begin
-    List.Add(IndexDDL(Obj.TableName, Obj.Indexes[I], ADialect));
+    if (ExistingNames = nil) or
+       (ExistingNames.IndexOf(IndexName(Obj.TableName, Obj.Indexes[I], ADialect)) = -1) then
+      List.Add(IndexDDL(Obj.TableName, Obj.Indexes[I], ADialect));
   end;
 end;
 
 class procedure TDDLBuilder.GetConstraintsCT(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; List: TStrings);
+  ADialect: TDatabaseDialect; List: TStrings; IncludeForeignKeys: Boolean);
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -494,7 +606,7 @@ begin
         if DeltaField.IsVirtual then Continue;
 
         // 1. Chaves Estrangeiras
-        if (DeltaField.ForeignKey.ReferencesTable <> nil) then
+        if IncludeForeignKeys and (DeltaField.ForeignKey.ReferencesTable <> nil) then
         begin
           if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
             raise Exception.CreateFmt('%s foreign key references a non TDeltaModel class.', [DeltaField.ClassName]);
@@ -557,7 +669,7 @@ begin
 end;
 
 class procedure TDDLBuilder.GetFieldsAT(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings);
+  ADialect: TDatabaseDialect; List, ActualFieldList, Constraints: TStrings; IncludeForeignKeys: Boolean; FirebirdMajor: Integer);
 var
   PropList: PPropList;
   PropInfo: PPropInfo;
@@ -586,13 +698,15 @@ begin
 
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then
         begin
-          FieldDef := FieldDDL(DeltaField, ADialect);
+          FieldDef := FieldDDL(DeltaField, ADialect, FirebirdMajor);
           if (ADialect = ddSQLite) and (Pos(' NOT NULL', FieldDef) > 0) then
             FieldDef := StringReplace(FieldDef, ' NOT NULL', '', [rfReplaceAll]);
 
           List.Add('  ' + FieldDef);
+          if ADialect = ddFirebird then
+            FirebirdAutoIncrement(Obj, DeltaField, Constraints, FirebirdMajor);
 
-          if (DeltaField.ForeignKey.ReferencesTable <> nil) then
+          if IncludeForeignKeys and (DeltaField.ForeignKey.ReferencesTable <> nil) then
           begin
             if DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
               Constraints.Add(ForeignKeyDDL(Obj.TableName, DeltaField, ADialect))
@@ -629,7 +743,7 @@ begin
 end;
 
 class function TDDLBuilder.CreateTableAndFields(Obj: TDeltaModel;
-  Constraints: TStrings; ADialect: TDatabaseDialect): string;
+  Constraints: TStrings; ADialect: TDatabaseDialect; IncludeForeignKeys: Boolean; FirebirdMajor: Integer): string;
 var
   SQL, Fields: TStringList;
   Option, FieldsBlock, S: string;
@@ -638,11 +752,11 @@ begin
   SQL := TStringList.Create;
   Fields := TStringList.Create;
   try
-    GetFieldsCT(Obj, ADialect, Fields);
+    GetFieldsCT(Obj, ADialect, Fields, FirebirdMajor);
 
     if ADialect = ddSQLite then
     begin
-      GetConstraintsCT(Obj, ADialect, Fields);
+      GetConstraintsCT(Obj, ADialect, Fields, True);
     end;
 
     case ADialect of
@@ -668,8 +782,12 @@ begin
     );
 
     if Assigned(Constraints) and (ADialect <> ddSQLite) then
-      GetConstraintsCT(Obj, ADialect, Constraints);
+      GetConstraintsCT(Obj, ADialect, Constraints, IncludeForeignKeys);
 
+    if (ADialect = ddFirebird) and (FirebirdMajor < 3) then
+      for I := 0 to Obj.FieldList.Count - 1 do
+        if not Obj.FieldList[I].IsVirtual then
+          FirebirdAutoIncrement(Obj, Obj.FieldList[I], Constraints, FirebirdMajor);
     Result := SQL.Text;
   finally
     SQL.Free;
@@ -677,32 +795,35 @@ begin
   end;
 end;
 
-class function TDDLBuilder.CreateFields(Obj: TDeltaModel;
-  ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings): string;
+class procedure TDDLBuilder.AddFieldStatements(Obj: TDeltaModel;
+  ADialect: TDatabaseDialect; ActualFieldList, Constraints, Statements: TStrings;
+  IncludeForeignKeys: Boolean; FirebirdMajor: Integer);
 var
-  SQL, Fields: TStringList;
+  Fields: TStringList;
   I: Integer;
 begin
-  Result := EmptyStr;
-
-  SQL := TStringList.Create;
   Fields := TStringList.Create;
   try
-    GetFieldsAT(Obj, ADialect, Fields, ActualFieldList, Constraints);
+    GetFieldsAT(Obj, ADialect, Fields, ActualFieldList, Constraints, IncludeForeignKeys, FirebirdMajor);
+    for I := 0 to Fields.Count - 1 do
+      Statements.Add('ALTER TABLE ' + Obj.TableName + ' ADD ' + Fields[I] + ';');
+  finally
+    Fields.Free;
+  end;
+end;
 
-    for I := 0 to Pred(Fields.Count) do
-    begin
-      SQL.Add(
-        'ALTER TABLE ' + Obj.TableName +
-        ' ADD ' + Fields[I] + ';'
-      );
-    end;
-
-    if Fields.Count > 0 then
-      Result := SQL.Text;
+class function TDDLBuilder.CreateFields(Obj: TDeltaModel;
+  ADialect: TDatabaseDialect; ActualFieldList, Constraints: TStrings;
+  IncludeForeignKeys: Boolean; FirebirdMajor: Integer): string;
+var
+  SQL: TStringList;
+begin
+  SQL := TStringList.Create;
+  try
+    AddFieldStatements(Obj, ADialect, ActualFieldList, Constraints, SQL, IncludeForeignKeys, FirebirdMajor);
+    Result := SQL.Text;
   finally
     SQL.Free;
-    Fields.Free;
   end;
 end;
 

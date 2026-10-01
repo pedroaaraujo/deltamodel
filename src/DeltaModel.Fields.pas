@@ -193,7 +193,13 @@ type
     procedure AfterConstruction; override;
   end;
 
-  TDFTextNull = class(TDFStringNull);
+  { TDFTextNull }
+
+  TDFTextNull = class(TDFStringNull)
+  public
+    constructor Create; override;
+    procedure AfterConstruction; override;
+  end;
 
   { TDFIntRequired }
 
@@ -260,7 +266,13 @@ type
     procedure AfterConstruction; override;
   end;
 
-  TDFTextRequired = class(TDFStringRequired);
+  { TDFTextRequired }
+
+  TDFTextRequired = class(TDFStringRequired)
+  public
+    constructor Create; override;
+    procedure AfterConstruction; override;
+  end;
 
   { TDFDateNull }
 
@@ -861,6 +873,21 @@ begin
   Size := DEFAULT_STR_SIZE;
 end;
 
+{ TDFTextNull }
+
+constructor TDFTextNull.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkString;
+  FSize := 0;
+end;
+
+procedure TDFTextNull.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  Size := 0;
+end;
+
 { TDFIntRequired }
 
 constructor TDFIntRequired.Create;
@@ -1026,6 +1053,21 @@ procedure TDFStringRequired.AfterConstruction;
 begin
   inherited AfterConstruction;
   Size := DEFAULT_STR_SIZE;
+end;
+
+{ TDFTextRequired }
+
+constructor TDFTextRequired.Create;
+begin
+  inherited Create;
+  FFieldKind := dfkString;
+  FSize := 0;
+end;
+
+procedure TDFTextRequired.AfterConstruction;
+begin
+  inherited AfterConstruction;
+  Size := 0;
 end;
 
 { TDFDateNull }
