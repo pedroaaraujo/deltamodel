@@ -118,6 +118,12 @@ begin
             if DeltaField.IsNull then
               Param.Clear
             else
+            if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+            begin
+              Param.DataType := ftMemo;
+              Param.AsMemo := DeltaField.AsString;
+            end
+            else
               Param.Value := DeltaField.Value;
           end;
         end;
@@ -189,6 +195,12 @@ begin
           begin
             if DeltaField.IsNull then
               Param.Clear
+            else
+            if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+            begin
+              Param.DataType := ftMemo;
+              Param.AsMemo := DeltaField.AsString;
+            end
             else
               Param.Value := DeltaField.Value;
           end;

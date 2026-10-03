@@ -212,6 +212,7 @@ begin
       ddOracle: SQLType := 'CLOB';
       ddFirebird: SQLType := 'BLOB SUB_TYPE TEXT';
       ddMSSQL: SQLType := 'VARCHAR(MAX)';
+      ddMySQL: SQLType := 'LONGTEXT';
     else
       SQLType := 'TEXT';
     end;
