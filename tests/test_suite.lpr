@@ -11,7 +11,8 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.ORM.Connection,
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
-  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter;
+  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
+  DeltaModel.JsonStreamer;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -1718,6 +1719,115 @@ begin
   end;
 end;
 
+procedure TestFastJsonStreamer;
+var
+  S: string;
+  P: TProductModel;
+  List: TProductGenericList;
+  JsonOut: RawByteString;
+  Parser: TJSONParser;
+  Data: TJSONData;
+begin
+  Suite('13. TDeltaFastJsonStreamer & Fixed-Point Floats Without Scientific Notation');
+
+  // Teste 1: Formatação de float em ponto fixo - zero e inteiros
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(0.0);
+  AssertEquals('0', S, 'Float zero formata como "0"');
+
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(100.0);
+  AssertEquals('100', S, 'Float 100.0 formata como "100"');
+
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(1234.56);
+  AssertEquals('1234.56', S, 'Float 1234.56 formata como "1234.56"');
+
+  // Teste 2: Float muito grande (sem E+ / notação científica)
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(123456789.9876);
+  AssertTrue(Pos('E+', S) = 0, 'Float grande não contém E+');
+  AssertTrue(Pos('E-', S) = 0, 'Float grande não contém E-');
+  AssertEquals('123456789.9876', S, 'Float grande 123456789.9876 formatado em ponto fixo');
+
+  // Teste 3: Float muito pequeno (sem E- / notação científica)
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(0.0001234);
+  AssertTrue(Pos('E+', S) = 0, 'Float pequeno não contém E+');
+  AssertTrue(Pos('E-', S) = 0, 'Float pequeno não contém E-');
+  AssertEquals('0.0001234', S, 'Float pequeno 0.0001234 formatado em ponto fixo');
+
+  // Teste 4: Float na casa dos bilhões (sem E+)
+  S := TDeltaFastJsonStreamer.FormatFloatFixed(9999999999.5);
+  AssertTrue(Pos('E+', S) = 0, 'Float na casa de bilhões não contém E+');
+  AssertEquals('9999999999.5', S, 'Float bilhões formatado em ponto fixo');
+
+  // Teste 5: Serialização de Modelo com Float grande via ToJson
+  P := TProductModel.Create;
+  try
+    P.Id.AsLargeInt := 42;
+    P.Name.AsText := 'Servidor Enterprise "Rack"';
+    P.Price.AsFloat := 98765.43;
+    P.BigCode.AsLargeInt := 1234567890123;
+    P.Active.Value := True;
+    // Description nulo
+
+    JsonOut := P.ToJson;
+    AssertTrue(Pos('98765.43', JsonOut) > 0, 'JSON do modelo contém preço em ponto fixo');
+    AssertTrue(Pos('E+', JsonOut) = 0, 'JSON do modelo não contém E+');
+    AssertTrue(Pos('E-', JsonOut) = 0, 'JSON do modelo não contém E-');
+    AssertTrue(Pos('"Description":null', JsonOut) > 0, 'JSON do modelo contém Description como null');
+    AssertTrue(Pos('Servidor Enterprise \"Rack\"', JsonOut) > 0, 'JSON do modelo realizou escape correto de aspas');
+
+    // Valida que o JSON emitido é estritamente parseável
+    Parser := TJSONParser.Create(JsonOut, True);
+    try
+      Data := Parser.Parse;
+      AssertTrue(Assigned(Data), 'JSON do modelo parseado com sucesso');
+      AssertTrue(Data is TJSONObject, 'JSON do modelo é TJSONObject');
+      Data.Free;
+    finally
+      Parser.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // Teste 6: Serialização de Lista com múltiplos registros
+  List := TProductGenericList.Create;
+  try
+    P := TProductModel.Create;
+    P.Id.AsLargeInt := 1;
+    P.Name.AsText := 'Item 1';
+    P.Price.AsFloat := 1500000.75;
+    P.Active.Value := True;
+    List.Add(P);
+
+    P := TProductModel.Create;
+    P.Id.AsLargeInt := 2;
+    P.Name.AsText := 'Item 2';
+    P.Price.AsFloat := 0.005;
+    P.Active.Value := False;
+    List.Add(P);
+
+    JsonOut := List.ToJson;
+    AssertTrue(JsonOut[1] = '[', 'List.ToJson inicia com array "["');
+    AssertTrue(JsonOut[Length(JsonOut)] = ']', 'List.ToJson encerra com array "]"');
+    AssertTrue(Pos('1500000.75', JsonOut) > 0, 'List.ToJson contém float grande em ponto fixo');
+    AssertTrue(Pos('0.005', JsonOut) > 0, 'List.ToJson contém float pequeno em ponto fixo');
+    AssertTrue(Pos('E+', JsonOut) = 0, 'List.ToJson não contém E+');
+    AssertTrue(Pos('E-', JsonOut) = 0, 'List.ToJson não contém E-');
+
+    Parser := TJSONParser.Create(JsonOut, True);
+    try
+      Data := Parser.Parse;
+      AssertTrue(Assigned(Data), 'List.ToJson parseado com sucesso');
+      AssertTrue(Data is TJSONArray, 'List.ToJson é TJSONArray');
+      AssertEqualsInt(2, TJSONArray(Data).Count, 'Array contém 2 itens');
+      Data.Free;
+    finally
+      Parser.Free;
+    end;
+  finally
+    List.Free;
+  end;
+end;
+
 {==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
@@ -1740,6 +1850,7 @@ begin
     TestPaginatedList;
     TestRTTICacheAndMetadata;
     TestColumnBindingMap;
+    TestFastJsonStreamer;
   except
     on E: Exception do
     begin

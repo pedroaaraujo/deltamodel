@@ -222,6 +222,9 @@ type
 
 implementation
 
+uses
+  DeltaModel.JsonStreamer;
+
 var
   GDeltaModelRegisterSchemaProc: TDeltaModelRegisterSchemaProc = nil;
 
@@ -467,7 +470,7 @@ end;
 
 function TDeltaModel.ToJson: RawByteString;
 begin
-  Result := Serialize(Self);
+  Result := TDeltaFastJsonStreamer.ModelToJson(Self);
 end;
 
 function TDeltaModel.ToJsonObj: TJSONObject;
@@ -832,15 +835,8 @@ begin
 end;
 
 function TDeltaModelList.ToJson: RawByteString;
-var
-  Arr: TJSONArray;
 begin
-  Arr := ToJsonObj;
-  try
-    Result := Arr.AsJSON;
-  finally
-    Arr.Free;
-  end;
+  Result := TDeltaFastJsonStreamer.ListToJson(Self);
 end;
 
 function TDeltaModelList.ToJsonObj: TJSONArray;
@@ -1015,15 +1011,8 @@ end;
 { TDeltaModelPaginatedList }
 
 function TDeltaModelPaginatedList.ToJson: RawByteString;
-var
-  JObj: TJSONObject;
 begin
-  JObj := ToPaginatedJsonObj;
-  try
-    Result := JObj.AsJSON;
-  finally
-    JObj.Free;
-  end;
+  Result := TDeltaFastJsonStreamer.PaginatedListToJson(Self);
 end;
 
 function TDeltaModelPaginatedList.SwaggerSchema(AddExamples: Boolean): TJSONObject;
