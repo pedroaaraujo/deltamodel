@@ -833,13 +833,13 @@ end;
 
 function TDeltaModelList.ToJson: RawByteString;
 var
-  JObj: TJSONObject;
+  Arr: TJSONArray;
 begin
-  JObj := ToPaginatedJsonObj;
+  Arr := ToJsonObj;
   try
-    Result := JObj.AsJSON;
+    Result := Arr.AsJSON;
   finally
-    JObj.Free;
+    Arr.Free;
   end;
 end;
 

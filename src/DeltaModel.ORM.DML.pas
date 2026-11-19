@@ -7,7 +7,8 @@ interface
 uses
   Classes, SysUtils, DB, SQLDB, Variants, TypInfo, fpjson,
   DeltaModel, DeltaValidator, DeltaModel.Fields, DeltaModel.ORM.Types,
-  DeltaModel.SQLBuilder, DeltaModel.ORM.Interfaces, DeltaModel.DataSetConverter;
+  DeltaModel.SQLBuilder, DeltaModel.ORM.Interfaces, DeltaModel.DataSetConverter,
+  DeltaModel.Metadata;
 
 type
 
@@ -592,46 +593,12 @@ end;
 
 function TQuery.FindById(const AId: Variant): TDeltaModel;
 var
-  ObjTemp: TDeltaModel;
-  PropList: PPropList;
-  PropInfo: PPropInfo;
-  PropCount, I: Integer;
   PKFieldName: string;
-  NestedObj: TObject;
 begin
   if FModelClass = nil then
     raise Exception.Create('Model class not defined for TQuery.');
 
-  PKFieldName := '';
-  ObjTemp := FModelClass.Create;
-  try
-    PropCount := GetPropList(ObjTemp.ClassInfo, tkProperties, nil);
-    if PropCount > 0 then
-    begin
-      GetMem(PropList, PropCount * SizeOf(Pointer));
-      try
-        GetPropList(ObjTemp.ClassInfo, tkProperties, PropList, False);
-        for I := 0 to PropCount - 1 do
-        begin
-          PropInfo := PropList^[I];
-          if PropInfo^.PropType^.Kind = tkClass then
-          begin
-            NestedObj := GetObjectProp(ObjTemp, PropInfo^.Name);
-            if (NestedObj is DeltaModel.Fields.TDeltaField) and (dboPrimaryKey in (NestedObj as DeltaModel.Fields.TDeltaField).DBOptions) then
-            begin
-              PKFieldName := (NestedObj as DeltaModel.Fields.TDeltaField).FieldName;
-              Break;
-            end;
-          end;
-        end;
-      finally
-        FreeMem(PropList, PropCount * SizeOf(Pointer));
-      end;
-    end;
-  finally
-    ObjTemp.Free;
-  end;
-
+  PKFieldName := TRTTICache.GetModelMetadata(FModelClass).PKFieldName;
   if PKFieldName.IsEmpty then
     PKFieldName := 'id';
 
@@ -1255,58 +1222,29 @@ end;
 
 class function TSave.HasPKValue(AModel: TDeltaModel): Boolean;
 var
-  PropList: PPropList;
-  PropInfo: PPropInfo;
-  PropCount, I: Integer;
-  Obj: DeltaModel.Fields.TDeltaField;
+  Meta: TModelMetadata;
   NestedObj: TObject;
+  Obj: DeltaModel.Fields.TDeltaField;
 begin
   Result := False;
-  PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
-  if PropCount = 0 then Exit;
+  if not Assigned(AModel) then Exit;
 
-  GetMem(PropList, PropCount * SizeOf(Pointer));
-  try
-    GetPropList(AModel.ClassInfo, tkProperties, PropList, False);
-    for I := 0 to PropCount - 1 do
+  Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
+  if Meta.PKPropInfo = nil then Exit;
+
+  NestedObj := GetObjectProp(AModel, Meta.PKPropInfo);
+  if NestedObj is DeltaModel.Fields.TDeltaField then
+  begin
+    Obj := DeltaModel.Fields.TDeltaField(NestedObj);
+    if not Obj.IsNull then
     begin
-      PropInfo := PropList^[I];
-      if PropInfo^.PropType^.Kind = tkClass then
-      begin
-        NestedObj := GetObjectProp(AModel, PropInfo^.Name);
-        if NestedObj is DeltaModel.Fields.TDeltaField then
-        begin
-          Obj := NestedObj as DeltaModel.Fields.TDeltaField;
-          if (dboPrimaryKey in Obj.DBOptions) and (not Obj.IsNull) then
-          begin
-            if VarIsNumeric(Obj.Value) then
-            begin
-              if Double(Obj.Value) > 0 then
-              begin
-                Result := True;
-                Exit;
-              end;
-            end
-            else
-            if VarIsStr(Obj.Value) then
-            begin
-              if not VarToStr(Obj.Value).Trim.IsEmpty then
-              begin
-                Result := True;
-                Exit;
-              end;
-            end
-            else
-            begin
-              Result := True;
-              Exit;
-            end;
-          end;
-        end;
-      end;
+      if VarIsNumeric(Obj.Value) then
+        Result := (Double(Obj.Value) > 0)
+      else if VarIsStr(Obj.Value) then
+        Result := not VarToStr(Obj.Value).Trim.IsEmpty
+      else
+        Result := True;
     end;
-  finally
-    FreeMem(PropList, PropCount * SizeOf(Pointer));
   end;
 end;
 

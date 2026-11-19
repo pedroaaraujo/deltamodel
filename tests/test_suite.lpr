@@ -11,7 +11,7 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.ORM.Connection,
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
-  DeltaSerialization, DeltaAPISchema;
+  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -1571,6 +1571,55 @@ begin
   end;
 end;
 
+procedure TestRTTICacheAndMetadata;
+var
+  ClassProps1, ClassProps2: TRTTIClassInfo;
+  Meta1, Meta2: TModelMetadata;
+  PropItem: PDeltaPropItem;
+  FieldItem: PDeltaFieldMeta;
+begin
+  Suite('11. TRTTICache & TModelMetadata');
+
+  // Teste 1: Obtenção de Propriedades RTTI em Cache
+  ClassProps1 := TRTTICache.GetClassProps(TProductModel);
+  AssertTrue(Assigned(ClassProps1), 'TRTTICache.GetClassProps retornou objeto');
+  AssertTrue(ClassProps1.PropCount >= 6, Format('ClassProps possui propriedades (%d)', [ClassProps1.PropCount]));
+
+  // Teste 2: Cache Hit (retorna mesma instância sem re-alocação)
+  ClassProps2 := TRTTICache.GetClassProps(TProductModel);
+  AssertTrue(ClassProps1 = ClassProps2, 'TRTTICache.GetClassProps retorna mesma instância de cache (hit)');
+
+  // Teste 3: FindProp rápido
+  PropItem := ClassProps1.FindProp('Name');
+  AssertTrue(PropItem <> nil, 'FindProp localizou Name');
+  if PropItem <> nil then
+  begin
+    AssertTrue(PropItem^.IsDeltaField, 'Name é TDeltaField');
+    AssertEquals('Name', PropItem^.Name, 'Nome da propriedade confere');
+  end;
+
+  PropItem := ClassProps1.FindProp('PropriedadeInexistente');
+  AssertTrue(PropItem = nil, 'FindProp para propriedade inexistente retorna nil');
+
+  // Teste 4: TModelMetadata
+  Meta1 := TRTTICache.GetModelMetadata(TProductModel);
+  AssertTrue(Assigned(Meta1), 'TRTTICache.GetModelMetadata retornou objeto');
+  AssertEquals('products', Meta1.TableName, 'TableName em metadata confere');
+  AssertEquals('Id', Meta1.PKPropName, 'PKPropName em metadata confere');
+  AssertEquals('id', Meta1.PKFieldName, 'PKFieldName em metadata confere');
+  AssertTrue(Meta1.FieldCount >= 6, Format('Metadata possui campos (%d)', [Meta1.FieldCount]));
+
+  // Teste 5: Cache Hit em ModelMetadata
+  Meta2 := TRTTICache.GetModelMetadata(TProductModel);
+  AssertTrue(Meta1 = Meta2, 'TRTTICache.GetModelMetadata retorna mesma instância de cache (hit)');
+
+  // Teste 6: FindField
+  FieldItem := Meta1.FindField('price');
+  AssertTrue(FieldItem <> nil, 'FindField localizou price');
+  if FieldItem <> nil then
+    AssertEquals('price', FieldItem^.FieldName, 'FieldName de price confere');
+end;
+
 {==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
@@ -1591,6 +1640,7 @@ begin
     TestConstraintsAndIndexes;
     TestHasOneRelation;
     TestPaginatedList;
+    TestRTTICacheAndMetadata;
   except
     on E: Exception do
     begin

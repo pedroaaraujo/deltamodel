@@ -21,7 +21,7 @@ procedure CopyObject(AFrom, ATo: TObject);
 implementation
 
 uses
-  DeltaModel;
+  DeltaModel, DeltaModel.Metadata;
 
 type
   { TDeltaJSONFloat }
@@ -80,29 +80,29 @@ end;
 
 procedure DeserializeObj(Obj: TObject; JsonData: TJSONObject);
 var
-  PropList: PPropList;
+  ClassInfo: TRTTIClassInfo;
+  PropItem: PDeltaPropItem;
   PropInfo: PPropInfo;
   PropType: PTypeInfo;
-  I, PropCount: Integer;
+  I: Integer;
   PropValue: TJSONData;
   PropObj: TObject;
   PropName, ValueStr: string;
 begin
-  PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
-  GetMem(PropList, PropCount * SizeOf(Pointer));
-  try
-    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
-    for I := 0 to PropCount - 1 do
+  if (Obj = nil) or (JsonData = nil) then Exit;
+
+  ClassInfo := TRTTICache.GetClassProps(Obj.ClassType);
+  for I := 0 to ClassInfo.PropCount - 1 do
+  begin
+    PropItem := @ClassInfo.Props[I];
+    if not PropItem^.HasSetProc then Continue;
+
+    PropInfo := PropItem^.PropInfo;
+    PropName := PropItem^.Name;
+
+    if not JsonData.Find(PropName, PropValue) then
     begin
-      PropInfo := PropList^[I];
-
-      if PropInfo^.SetProc = nil then Continue;
-
-      PropName := PropInfo^.Name;
-
-      if not JsonData.Find(PropName, PropValue) then
-      begin
-        if not JsonData.Find(LowerCase(PropName), PropValue) then
+      if not JsonData.Find(LowerCase(PropName), PropValue) then
           Continue;
       end;
 
@@ -210,10 +210,7 @@ begin
         end;
       end;
     end;
-  finally
-    FreeMem(PropList, PropCount * SizeOf(Pointer));
   end;
-end;
 
 function Serialize(Obj: TObject): RawByteString;
 var
@@ -234,10 +231,11 @@ function SerializeToJsonObj(Obj: TObject): TJSONObject;
 var
   JsonData: TJSONObject;
   JsonArr: TJSONArray;
-  PropList: PPropList;
+  ClassInfo: TRTTIClassInfo;
+  PropItem: PDeltaPropItem;
   PropInfo: PPropInfo;
   PropType: TTypeInfo;
-  I, PropCount, Item: Integer;
+  I, Item: Integer;
   NestedObj: TObject;
   ObjectItem: TObject;
   PropName: string;
@@ -247,18 +245,16 @@ begin
     Exit(nil);
 
   JsonData := TJSONObject.Create;
-  PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
-  GetMem(PropList, PropCount * SizeOf(Pointer));
   try
-    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
-    for I := 0 to PropCount - 1 do
-    begin
-      PropInfo := PropList^[I];
+    ClassInfo := TRTTICache.GetClassProps(Obj.ClassType);
+  for I := 0 to ClassInfo.PropCount - 1 do
+  begin
+    PropItem := @ClassInfo.Props[I];
+    if not PropItem^.HasGetProc then Continue;
 
-      if PropInfo^.GetProc = nil then Continue;
-
-      PropType := PropInfo^.PropType^;
-      PropName := PropInfo^.Name;
+    PropInfo := PropItem^.PropInfo;
+    PropType := PropInfo^.PropType^;
+    PropName := PropItem^.Name;
 
       case PropType.Kind of
         tkInteger, tkInt64:
@@ -366,8 +362,9 @@ begin
       end;
     end;
     Result := JsonData;
-  finally
-    FreeMem(PropList, PropCount * SizeOf(Pointer));
+  except
+    JsonData.Free;
+    raise;
   end;
 end;
 
@@ -421,8 +418,8 @@ end;
 function SerializeListToCSV(AList: TCustomDeltaModelList; ADelimiter: Char): string;
 var
   SB: TStringBuilder;
-  PropList: PPropList;
-  PropCount, I, J: Integer;
+  ClassInfo: TRTTIClassInfo;
+  I, J: Integer;
   Obj: TObject;
   PropInfo: PPropInfo;
   PropName, StrValue: string;
@@ -433,21 +430,19 @@ begin
 
   Obj := AList.GetItemObj(0);
 
-  PropCount := GetPropList(Obj.ClassInfo, tkProperties, nil);
-  GetMem(PropList, PropCount * SizeOf(Pointer));
+  ClassInfo := TRTTICache.GetClassProps(Obj.ClassType);
   SB := TStringBuilder.Create;
   try
-    GetPropList(Obj.ClassInfo, tkProperties, PropList, False);
     SetLength(ValidProps, 0);
 
-    for I := 0 to PropCount - 1 do
+    for I := 0 to ClassInfo.PropCount - 1 do
     begin
-      PropInfo := PropList^[I];
-      if PropInfo^.GetProc = nil then Continue;
+      PropInfo := ClassInfo.Props[I].PropInfo;
+      if not ClassInfo.Props[I].HasGetProc then Continue;
 
-      if (PropInfo^.PropType^.Kind = tkClass) then
+      if ClassInfo.Props[I].IsClass then
       begin
-        if not GetTypeData(PropInfo^.PropType)^.ClassType.InheritsFrom(TDeltaField) then
+        if not ClassInfo.Props[I].IsDeltaField then
           Continue;
       end;
 
@@ -501,7 +496,6 @@ begin
 
     Result := SB.ToString;
   finally
-    FreeMem(PropList, PropCount * SizeOf(Pointer));
     SB.Free;
   end;
 end;
@@ -603,143 +597,137 @@ end;
 
 procedure CopyObject(AFrom, ATo: TObject);
 var
-  PropList: PPropList;
-  PropCount, I: Integer;
+  ClassInfoFrom, ClassInfoTo: TRTTIClassInfo;
+  PropItemFrom, PropItemTo: PDeltaPropItem;
+  I: Integer;
   PropInfoFrom, PropInfoTo: PPropInfo;
   ObjFrom, ObjTo: TObject;
 begin
   if (AFrom = nil) or (ATo = nil) then Exit;
 
+  ClassInfoFrom := TRTTICache.GetClassProps(AFrom.ClassType);
+
   if AFrom.ClassType = ATo.ClassType then
   begin
-    PropCount := GetPropList(AFrom.ClassInfo, tkProperties, nil);
-    GetMem(PropList, PropCount * SizeOf(Pointer));
-    try
-      GetPropList(AFrom.ClassInfo, tkProperties, PropList, False);
-      for I := 0 to PropCount - 1 do
-      begin
-        PropInfoFrom := PropList^[I];
+    for I := 0 to ClassInfoFrom.PropCount - 1 do
+    begin
+      PropItemFrom := @ClassInfoFrom.Props[I];
+      if (not PropItemFrom^.HasGetProc) or (not PropItemFrom^.HasSetProc) then
+        Continue;
 
-        if (PropInfoFrom^.GetProc = nil) or (PropInfoFrom^.SetProc = nil) then
-          Continue;
+      PropInfoFrom := PropItemFrom^.PropInfo;
 
-        case PropInfoFrom^.PropType^.Kind of
-          tkInteger, tkInt64, tkBool, tkEnumeration:
-            SetOrdProp(ATo, PropInfoFrom, GetOrdProp(AFrom, PropInfoFrom));
+      case PropItemFrom^.PropKind of
+        tkInteger, tkInt64, tkBool, tkEnumeration:
+          SetOrdProp(ATo, PropInfoFrom, GetOrdProp(AFrom, PropInfoFrom));
 
-          tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
-            SetStrProp(ATo, PropInfoFrom, GetStrProp(AFrom, PropInfoFrom));
+        tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
+          SetStrProp(ATo, PropInfoFrom, GetStrProp(AFrom, PropInfoFrom));
 
-          tkFloat:
-            SetFloatProp(ATo, PropInfoFrom, GetFloatProp(AFrom, PropInfoFrom));
+        tkFloat:
+          SetFloatProp(ATo, PropInfoFrom, GetFloatProp(AFrom, PropInfoFrom));
 
-          tkVariant:
-            SetVariantProp(ATo, PropInfoFrom, GetVariantProp(AFrom, PropInfoFrom));
+        tkVariant:
+          SetVariantProp(ATo, PropInfoFrom, GetVariantProp(AFrom, PropInfoFrom));
 
-          tkClass:
+        tkClass:
+        begin
+          ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
+          ObjTo   := GetObjectProp(ATo, PropInfoFrom);
+
+          if (ObjFrom = nil) or (ObjTo = nil) then Continue;
+
+          if ObjFrom is TDeltaField then
           begin
-            ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
-            ObjTo   := GetObjectProp(ATo, PropInfoFrom);
-
-            if (ObjFrom = nil) or (ObjTo = nil) then Continue;
-
-            if ObjFrom is TDeltaField then
+            if (ObjFrom as TDeltaField).Visible then
             begin
-              if (ObjFrom as TDeltaField).Visible then
+              if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
               begin
-                if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
+                if (ObjFrom as TDFHasOne).Model <> nil then
                 begin
-                  if (ObjFrom as TDFHasOne).Model <> nil then
+                  if (ObjTo as TDFHasOne).Model = nil then
                   begin
-                    if (ObjTo as TDFHasOne).Model = nil then
-                    begin
-                      if (ObjTo as TDFHasOne).RelationClass <> nil then
-                        (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
-                    end;
-                    if (ObjTo as TDFHasOne).Model <> nil then
-                      CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
-                  end
-                  else
-                    (ObjTo as TDFHasOne).Clear;
+                    if (ObjTo as TDFHasOne).RelationClass <> nil then
+                      (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
+                  end;
+                  if (ObjTo as TDFHasOne).Model <> nil then
+                    CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
                 end
                 else
-                  (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
-              end;
-            end
-            else
-              CopyObject(ObjFrom, ObjTo);
-          end;
+                  (ObjTo as TDFHasOne).Clear;
+              end
+              else
+                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+            end;
+          end
+          else
+            CopyObject(ObjFrom, ObjTo);
         end;
       end;
-    finally
-      FreeMem(PropList, PropCount * SizeOf(Pointer));
     end;
   end
   else
   begin
-    PropCount := GetPropList(AFrom.ClassInfo, tkProperties, nil);
-    GetMem(PropList, PropCount * SizeOf(Pointer));
-    try
-      GetPropList(AFrom.ClassInfo, tkProperties, PropList, False);
-      for I := 0 to PropCount - 1 do
-      begin
-        PropInfoFrom := PropList^[I];
-        if PropInfoFrom^.GetProc = nil then Continue;
+    ClassInfoTo := TRTTICache.GetClassProps(ATo.ClassType);
+    for I := 0 to ClassInfoFrom.PropCount - 1 do
+    begin
+      PropItemFrom := @ClassInfoFrom.Props[I];
+      if not PropItemFrom^.HasGetProc then Continue;
 
-        PropInfoTo := GetPropInfo(ATo.ClassInfo, PropInfoFrom^.Name);
-        if (PropInfoTo = nil) or (PropInfoTo^.SetProc = nil) then Continue;
-        if PropInfoFrom^.PropType^.Kind <> PropInfoTo^.PropType^.Kind then Continue;
+      PropItemTo := ClassInfoTo.FindProp(PropItemFrom^.Name);
+      if (PropItemTo = nil) or (not PropItemTo^.HasSetProc) then Continue;
+      if PropItemFrom^.PropKind <> PropItemTo^.PropKind then Continue;
 
-        case PropInfoFrom^.PropType^.Kind of
-          tkInteger, tkInt64, tkBool, tkEnumeration:
-            SetOrdProp(ATo, PropInfoTo, GetOrdProp(AFrom, PropInfoFrom));
+      PropInfoFrom := PropItemFrom^.PropInfo;
+      PropInfoTo := PropItemTo^.PropInfo;
 
-          tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
-            SetStrProp(ATo, PropInfoTo, GetStrProp(AFrom, PropInfoFrom));
+      case PropItemFrom^.PropKind of
+        tkInteger, tkInt64, tkBool, tkEnumeration:
+          SetOrdProp(ATo, PropInfoTo, GetOrdProp(AFrom, PropInfoFrom));
 
-          tkFloat:
-            SetFloatProp(ATo, PropInfoTo, GetFloatProp(AFrom, PropInfoFrom));
+        tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
+          SetStrProp(ATo, PropInfoTo, GetStrProp(AFrom, PropInfoFrom));
 
-          tkVariant:
-            SetVariantProp(ATo, PropInfoTo, GetVariantProp(AFrom, PropInfoFrom));
+        tkFloat:
+          SetFloatProp(ATo, PropInfoTo, GetFloatProp(AFrom, PropInfoFrom));
 
-          tkClass:
+        tkVariant:
+          SetVariantProp(ATo, PropInfoTo, GetVariantProp(AFrom, PropInfoFrom));
+
+        tkClass:
+        begin
+          ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
+          ObjTo   := GetObjectProp(ATo, PropInfoTo);
+
+          if (ObjFrom = nil) or (ObjTo = nil) then Continue;
+
+          if ObjFrom is TDeltaField then
           begin
-            ObjFrom := GetObjectProp(AFrom, PropInfoFrom);
-            ObjTo   := GetObjectProp(ATo, PropInfoTo);
-
-            if (ObjFrom = nil) or (ObjTo = nil) then Continue;
-
-            if ObjFrom is TDeltaField then
+            if (ObjFrom as TDeltaField).Visible then
             begin
-              if (ObjFrom as TDeltaField).Visible then
+              if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
               begin
-                if (ObjFrom is TDFHasOne) and (ObjTo is TDFHasOne) then
+                if (ObjFrom as TDFHasOne).Model <> nil then
                 begin
-                  if (ObjFrom as TDFHasOne).Model <> nil then
+                  if (ObjTo as TDFHasOne).Model = nil then
                   begin
-                    if (ObjTo as TDFHasOne).Model = nil then
-                    begin
-                      if (ObjTo as TDFHasOne).RelationClass <> nil then
-                        (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
-                    end;
-                    if (ObjTo as TDFHasOne).Model <> nil then
-                      CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
-                  end
-                  else
-                    (ObjTo as TDFHasOne).Clear;
+                    if (ObjTo as TDFHasOne).RelationClass <> nil then
+                      (ObjTo as TDFHasOne).Model := CreateModelInstance((ObjTo as TDFHasOne).RelationClass);
+                  end;
+                  if (ObjTo as TDFHasOne).Model <> nil then
+                    CopyObject((ObjFrom as TDFHasOne).Model, (ObjTo as TDFHasOne).Model);
                 end
                 else
-                  (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
-              end;
-            end
-            else
-              CopyObject(ObjFrom, ObjTo);
-          end;
+                  (ObjTo as TDFHasOne).Clear;
+              end
+              else
+                (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
+            end;
+          end
+          else
+            CopyObject(ObjFrom, ObjTo);
         end;
       end;
-    finally
-      FreeMem(PropList, PropCount * SizeOf(Pointer));
     end;
   end;
 end;
