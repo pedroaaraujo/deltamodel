@@ -58,10 +58,14 @@ type
     function GetValue: Variant; virtual; abstract;
     procedure SetValue(AValue: Variant); virtual; abstract;
 
+    function GetAsInteger: Integer; virtual;
+    procedure SetAsInteger(const AValue: Integer); virtual;
     function GetAsLargeInt: Int64; virtual;
     procedure SetAsLargeInt(const AValue: Int64); virtual;
     function GetAsFloat: Double; virtual;
     procedure SetAsFloat(const AValue: Double); virtual;
+    function GetAsCurrency: Currency; virtual;
+    procedure SetAsCurrency(const AValue: Currency); virtual;
     function GetAsBoolean: Boolean; virtual;
     procedure SetAsBoolean(const AValue: Boolean); virtual;
     function GetAsDateTime: TDateTime; virtual;
@@ -90,9 +94,11 @@ type
     function SwaggerFormat: string; virtual;
 
     // Acesso tipado direto de alta performance
+    property AsInteger: Integer read GetAsInteger write SetAsInteger;
     property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
     property AsInt64: Int64 read GetAsLargeInt write SetAsLargeInt;
     property AsFloat: Double read GetAsFloat write SetAsFloat;
+    property AsCurrency: Currency read GetAsCurrency write SetAsCurrency;
     property AsBoolean: Boolean read GetAsBoolean write SetAsBoolean;
     property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
     property AsText: string read AsString write SetAsString;
@@ -139,7 +145,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsInteger: Integer;
     function SwaggerDataType: string; override;
   end;
 
@@ -151,7 +156,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsInt64: Int64;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
@@ -164,7 +168,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsFloat: Double;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
@@ -179,7 +182,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsCurrency: Currency;
     function SwaggerDataType: string; override;
   end;
 
@@ -213,7 +215,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsInteger: Integer;
     function SwaggerDataType: string; override;
   end;
 
@@ -225,7 +226,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsInt64: Int64;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
@@ -238,7 +238,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsFloat: Double;
     function SwaggerDataType: string; override;
     function SwaggerFormat: string; override;
   end;
@@ -253,7 +252,6 @@ type
   public
     constructor Create; override;
     function AsString: string; override;
-    function AsCurrency: Currency;
     function SwaggerDataType: string; override;
   end;
 
@@ -358,7 +356,6 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     constructor Create; override;
-    function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
   end;
@@ -370,7 +367,6 @@ type
     procedure SetValue(AValue: Variant); override;
   public
     constructor Create; override;
-    function AsBoolean: Boolean;
     function AsString: string; override;
     function SwaggerDataType: string; override;
   end;
@@ -574,6 +570,17 @@ begin
   inherited Destroy;
 end;
 
+function TDeltaField.GetAsInteger: Integer;
+begin
+  if IsNull then Result := 0
+  else Result := Integer(FValue);
+end;
+
+procedure TDeltaField.SetAsInteger(const AValue: Integer);
+begin
+  SetValue(AValue);
+end;
+
 function TDeltaField.GetAsLargeInt: Int64;
 begin
   if IsNull then Result := 0
@@ -592,6 +599,17 @@ begin
 end;
 
 procedure TDeltaField.SetAsFloat(const AValue: Double);
+begin
+  SetValue(AValue);
+end;
+
+function TDeltaField.GetAsCurrency: Currency;
+begin
+  if IsNull then Result := 0
+  else Result := Currency(FValue);
+end;
+
+procedure TDeltaField.SetAsCurrency(const AValue: Currency);
 begin
   SetValue(AValue);
 end;
@@ -735,14 +753,6 @@ begin
   else Result := IntToStr(Integer(FValue));
 end;
 
-function TDFIntNull.AsInteger: Integer;
-begin
-  if IsNull then
-    Result := 0
-  else
-    Result := Integer(FValue);
-end;
-
 function TDFIntNull.SwaggerDataType: string;
 begin
   Result := 'integer';
@@ -767,12 +777,6 @@ function TDFInt64Null.AsString: string;
 begin
   if IsNull then Result := ''
   else Result := IntToStr(Int64(FValue));
-end;
-
-function TDFInt64Null.AsInt64: Int64;
-begin
-  if IsNull then Result := 0
-  else Result := Int64(FValue);
 end;
 
 function TDFInt64Null.SwaggerDataType: string;
@@ -806,12 +810,6 @@ begin
   else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
 end;
 
-function TDFDoubleNull.AsFloat: Double;
-begin
-  if IsNull then Result := 0
-  else Result := Double(FValue);
-end;
-
 function TDFDoubleNull.SwaggerDataType: string;
 begin
   Result := 'number';
@@ -841,12 +839,6 @@ function TDFCurrencyNull.AsString: string;
 begin
   if IsNull then Result := ''
   else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
-end;
-
-function TDFCurrencyNull.AsCurrency: Currency;
-begin
-  if IsNull then Result := 0
-  else Result := Currency(FValue);
 end;
 
 function TDFCurrencyNull.SwaggerDataType: string;
@@ -929,12 +921,6 @@ begin
   else Result := IntToStr(Integer(FValue));
 end;
 
-function TDFIntRequired.AsInteger: Integer;
-begin
-  if IsNull then Result := 0
-  else Result := Integer(FValue);
-end;
-
 function TDFIntRequired.SwaggerDataType: string;
 begin
   Result := 'integer';
@@ -959,12 +945,6 @@ function TDFInt64Required.AsString: string;
 begin
   if IsNull then Result := '0'
   else Result := IntToStr(Int64(FValue));
-end;
-
-function TDFInt64Required.AsInt64: Int64;
-begin
-  if IsNull then Result := 0
-  else Result := Int64(FValue);
 end;
 
 function TDFInt64Required.SwaggerDataType: string;
@@ -998,12 +978,6 @@ begin
   else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
 end;
 
-function TDFDoubleRequired.AsFloat: Double;
-begin
-  if IsNull then Result := 0
-  else Result := Double(FValue);
-end;
-
 function TDFDoubleRequired.SwaggerDataType: string;
 begin
   Result := 'number';
@@ -1033,12 +1007,6 @@ function TDFCurrencyRequired.AsString: string;
 begin
   if IsNull then Result := '0'
   else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
-end;
-
-function TDFCurrencyRequired.AsCurrency: Currency;
-begin
-  if IsNull then Result := 0
-  else Result := Currency(FValue);
 end;
 
 function TDFCurrencyRequired.SwaggerDataType: string;
@@ -1303,12 +1271,6 @@ begin
     inherited SetValue(Boolean(AValue));
 end;
 
-function TDFBooleanRequired.AsBoolean: Boolean;
-begin
-  if IsNull then Result := False
-  else Result := Boolean(FValue);
-end;
-
 function TDFBooleanRequired.AsString: string;
 begin
   if AsBoolean then Result := 'T'
@@ -1343,12 +1305,6 @@ begin
   end
   else
     inherited SetValue(Boolean(AValue));
-end;
-
-function TDFBooleanNull.AsBoolean: Boolean;
-begin
-  if IsNull then Result := False
-  else Result := Boolean(FValue);
 end;
 
 function TDFBooleanNull.AsString: string;

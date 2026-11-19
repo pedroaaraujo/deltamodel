@@ -1829,6 +1829,57 @@ begin
 end;
 
 {==============================================================================}
+{ Test 14: Direct Typed Field Properties (AsInt64, AsInteger, AsFloat, etc.)   }
+{==============================================================================}
+
+procedure TestDirectTypedProperties;
+var
+  P: TProductModel;
+begin
+  WriteLn('=== 14. Direct Typed Field Properties (No Variant Boxing) ===');
+  P := TProductModel.Create;
+  try
+    // Testes de escrita e leitura de inteiros
+    P.Id.AsInt64 := 987654321;
+    AssertTrue(P.Id.AsInt64 = 987654321, 'P.Id.AsInt64 atribuição e leitura direta');
+    P.Id.AsLargeInt := 123456789;
+    AssertTrue(P.Id.AsLargeInt = 123456789, 'P.Id.AsLargeInt atribuição e leitura direta');
+    P.Id.AsInteger := 42;
+    AssertEqualsInt(42, P.Id.AsInteger, 'P.Id.AsInteger atribuição e leitura direta');
+
+    // Testes de escrita e leitura de strings
+    P.Name.AsText := 'Teclado Mecanico';
+    AssertEquals('Teclado Mecanico', P.Name.AsString, 'P.Name.AsString conferido apos AsText');
+    P.Name.SetAsString('Teclado RGB');
+    AssertEquals('Teclado RGB', P.Name.AsText, 'P.Name.AsText conferido apos SetAsString');
+
+    // Testes de escrita e leitura de ponto flutuante
+    P.Price.AsFloat := 499.90;
+    AssertTrue(Abs(P.Price.AsFloat - 499.90) < 0.001, 'P.Price.AsFloat atribuição direta');
+
+    // Testes de escrita e leitura de booleanos
+    P.Active.AsBoolean := True;
+    AssertTrue(P.Active.AsBoolean, 'P.Active.AsBoolean := True');
+    P.Active.AsBoolean := False;
+    AssertFalse(P.Active.AsBoolean, 'P.Active.AsBoolean := False');
+
+    // Testes em campo nulo
+    AssertTrue(P.Description.IsNull, 'P.Description inicialmente nulo');
+    P.Description.AsText := 'Descricao de teste';
+    AssertFalse(P.Description.IsNull, 'P.Description não é mais nulo após AsText := ...');
+    AssertEquals('Descricao de teste', P.Description.AsString, 'P.Description.AsString conferido');
+
+    // Teste em campo Int64Nullable
+    AssertTrue(P.BigCode.IsNull, 'P.BigCode inicialmente nulo');
+    P.BigCode.AsInt64 := 998877665544;
+    AssertFalse(P.BigCode.IsNull, 'P.BigCode não é mais nulo após AsInt64 := ...');
+    AssertTrue(P.BigCode.AsInt64 = 998877665544, 'P.BigCode.AsInt64 conferido');
+  finally
+    P.Free;
+  end;
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -1851,6 +1902,7 @@ begin
     TestRTTICacheAndMetadata;
     TestColumnBindingMap;
     TestFastJsonStreamer;
+    TestDirectTypedProperties;
   except
     on E: Exception do
     begin
