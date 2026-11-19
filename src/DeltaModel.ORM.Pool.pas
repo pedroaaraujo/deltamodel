@@ -686,7 +686,7 @@ var
   CheckSQL: string;
   LifeSec: Double;
 begin
-  if not Assigned(AItem.Engine) then
+  if FTerminated or (not Assigned(AItem)) or (not Assigned(AItem.Engine)) or (not Assigned(AItem.Engine.Connection)) then
     Exit;
 
   // 1. Verifica tempo máximo de vida da conexão
@@ -889,6 +889,14 @@ begin
   try
     if FTerminated then
     begin
+      for I := 0 to FItems.Count - 1 do
+      begin
+        if TDeltaPoolItem(FItems[I]).Engine = AEngine then
+        begin
+          TDeltaPoolItem(FItems[I]).Engine := nil;
+          Break;
+        end;
+      end;
       try
         AEngine.Disconnect;
       except
