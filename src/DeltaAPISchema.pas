@@ -13,6 +13,13 @@ function GenerateSchemaStr(Obj: TObject; AddExamples: Boolean = False; IsArray: 
 function GeneratePaginatedSchema(Obj: TObject; AddExamples: Boolean = False): TJSONObject;
 function GeneratePaginatedSchemaStr(Obj: TObject; AddExamples: Boolean = False): string;
 
+function GenerateSchemaRef(const AModelName: string): TJSONObject;
+function GenerateSchemaRefStr(const AModelName: string): string;
+function GenerateSchemaRefArray(const AModelName: string): TJSONObject;
+function GenerateSchemaRefArrayStr(const AModelName: string): string;
+function GeneratePaginatedSchemaRef(const AModelName: string): TJSONObject;
+function GeneratePaginatedSchemaRefStr(const AModelName: string): string;
+
 implementation
 
 uses
@@ -303,6 +310,100 @@ var
   Json: TJSONObject;
 begin
   Json := GeneratePaginatedSchema(Obj, AddExamples);
+  try
+    Result := Json.AsJSON;
+  finally
+    Json.Free;
+  end;
+end;
+
+function GenerateSchemaRef(const AModelName: string): TJSONObject;
+var
+  CleanName: string;
+begin
+  CleanName := Trim(AModelName);
+  if CleanName.StartsWith('#/components/schemas/') then
+    CleanName := Copy(CleanName, 22, MaxInt);
+  Result := TJSONObject.Create;
+  Result.Add('$ref', '#/components/schemas/' + CleanName);
+end;
+
+function GenerateSchemaRefStr(const AModelName: string): string;
+var
+  Json: TJSONObject;
+begin
+  Json := GenerateSchemaRef(AModelName);
+  try
+    Result := Json.AsJSON;
+  finally
+    Json.Free;
+  end;
+end;
+
+function GenerateSchemaRefArray(const AModelName: string): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.Add('type', 'array');
+  Result.Add('items', GenerateSchemaRef(AModelName));
+end;
+
+function GenerateSchemaRefArrayStr(const AModelName: string): string;
+var
+  Json: TJSONObject;
+begin
+  Json := GenerateSchemaRefArray(AModelName);
+  try
+    Result := Json.AsJSON;
+  finally
+    Json.Free;
+  end;
+end;
+
+function GeneratePaginatedSchemaRef(const AModelName: string): TJSONObject;
+var
+  RootObj, PropsObj, ItemsArray: TJSONObject;
+  TotalProp, PageProp, PageSizeProp, TotalPagesProp: TJSONObject;
+begin
+  RootObj := TJSONObject.Create;
+  RootObj.Add('type', 'object');
+
+  PropsObj := TJSONObject.Create;
+
+  ItemsArray := TJSONObject.Create;
+  ItemsArray.Add('type', 'array');
+  ItemsArray.Add('items', GenerateSchemaRef(AModelName));
+  PropsObj.Add('items', ItemsArray);
+
+  PageProp := TJSONObject.Create;
+  PageProp.Add('type', 'integer');
+  PageProp.Add('example', 1);
+  PropsObj.Add('page', PageProp);
+
+  PageSizeProp := TJSONObject.Create;
+  PageSizeProp.Add('type', 'integer');
+  PageSizeProp.Add('example', 20);
+  PropsObj.Add('page_size', PageSizeProp);
+
+  TotalProp := TJSONObject.Create;
+  TotalProp.Add('type', 'integer');
+  TotalProp.Add('format', 'int64');
+  TotalProp.Add('example', 100);
+  PropsObj.Add('total_records', TotalProp);
+
+  TotalPagesProp := TJSONObject.Create;
+  TotalPagesProp.Add('type', 'integer');
+  TotalPagesProp.Add('example', 5);
+  PropsObj.Add('total_pages', TotalPagesProp);
+
+  RootObj.Add('properties', PropsObj);
+  Result := RootObj;
+end;
+
+function GeneratePaginatedSchemaRefStr(const AModelName: string): string;
+var
+  Json: TJSONObject;
+begin
+  Json := GeneratePaginatedSchemaRef(AModelName);
   try
     Result := Json.AsJSON;
   finally

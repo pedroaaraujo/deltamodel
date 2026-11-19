@@ -885,6 +885,21 @@ begin
     Exit;
 
   // 1. Sanitiza transações pendentes
+  FLock.Enter;
+  try
+    if FTerminated then
+    begin
+      try
+        AEngine.Disconnect;
+      except
+      end;
+      AEngine.Free;
+      Exit;
+    end;
+  finally
+    FLock.Leave;
+  end;
+
   SanitizeConnection(AEngine);
 
   FLock.Enter;

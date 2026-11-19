@@ -53,6 +53,13 @@ type
   TConstraintList = specialize TFPGObjectList<TDeltaConstraint>;
   TIndexList = specialize TFPGObjectList<TDeltaIndex>;
 
+  TDeltaModelRegisterSchemaProc = procedure(const AName, ASchemaJson: string);
+
+procedure SetDeltaModelRegisterSchemaProc(AProc: TDeltaModelRegisterSchemaProc);
+function GetDeltaModelRegisterSchemaProc: TDeltaModelRegisterSchemaProc;
+
+type
+
   { TDeltaModel }
 
   TDeltaModel = class
@@ -82,6 +89,12 @@ type
     class function SwaggerSchemaObject(AddExamples: Boolean = False): string;
     class function SwaggerSchemaArray(AddExamples: Boolean = False): string;
     class function SwaggerSchemaPaginated(AddExamples: Boolean = False): string;
+    class function SchemaName: string; virtual;
+    class function RegisterSwaggerSchema(AddExamples: Boolean = False): string;
+    class function SwaggerSchemaRef(IsArray: Boolean = False; IsPaginated: Boolean = False): string;
+    class function SwaggerSchemaRefObject: string;
+    class function SwaggerSchemaRefArray: string;
+    class function SwaggerSchemaRefPaginated: string;
     constructor Create; virtual;
 
     function AddUniqueConstraint(const AName: string; const AFields: array of string): TDeltaConstraint; overload;
@@ -156,6 +169,8 @@ type
     function SwaggerSchema(AddExamples: Boolean = False): TJSONObject; override; deprecated 'Use SwaggerSchemaArray or SwaggerSchemaPaginated instead';
     function SwaggerSchemaArray(AddExamples: Boolean = False): TJSONObject; override;
     function SwaggerSchemaPaginated(AddExamples: Boolean = False): TJSONObject; override;
+    function SwaggerSchemaRefArray: string;
+    function SwaggerSchemaRefPaginated: string;
     function SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;
     function Add(AModel: TDeltaModel): Integer;
     function Count: Integer; override;
@@ -206,6 +221,19 @@ type
   end;
 
 implementation
+
+var
+  GDeltaModelRegisterSchemaProc: TDeltaModelRegisterSchemaProc = nil;
+
+procedure SetDeltaModelRegisterSchemaProc(AProc: TDeltaModelRegisterSchemaProc);
+begin
+  GDeltaModelRegisterSchemaProc := AProc;
+end;
+
+function GetDeltaModelRegisterSchemaProc: TDeltaModelRegisterSchemaProc;
+begin
+  Result := GDeltaModelRegisterSchemaProc;
+end;
 
 { TDeltaConstraint }
 
@@ -491,6 +519,60 @@ begin
   end;
 end;
 
+class function TDeltaModel.SchemaName: string;
+var
+  N: string;
+begin
+  N := ClassName;
+  if (Length(N) > 1) and (N[1] = 'T') and (N[2] in ['A'..'Z']) then
+    Result := Copy(N, 2, Length(N) - 1)
+  else
+    Result := N;
+end;
+
+class function TDeltaModel.RegisterSwaggerSchema(AddExamples: Boolean): string;
+var
+  SName, SJson: string;
+  Proc: TDeltaModelRegisterSchemaProc;
+begin
+  SName := SchemaName;
+  Result := SName;
+  Proc := GetDeltaModelRegisterSchemaProc;
+  if Assigned(Proc) then
+  begin
+    SJson := SwaggerSchemaObject(AddExamples);
+    Proc(SName, SJson);
+  end;
+end;
+
+class function TDeltaModel.SwaggerSchemaRef(IsArray: Boolean; IsPaginated: Boolean): string;
+var
+  SName: string;
+begin
+  SName := RegisterSwaggerSchema(False);
+  if IsPaginated then
+    Result := GeneratePaginatedSchemaRefStr(SName)
+  else if IsArray then
+    Result := GenerateSchemaRefArrayStr(SName)
+  else
+    Result := GenerateSchemaRefStr(SName);
+end;
+
+class function TDeltaModel.SwaggerSchemaRefObject: string;
+begin
+  Result := SwaggerSchemaRef(False, False);
+end;
+
+class function TDeltaModel.SwaggerSchemaRefArray: string;
+begin
+  Result := SwaggerSchemaRef(True, False);
+end;
+
+class function TDeltaModel.SwaggerSchemaRefPaginated: string;
+begin
+  Result := SwaggerSchemaRef(False, True);
+end;
+
 constructor TDeltaModel.Create;
 begin
   FValidator := TValidator.Create;
@@ -673,6 +755,8 @@ begin
 
       Arr := nil;
       ItemsData := JObj.Find('items');
+      if ItemsData = nil then
+        ItemsData := JObj.Find('data');
       if (ItemsData <> nil) and (ItemsData is TJSONArray) then
         Arr := TJSONArray(ItemsData);
 
@@ -803,6 +887,20 @@ begin
   finally
     Obj.Free;
   end;
+end;
+
+function TDeltaModelList.SwaggerSchemaRefArray: string;
+begin
+  if FDeltaModelClass = nil then
+    raise Exception.Create(DeltaModelClassNotAssigned);
+  Result := FDeltaModelClass.SwaggerSchemaRefArray;
+end;
+
+function TDeltaModelList.SwaggerSchemaRefPaginated: string;
+begin
+  if FDeltaModelClass = nil then
+    raise Exception.Create(DeltaModelClassNotAssigned);
+  Result := FDeltaModelClass.SwaggerSchemaRefPaginated;
 end;
 
 function TDeltaModelList.SetDeltaModelClass(AClass: TDeltaModelClass): TDeltaModelList;

@@ -687,6 +687,15 @@ end;
 { Test 4: OpenAPI / Swagger Schema Generation                                  }
 {==============================================================================}
 
+var
+  GCapturedModelName, GCapturedModelSchema: string;
+
+procedure MockSchemaRegisterProc(const AName, ASchemaJson: string);
+begin
+  GCapturedModelName := AName;
+  GCapturedModelSchema := ASchemaJson;
+end;
+
 procedure TestSwaggerSchema;
 var
   SchemaJson: string;
@@ -766,6 +775,65 @@ begin
       AssertTrue(Assigned(Props.Get('total_pages', TJSONObject(nil))), 'Schema paginado contém total_pages');
     finally
       Doc.Free;
+    end;
+
+    // Testes TASK-1214: SchemaName, RegisterSwaggerSchema e SwaggerSchemaRef*
+    AssertEquals('ProductModel', TProductModel.SchemaName, 'SchemaName remove prefixo T');
+
+    GCapturedModelName := '';
+    GCapturedModelSchema := '';
+    SetDeltaModelRegisterSchemaProc(@MockSchemaRegisterProc);
+    try
+      TProductModel.RegisterSwaggerSchema(False);
+      AssertEquals('ProductModel', GCapturedModelName, 'RegisterSwaggerSchema invocou callback com nome correto');
+      Doc := TJSONObject(GetJSON(GCapturedModelSchema));
+      try
+        AssertEquals('object', Doc.Get('type', ''), 'RegisterSwaggerSchema passou schema JSON válido do tipo object');
+      finally
+        Doc.Free;
+      end;
+
+      // SwaggerSchemaRefObject
+      SchemaJson := TProductModel.SwaggerSchemaRefObject;
+      Doc := TJSONObject(GetJSON(SchemaJson));
+      try
+        AssertEquals('#/components/schemas/ProductModel', Doc.Get('$ref', ''), 'SwaggerSchemaRefObject retorna $ref canônico');
+      finally
+        Doc.Free;
+      end;
+
+      // SwaggerSchemaRefArray
+      SchemaJson := TProductModel.SwaggerSchemaRefArray;
+      Doc := TJSONObject(GetJSON(SchemaJson));
+      try
+        AssertEquals('array', Doc.Get('type', ''), 'SwaggerSchemaRefArray raiz é array');
+        AssertTrue(Assigned(Doc.Get('items', TJSONObject(nil))), 'SwaggerSchemaRefArray contém items');
+        if Assigned(Doc.Get('items', TJSONObject(nil))) then
+          AssertEquals('#/components/schemas/ProductModel', Doc.Get('items', TJSONObject(nil)).Get('$ref', ''), 'items aponta para $ref');
+      finally
+        Doc.Free;
+      end;
+
+      // SwaggerSchemaRefPaginated
+      SchemaJson := TProductModel.SwaggerSchemaRefPaginated;
+      Doc := TJSONObject(GetJSON(SchemaJson));
+      try
+        AssertEquals('object', Doc.Get('type', ''), 'SwaggerSchemaRefPaginated raiz é object');
+        Props := Doc.Get('properties', TJSONObject(nil));
+        AssertTrue(Assigned(Props), 'SwaggerSchemaRefPaginated contém properties');
+        AssertTrue(Assigned(Props.Get('items', TJSONObject(nil))), 'SwaggerSchemaRefPaginated contém items');
+        if Assigned(Props.Get('items', TJSONObject(nil))) then
+        begin
+          AssertEquals('array', Props.Get('items', TJSONObject(nil)).Get('type', ''), 'items é array');
+          if Assigned(Props.Get('items', TJSONObject(nil)).Get('items', TJSONObject(nil))) then
+            AssertEquals('#/components/schemas/ProductModel', Props.Get('items', TJSONObject(nil)).Get('items', TJSONObject(nil)).Get('$ref', ''), 'items.items aponta para $ref');
+        end;
+        AssertTrue(Assigned(Props.Get('total_records', TJSONObject(nil))), 'SwaggerSchemaRefPaginated contém total_records');
+      finally
+        Doc.Free;
+      end;
+    finally
+      SetDeltaModelRegisterSchemaProc(nil);
     end;
 end;
 

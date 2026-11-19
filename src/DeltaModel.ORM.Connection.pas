@@ -135,6 +135,8 @@ begin
 
     if not Config.Charset.IsEmpty then
       FConnection.CharSet := Config.Charset
+    else if (FDialect = ddMySQL) then
+      FConnection.CharSet := 'utf8mb4'
     else
       FConnection.CharSet := 'UTF8';
 
@@ -170,7 +172,10 @@ begin
   FConnection.UserName := AUser;
   FConnection.Password := APass;
   FConnection.DatabaseName := ADatabase;
-  FConnection.CharSet := 'UTF8';
+  if (FDialect = ddMySQL) then
+    FConnection.CharSet := 'utf8mb4'
+  else
+    FConnection.CharSet := 'UTF8';
 
   if APort > 0 then
     FConnection.Params.Values['port'] := IntToStr(APort);
@@ -261,8 +266,21 @@ begin
 end;
 
 procedure TDeltaORMEngine.ExecuteDirect(const ASQL: string);
+var
+  DS: TSQLQuery;
 begin
-  FConnection.ExecuteDirect(ASQL);
+  if Assigned(FTransaction) and FTransaction.Active then
+  begin
+    DS := NewDataset;
+    try
+      DS.SQL.Text := ASQL;
+      DS.ExecSQL;
+    finally
+      DS.Free;
+    end;
+  end
+  else
+    FConnection.ExecuteDirect(ASQL);
 end;
 
 function TDeltaORMEngine.ExecuteScalar(const ASQL: string): Variant;
