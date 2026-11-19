@@ -732,7 +732,7 @@ end;
 
 ## 📋 Geração de Esquemas OpenAPI / Swagger
 
-Gere esquemas compatíveis com OpenAPI 3.0 para documentação de rotas e APIs. O método original `SwaggerSchema` foi depreciado em prol de métodos semânticos e tipados:
+Gere esquemas compatíveis com OpenAPI 3.0 / 3.1 para documentação de rotas e APIs. O método original `SwaggerSchema` foi depreciado em prol de métodos semânticos, tipados e integrados com `$ref`:
 
 ### 1. Métodos de Classe no Modelo (`TDeltaModel`)
 
@@ -742,20 +742,50 @@ var
   ArraySchema: string;
   PaginatedSchema: string;
 begin
-  // 1. Esquema para um único objeto: {"type": "object", "properties": { ... }}
+  // 1. Esquema completo para um único objeto: {"type": "object", "properties": { ... }}
   ObjSchema := TPerson.SwaggerSchemaObject(AddExamples := True);
 
-  // 2. Esquema para array de objetos: {"type": "array", "items": {"type": "object", ...}}
+  // 2. Esquema completo para array de objetos: {"type": "array", "items": {"type": "object", ...}}
   ArraySchema := TPerson.SwaggerSchemaArray(AddExamples := True);
 
-  // 3. Esquema para lista paginada: {"type": "object", "properties": {"items": ..., "page": ..., ...}}
+  // 3. Esquema completo para lista paginada: {"type": "object", "properties": {"items": ..., "page": ..., ...}}
   PaginatedSchema := TPerson.SwaggerSchemaPaginated(AddExamples := True);
 
-  // NOTA: O método SwaggerSchema(IsArray, IsPaginated) está depreciado (deprecated)
+  // NOTA: O método legado SwaggerSchema(IsArray, IsPaginated) está depreciado (deprecated)
 end;
 ```
 
-### 2. Métodos de Instância nas Listas
+### 2. Registro Canônico em `components.schemas` e Resolução com `$ref`
+
+Para documentações limpas e em conformidade com o OpenAPI 3.1, os modelos do DeltaModel suportam registro automático no dicionário `components.schemas` do Swagger:
+
+```pascal
+var
+  RefObjSchema: string;
+  RefArraySchema: string;
+  RefPaginatedSchema: string;
+begin
+  // Registra o modelo em components.schemas e retorna:
+  // {"$ref": "#/components/schemas/Person"}
+  RefObjSchema := TPerson.SwaggerSchemaRefObject;
+
+  // Retorna array com referência:
+  // {"type": "array", "items": {"$ref": "#/components/schemas/Person"}}
+  RefArraySchema := TPerson.SwaggerSchemaRefArray;
+
+  // Retorna envelope paginado referenciando o modelo em items:
+  RefPaginatedSchema := TPerson.SwaggerSchemaRefPaginated;
+end;
+```
+
+A integração é desacoplada através do callback global configurado na inicialização de frameworks (como o **Zenith**):
+
+```pascal
+// Callback global acionado automaticamente ao chamar RegisterSwaggerSchema
+SetDeltaModelRegisterSchemaProc(@ZenithRegisterModelProc);
+```
+
+### 3. Métodos de Instância nas Listas
 
 ```pascal
 var
@@ -775,21 +805,82 @@ end;
 
 ---
 
+## ⚡ Arquitetura de Alta Performance
+
+O DeltaModel foi projetado com uma arquitetura de execução rápida para ambientes de alta volumetria e multithreading, eliminando os tradicionais gargalos de frameworks Pascal:
+
+### 1. `TDeltaFastJsonStreamer`: Streaming JSON Direto (Zero DOM Allocation)
+A serialização padrão via bibliotecas tradicionais (`fpjson`) instancia centenas de objetos DOM (`TJSONObject`, `TJSONString`, `TJSONFloat`) para cada linha de uma consulta, gerando alto overhead de alocação de heap e coleta de memória.
+
+O `TDeltaFastJsonStreamer` serializa instâncias e coleções de `TDeltaModel` diretamente para um buffer contíguo de `RawByteString`:
+- **Zero Alocação de Nós DOM**: Não cria nós intermediários em memória durante `Model.ToJson`, `List.ToJson` ou `PaginatedList.ToJson`.
+- **Formatação de Floats em Ponto Fixo (`ffFixed`)**: Resolve a limitação histórica do `fpjson`, que serializa números decimais com expoentes científicos (`1.2E+05` ou `1.0E-04`). O streamer formata floats estritamente em ponto fixo (`FloatToStrF` com `ffFixed`), sem notação `E+`/`E-`, eliminando falhas de parsing em clientes Web, Mobile e integrações contábeis/fiscais.
+- **Escape Otimizado de Strings**: Sanitização nativa de caracteres de controle e aspas em alta velocidade.
+
+```pascal
+uses DeltaModel.JsonStreamer;
+
+var
+  JsonBytes: RawByteString;
+begin
+  // Serialização direta sem instanciar TJSONObject
+  JsonBytes := TDeltaFastJsonStreamer.ModelToJson(Person);
+  JsonBytes := TDeltaFastJsonStreamer.ListToJson(PersonList);
+  JsonBytes := TDeltaFastJsonStreamer.PaginatedListToJson(PaginatedList);
+end;
+```
+
+### 2. `TColumnBindingMap`: Binding Direto ORM Sem Variant Boxing
+Ao popular modelos a partir de um `TDataSet`, frameworks convencionais utilizam variantes intermediárias (`Field.Value`) e buscas de colunas por nome para cada registro.
+
+O `TColumnBindingMap` elimina esse custo:
+- **Mapeamento Pré-Alocado**: Ao executar `TQuery.All` ou `TQuery.First`, o mapa de colunas é construído uma única vez para o dataset ativo.
+- **Acesso Tipado Direto**: Os valores são transferidos diretamente dos campos físicos do `TDataSet` para os campos tipados do `TDeltaModel` (`ADS.Fields[I].AsLargeInt`, `.AsString`, `.AsFloat`, `.AsBoolean`, etc.).
+- **Zero Variant Boxing**: Elimina as conversões OLE/Variant em loops de dezenas de milhares de registros, multiplicando a taxa de vazão (throughput) do ORM.
+
+### 3. `TRTTICache` & `TModelMetadata`: Cache Estático de RTTI por Classe
+A reflexão em tempo de execução (`TypInfo.GetPropList`) é custosa quando executada por instância.
+
+O `TRTTICache` é um componente estático thread-safe protegido por `TCriticalSection`:
+- **Cache por `TClass`**: Inspeciona a classe do modelo uma única vez durante todo o ciclo de vida do processo.
+- **`TModelMetadata`**: Mantém pré-processados o nome da tabela, nome da propriedade PK, nome da coluna PK (`PKFieldName`), tipos de dados mapeados e offsets de memória.
+- **Busca $O(1)$ de Metadados**: Elimina chamadas repetitivas de RTTI em validações, DDLs e serializações.
+
+### 4. Acesso Direto a Campos Tipados (Sem Variants)
+Todos os campos do DeltaModel disponibilizam propriedades de leitura e escrita tipadas diretas:
+```pascal
+// Atribuição e leitura tipada direta:
+Person.id.AsInt64 := 42;
+Person.name.AsString := 'Carlos Eduardo';
+Person.salary.AsFloat := 7500.50;
+Person.active.AsBoolean := True;
+
+// Verificação de nulabilidade atômica:
+if not Person.salary.IsNull then
+  ProcessarSalario(Person.salary.AsFloat);
+```
+
+---
+
 ## 🧪 Suíte de Testes Automatizados
 
 O DeltaModel possui uma cobertura abrangente de testes automatizados unitários e de integração, garantindo alta estabilidade, precisão de tipos e performance:
 
-- **`tests/test_suite.lpr`**: Suíte consolidada com **218 testes unitários e de integração (100% aprovados)** cobrindo:
+- **`tests/test_suite.lpr`**: Suíte consolidada com **301 testes automatizados (100% aprovados)** cobrindo:
   - **Connection URL Parser** (SQLite memória/arquivo/relativo, PostgreSQL, MySQL, Firebird).
   - **Motor de Validação** (CPF e CNPJ numérico/alfanumérico com/sem máscara e dígitos inválidos, E-mail, UTF-8 multibyte, Between, GreaterThan, etc.).
   - **Serialização & Precisão Numérica** (JSON com escape de aspas, UTF-8, integridade de `Int64` sem truncamento, CSV tipado, `Clone`).
   - **Listas e Paginação** (distinção estrita entre `TDeltaModelList` gerando array puro de objetos e `TDeltaModelPaginatedList` gerando envelopes com metadados, suporte a genéricas `TGDeltaModelList<T>` e `TGDeltaModelPaginatedList<T>`).
-  - **Geração de OpenAPI 3.0 / Swagger Schema** (`SwaggerSchemaObject`, `SwaggerSchemaArray`, `SwaggerSchemaPaginated` e compatibilidade com métodos legados).
+  - **Geração de OpenAPI 3.0 / 3.1 & Schemas** (`SwaggerSchemaObject`, `SwaggerSchemaArray`, `SwaggerSchemaPaginated`, `$ref` canônico e compatibilidade retroativa).
   - **Geração de DDL Multi-Dialeto** (SQLite, PostgreSQL, Firebird, Oracle, MSSQL).
   - **Ciclo de Vida & Hooks** (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, `AfterUpdate`, `BeforeSave`, `AfterSave`, `BeforeDelete`, `AfterDelete` e tratamento de exceções).
   - **ORM CRUD, Query Builder & Transações** (`Where`, `WhereBetween`, `WhereIn`, `Limit`, `Offset`, `AsJsonString`, rollback automático e `InTransaction`).
   - **Constraints (`UNIQUE`, `CHECK`) & Índices de Banco de Dados** (restrições a nível de campo e tabela, geração de índices secundários e únicos, sanitização de identificadores para Oracle e validação de violação de integridade em runtime com SQLite).
   - **Relacionamento 1:1 (`TDFHasOne`)** (metadados virtuais sem coluna física em DDL, serialização aninhada/null, desserialização com instanciação dinâmica, cópia profunda em `Clone` e esquema Swagger com `type: 'object'`).
+  - **TRTTICache & TModelMetadata** (inspeção única de RTTI por classe, integridade de cache hit, busca rápida de propriedades e campos).
+  - **TColumnBindingMap & Direct Typed ORM Binding** (vinculação de datasets, leitura de tipos sem boxing de Variant em `TQuery.All` e `FromDataSet`).
+  - **TDeltaFastJsonStreamer & Floats em Ponto Fixo** (ausência absoluta de notação científica `E+`/`E-`, números de ponto flutuante grandes e pequenos, preservação de nulls e parsing válido).
+  - **Propriedades Tipadas de Campos** (acesso sem Variant: `.AsInt64`, `.AsLargeInt`, `.AsInteger`, `.AsString`, `.AsText`, `.AsFloat`, `.AsBoolean`).
 - **`tests/test_pool.lpr`**: Testes de concorrência multithread do Connection Pool (10 threads simultâneas vs pool de 4 conexões, timeouts, sanitização RAII e métricas).
 - **`tests/test_bulk_insert.lpr`**: Validação de inserção em lote para todos os dialetos suportados.
 
