@@ -164,6 +164,7 @@ type
 
     procedure FromJson(JsonStr: string); override;
     function ToJson: RawByteString; override;
+    function ToPaginatedJson: RawByteString;
     function ToJsonObj: TJSONArray; override;
     function ToPaginatedJsonObj: TJSONObject; override;
     function SwaggerSchema(AddExamples: Boolean = False): TJSONObject; override; deprecated 'Use SwaggerSchemaArray or SwaggerSchemaPaginated instead';
@@ -837,6 +838,11 @@ end;
 function TDeltaModelList.ToJson: RawByteString;
 begin
   Result := TDeltaFastJsonStreamer.ListToJson(Self);
+end;
+
+function TDeltaModelList.ToPaginatedJson: RawByteString;
+begin
+  Result := TDeltaFastJsonStreamer.PaginatedListToJson(Self);
 end;
 
 function TDeltaModelList.ToJsonObj: TJSONArray;

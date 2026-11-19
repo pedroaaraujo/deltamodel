@@ -31,14 +31,14 @@ type
 
     procedure WriteModel(AModel: TDeltaModel);
     procedure WriteList(AList: TCustomDeltaModelList);
-    procedure WritePaginatedList(AList: TDeltaModelPaginatedList);
+    procedure WritePaginatedList(AList: TCustomDeltaModelList);
 
     function AsJSON: RawByteString;
 
     // Métodos utilitários e estáticos de conveniência
     class function ModelToJson(AModel: TDeltaModel): RawByteString;
     class function ListToJson(AList: TCustomDeltaModelList): RawByteString;
-    class function PaginatedListToJson(AList: TDeltaModelPaginatedList): RawByteString;
+    class function PaginatedListToJson(AList: TCustomDeltaModelList): RawByteString;
     class function FormatFloatFixed(const AValue: Double; AMaxDecimals: Integer = 8): string;
   end;
 
@@ -307,7 +307,7 @@ begin
   AppendChar(']');
 end;
 
-procedure TDeltaFastJsonStreamer.WritePaginatedList(AList: TDeltaModelPaginatedList);
+procedure TDeltaFastJsonStreamer.WritePaginatedList(AList: TCustomDeltaModelList);
 var
   I: Integer;
   CurLimit: Integer;
@@ -327,8 +327,8 @@ begin
   if CurPage <= 0 then CurPage := 1;
 
   CurTotal := AList.total_records;
-  if (CurTotal = 0) and (AList.Records.Count > 0) then
-    CurTotal := AList.Records.Count;
+  if (CurTotal = 0) and (AList.Count > 0) then
+    CurTotal := AList.Count;
 
   CalcTotalPages := (CurTotal + CurLimit - 1) div CurLimit;
   if CalcTotalPages < 1 then CalcTotalPages := 1;
@@ -339,10 +339,10 @@ begin
   AList.total_pages := CalcTotalPages;
 
   AppendRaw('{"items":[');
-  for I := 0 to AList.Records.Count - 1 do
+  for I := 0 to AList.Count - 1 do
   begin
     if I > 0 then AppendChar(',');
-    WriteModel(TDeltaModel(AList.Records[I]));
+    WriteModel(TDeltaModel(AList.GetItemObj(I)));
   end;
   AppendRaw('],"total_records":');
   AppendInt64(CurTotal);
@@ -386,7 +386,7 @@ begin
   end;
 end;
 
-class function TDeltaFastJsonStreamer.PaginatedListToJson(AList: TDeltaModelPaginatedList): RawByteString;
+class function TDeltaFastJsonStreamer.PaginatedListToJson(AList: TCustomDeltaModelList): RawByteString;
 var
   Streamer: TDeltaFastJsonStreamer;
 begin

@@ -686,57 +686,67 @@ var
   CheckSQL: string;
   LifeSec: Double;
 begin
-  if FTerminated or (not Assigned(AItem)) or (not Assigned(AItem.Engine)) or (not Assigned(AItem.Engine.Connection)) then
+  if FTerminated or (not Assigned(AItem)) then
     Exit;
-
-  // 1. Verifica tempo máximo de vida da conexão
-  if (FConfig.MaxLifetimeSeconds > 0) then
-  begin
-    LifeSec := (Now - AItem.CreatedAt) * 86400.0;
-    if LifeSec >= FConfig.MaxLifetimeSeconds then
-    begin
-      RecreateConnection(AItem);
-      Exit;
-    end;
-  end;
-
-  if not AItem.Engine.Connection.Connected then
-  begin
-    AItem.Engine.Connection.Open;
-    Exit;
-  end;
-
-  if not FConfig.ValidationQuery.IsEmpty then
-    CheckSQL := FConfig.ValidationQuery
-  else
-  begin
-    Dialect := AItem.Engine.Dialect;
-    case Dialect of
-      ddOracle: CheckSQL := 'SELECT 1 FROM DUAL';
-      ddFirebird: CheckSQL := 'SELECT 1 FROM RDB$DATABASE';
-      else
-        CheckSQL := 'SELECT 1';
-    end;
-  end;
 
   try
-    DS := AItem.Engine.ExecuteQuery(CheckSQL);
-    try
-      // Conexão ativa e responsiva
-    finally
-      DS.Free;
+    if (not Assigned(AItem.Engine)) or (not Assigned(AItem.Engine.Connection)) then
+      Exit;
+
+    // 1. Verifica tempo máximo de vida da conexão
+    if (FConfig.MaxLifetimeSeconds > 0) then
+    begin
+      LifeSec := (Now - AItem.CreatedAt) * 86400.0;
+      if LifeSec >= FConfig.MaxLifetimeSeconds then
+      begin
+        try
+          RecreateConnection(AItem);
+        except
+        end;
+        Exit;
+      end;
     end;
-    if AItem.Engine.TransactionActive then
-      AItem.Engine.Commit;
-  except
-    // Falhou na consulta de validação, tenta reconectar uma vez
-    try
-      AItem.Engine.Disconnect;
+
+    if not AItem.Engine.Connection.Connected then
+    begin
       AItem.Engine.Connection.Open;
-    except
-      on E: Exception do
-        raise EDeltaPoolException.CreateFmt('Database connection dropped and failed to reconnect: %s', [E.Message]);
+      Exit;
     end;
+
+    if not FConfig.ValidationQuery.IsEmpty then
+      CheckSQL := FConfig.ValidationQuery
+    else
+    begin
+      Dialect := AItem.Engine.Dialect;
+      case Dialect of
+        ddOracle: CheckSQL := 'SELECT 1 FROM DUAL';
+        ddFirebird: CheckSQL := 'SELECT 1 FROM RDB$DATABASE';
+        else
+          CheckSQL := 'SELECT 1';
+      end;
+    end;
+
+    try
+      DS := AItem.Engine.ExecuteQuery(CheckSQL);
+      try
+        // Conexão ativa e responsiva
+      finally
+        DS.Free;
+      end;
+      if AItem.Engine.TransactionActive then
+        AItem.Engine.Commit;
+    except
+      // Falhou na consulta de validação, tenta reconectar uma vez
+      try
+        AItem.Engine.Disconnect;
+        AItem.Engine.Connection.Open;
+      except
+        on E: Exception do
+          raise EDeltaPoolException.CreateFmt('Database connection dropped and failed to reconnect: %s', [E.Message]);
+      end;
+    end;
+  except
+    // Tratamento defensivo contra itens inválidos em pool
   end;
 end;
 
