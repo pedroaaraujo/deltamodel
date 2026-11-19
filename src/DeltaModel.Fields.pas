@@ -80,19 +80,22 @@ type
     property IsUnique: Boolean read GetIsUnique write SetIsUnique;
     property IsIndexed: Boolean read GetIsIndexed write SetIsIndexed;
 
-    // Acesso tipado direto de alta performance
-    property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
-    property AsFloat: Double read GetAsFloat write SetAsFloat;
-    property AsBoolean: Boolean read GetAsBoolean write SetAsBoolean;
-    property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
-
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
     function IsNull: Boolean; virtual; abstract;
     function AsString: string; virtual;
+    procedure SetAsString(const AValue: string); virtual;
     function IsValid: Boolean; virtual; abstract;
     function SwaggerDataType: string; virtual; abstract;
     function SwaggerFormat: string; virtual;
+
+    // Acesso tipado direto de alta performance
+    property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
+    property AsInt64: Int64 read GetAsLargeInt write SetAsLargeInt;
+    property AsFloat: Double read GetAsFloat write SetAsFloat;
+    property AsBoolean: Boolean read GetAsBoolean write SetAsBoolean;
+    property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
+    property AsText: string read AsString write SetAsString;
     constructor Create; virtual;
     destructor Destroy; override;
   end;
@@ -188,6 +191,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    procedure SetAsString(const AValue: string); override;
     constructor Create; override;
     property Size: Integer read FSize write FSize;
     procedure AfterConstruction; override;
@@ -261,6 +265,7 @@ type
   protected
     procedure SetValue(AValue: Variant); override;
   public
+    procedure SetAsString(const AValue: string); override;
     constructor Create; override;
     property Size: Integer read FSize write FSize;
     procedure AfterConstruction; override;
@@ -613,6 +618,11 @@ begin
   SetValue(AValue);
 end;
 
+procedure TDeltaField.SetAsString(const AValue: string);
+begin
+  SetValue(AValue);
+end;
+
 { TDeltaFieldNullable }
 
 function TDeltaFieldNullable.GetValue: Variant;
@@ -867,6 +877,16 @@ begin
   end;
 end;
 
+procedure TDFStringNull.SetAsString(const AValue: string);
+var
+  TmpStr: string;
+begin
+  TmpStr := AValue;
+  if (Self.FSize > 0) and (Length(TmpStr) > Self.FSize) then
+    TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
+  Self.FValue := TmpStr;
+end;
+
 procedure TDFStringNull.AfterConstruction;
 begin
   inherited AfterConstruction;
@@ -1047,6 +1067,16 @@ begin
       TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
     Self.FValue := TmpStr;
   end;
+end;
+
+procedure TDFStringRequired.SetAsString(const AValue: string);
+var
+  TmpStr: string;
+begin
+  TmpStr := AValue;
+  if (Self.FSize > 0) and (Length(TmpStr) > Self.FSize) then
+    TmpStr := Copy(Trim(TmpStr), 1, Self.FSize);
+  Self.FValue := TmpStr;
 end;
 
 procedure TDFStringRequired.AfterConstruction;

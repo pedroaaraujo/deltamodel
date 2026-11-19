@@ -435,25 +435,15 @@ begin
   end;
 end;
 
-type
-  TFieldMap = record
-    PropInfo: PPropInfo;
-    Field: TField;
-    DataType: TTypeKind;
-  end;
-
 function TQuery.All(ALimit: Integer; AOffset: Integer
   ): TDeltaModelPaginatedList;
 var
   Obj, ObjTemp: TDeltaModel;
   DS: TSQLQuery;
   SQLBuilder: TDMSQLBuilder;
-  Map: array of TFieldMap;
-  PropList: PPropList;
-  PropCount, I, MapCount: Integer;
+  BindingMap: TColumnBindingMap;
+  I: Integer;
   EffLimit, EffOffset: Integer;
-  F: TField;
-  NestedObj: TObject;
 begin
   if FModelClass = nil then
     raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
@@ -498,68 +488,17 @@ begin
       Exit;
     end;
 
-    PropCount := GetPropList(ObjTemp.ClassInfo, tkProperties, nil);
-    if PropCount > 0 then
-    begin
-      GetMem(PropList, PropCount * SizeOf(Pointer));
-      try
-        GetPropList(ObjTemp.ClassInfo, tkProperties, PropList, False);
-        SetLength(Map, PropCount);
-        MapCount := 0;
-
-        for I := 0 to PropCount - 1 do
-        begin
-          if PropList^[I]^.SetProc = nil then Continue;
-
-          F := DS.FindField(PropList^[I]^.Name);
-          if F <> nil then
-          begin
-            Map[MapCount].PropInfo := PropList^[I];
-            Map[MapCount].Field := F;
-            Map[MapCount].DataType := PropList^[I]^.PropType^.Kind;
-            Inc(MapCount);
-          end;
-        end;
-        SetLength(Map, MapCount);
-      finally
-        FreeMem(PropList, PropCount * SizeOf(Pointer));
-      end;
-    end;
-
-    while not DS.EOF do
-    begin
-      Obj := FModelClass.Create;
-
-      for I := 0 to High(Map) do
+    BindingMap := TColumnBindingMap.Create(FModelClass, DS);
+    try
+      while not DS.EOF do
       begin
-        if Map[I].Field.IsNull then Continue;
-
-        case Map[I].DataType of
-          tkInteger, tkInt64:
-            SetOrdProp(Obj, Map[I].PropInfo, Map[I].Field.AsLargeInt);
-
-          tkString, tkLString, tkAString, tkWString, tkUString:
-            SetStrProp(Obj, Map[I].PropInfo, Map[I].Field.AsString);
-
-          tkFloat:
-            SetFloatProp(Obj, Map[I].PropInfo, Map[I].Field.AsFloat);
-
-          tkBool:
-            SetOrdProp(Obj, Map[I].PropInfo, Ord(Map[I].Field.AsBoolean));
-
-          tkClass:
-          begin
-            NestedObj := GetObjectProp(Obj, Map[I].PropInfo);
-            if (NestedObj <> nil) and (NestedObj is TDeltaField) then
-            begin
-              (NestedObj as TDeltaField).Value := Map[I].Field.AsVariant;
-            end;
-          end;
-        end;
+        Obj := FModelClass.Create;
+        BindingMap.BindRecord(Obj);
+        Result.Records.Add(Obj);
+        DS.Next;
       end;
-
-      Result.Records.Add(Obj);
-      DS.Next;
+    finally
+      BindingMap.Free;
     end;
     DS.Close;
 
@@ -959,9 +898,8 @@ class function TInsert.InsertObject(AConn: IDeltaORMEngine; AModel: TDeltaModel
   ): Boolean;
 var
   DS: TSQLQuery;
-  PropList: PPropList;
-  PropInfo: PPropInfo;
-  PropCount, I: Integer;
+  Meta: TModelMetadata;
+  I: Integer;
   Obj: DeltaModel.Fields.TDeltaField;
   NestedObj: TObject;
   LastId: Variant;
@@ -1017,56 +955,32 @@ begin
     Result := DS.RowsAffected > 0;
     if Result then
     begin
-      PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
-      if PropCount > 0 then
+      Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
+      for I := 0 to Meta.FieldCount - 1 do
       begin
-        GetMem(PropList, PropCount * SizeOf(Pointer));
-        try
-          GetPropList(AModel.ClassInfo, tkProperties, PropList, False);
-          for I := 0 to PropCount - 1 do
+        if Meta.Fields[I].IsAutoInc then
+        begin
+          NestedObj := GetObjectProp(AModel, Meta.Fields[I].PropInfo);
+          if NestedObj is TDeltaField then
           begin
-            PropInfo := PropList^[I];
-            if PropInfo^.PropType^.Kind = tkClass then
+            Obj := TDeltaField(NestedObj);
+            if Obj.IsNull or (Obj.AsLargeInt = 0) then
             begin
-              NestedObj := GetObjectProp(AModel, PropInfo^.Name);
-              if NestedObj is DeltaModel.Fields.TDeltaField then
-              begin
-                Obj := NestedObj as DeltaModel.Fields.TDeltaField;
-                if (dboAutoInc in Obj.DBOptions) and (Obj.IsNull or (VarIsNumeric(Obj.Value) and (Double(Obj.Value) = 0))) then
-                begin
-                  case AConn.Dialect of
-                    ddSQLite:
-                    begin
-                      LastId := AConn.ExecuteScalar('SELECT last_insert_rowid()');
-                      if not VarIsNull(LastId) then
-                        Obj.Value := LastId;
-                    end;
-                    ddPostgreSQL:
-                    begin
-                      LastId := AConn.ExecuteScalar('SELECT lastval()');
-                      if not VarIsNull(LastId) then
-                        Obj.Value := LastId;
-                    end;
-                    ddMySQL:
-                    begin
-                      LastId := AConn.ExecuteScalar('SELECT LAST_INSERT_ID()');
-                      if not VarIsNull(LastId) then
-                        Obj.Value := LastId;
-                    end;
-                    ddMSSQL:
-                    begin
-                      LastId := AConn.ExecuteScalar('SELECT SCOPE_IDENTITY()');
-                      if not VarIsNull(LastId) then
-                        Obj.Value := LastId;
-                    end;
-                  end;
-                  Break;
-                end;
+              case AConn.Dialect of
+                ddSQLite:
+                  LastId := AConn.ExecuteScalar('SELECT last_insert_rowid()');
+                ddPostgreSQL:
+                  LastId := AConn.ExecuteScalar('SELECT lastval()');
+                ddMySQL:
+                  LastId := AConn.ExecuteScalar('SELECT LAST_INSERT_ID()');
+                ddMSSQL:
+                  LastId := AConn.ExecuteScalar('SELECT SCOPE_IDENTITY()');
               end;
+              if not VarIsNull(LastId) then
+                Obj.AsLargeInt := LastId;
+              Break;
             end;
           end;
-        finally
-          FreeMem(PropList, PropCount * SizeOf(Pointer));
         end;
       end;
       AModel.AfterInsert;

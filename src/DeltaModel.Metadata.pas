@@ -5,7 +5,7 @@ unit DeltaModel.Metadata;
 interface
 
 uses
-  Classes, SysUtils, TypInfo, SyncObjs;
+  Classes, SysUtils, TypInfo, SyncObjs, DeltaModel.Fields;
 
 type
   { Representa os metadados de uma propriedade RTTI em cache }
@@ -48,6 +48,8 @@ type
     IsAutoInc: Boolean;
     IsRequired: Boolean;
     FieldClass: TClass;
+    FieldKind: TDeltaFieldKind;
+    IsVirtual: Boolean;
   end;
   TDeltaFieldMetaArray = array of TDeltaFieldMeta;
 
@@ -94,7 +96,7 @@ type
 implementation
 
 uses
-  DeltaModel, DeltaModel.Fields, DeltaModel.List;
+  DeltaModel, DeltaModel.List;
 
 { TRTTIClassInfo }
 
@@ -231,6 +233,8 @@ begin
               Meta.IsAutoInc := (dboAutoInc in DField.DBOptions);
               Meta.IsRequired := (DField.IsRequired);
               Meta.FieldClass := DField.ClassType;
+              Meta.FieldKind := DField.FieldKind;
+              Meta.IsVirtual := DField.IsVirtual;
 
               SetLength(FFields, FFieldCount + 1);
               FFields[FFieldCount] := Meta;

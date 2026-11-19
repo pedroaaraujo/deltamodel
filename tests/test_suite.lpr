@@ -11,7 +11,7 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.ORM.Connection,
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
-  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata;
+  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -1620,6 +1620,104 @@ begin
     AssertEquals('price', FieldItem^.FieldName, 'FieldName de price confere');
 end;
 
+procedure TestColumnBindingMap;
+var
+  Engine: TDeltaORMEngine;
+  DS: TSQLQuery;
+  P, P2: TProductModel;
+  BindingMap: TColumnBindingMap;
+  List: TDeltaModelPaginatedList;
+begin
+  Suite('12. TColumnBindingMap & Direct Typed ORM Binding');
+
+  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  try
+    Engine.ExecuteDirect(
+      'CREATE TABLE products (' +
+      '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      '  name TEXT NOT NULL,' +
+      '  price REAL NOT NULL,' +
+      '  description TEXT,' +
+      '  big_code BIGINT,' +
+      '  active INTEGER NOT NULL' +
+      ');'
+    );
+    if Engine.TransactionActive then Engine.Commit;
+
+    // Insere registro de teste
+    P := TProductModel.Create;
+    try
+      P.Name.AsText := 'Monitor Ultrawide';
+      P.Price.AsFloat := 2499.90;
+      P.BigCode.AsLargeInt := 9876543210;
+      P.Active.Value := True;
+      // Description deixado nulo
+      AssertTrue(Engine.Insert(P), 'Insert para teste de binding retornou True');
+    finally
+      P.Free;
+    end;
+
+    // Teste 1: TColumnBindingMap direto em TDataSet
+    DS := Engine.NewDataset;
+    try
+      DS.SQL.Text := 'SELECT id, name, price, description, big_code, active FROM products WHERE id = 1';
+      DS.Open;
+      AssertTrue(not DS.IsEmpty, 'Dataset retornou registro');
+
+      BindingMap := TColumnBindingMap.Create(TProductModel, DS);
+      try
+        AssertEqualsInt(6, BindingMap.BindingCount, 'BindingMap vinculou 6 colunas');
+
+        P := TProductModel.Create;
+        try
+          BindingMap.BindRecord(P);
+          AssertEqualsInt(1, P.Id.AsInteger, 'P.Id preenchido tipado');
+          AssertEquals('Monitor Ultrawide', P.Name.AsString, 'P.Name preenchido tipado');
+          AssertTrue(Abs(P.Price.AsFloat - 2499.90) < 0.01, 'P.Price preenchido tipado');
+          AssertEqualsInt(9876543210, P.BigCode.AsLargeInt, 'P.BigCode preenchido tipado');
+          AssertTrue(P.Active.AsBoolean, 'P.Active preenchido tipado');
+          AssertTrue(P.Description.IsNull, 'P.Description nulo preservado');
+        finally
+          P.Free;
+        end;
+
+        // Teste 2: FromDataSet com TColumnBindingMap
+        P2 := TProductModel.Create;
+        try
+          FromDataSet(P2, BindingMap);
+          AssertEquals('Monitor Ultrawide', P2.Name.AsString, 'FromDataSet com BindingMap preencheu Name');
+        finally
+          P2.Free;
+        end;
+
+      finally
+        BindingMap.Free;
+      end;
+      DS.Close;
+    finally
+      DS.Free;
+    end;
+
+    // Teste 3: TQuery.All utilizando TColumnBindingMap
+    List := Engine.Query(TProductModel).All;
+    try
+      AssertTrue(Assigned(List), 'TQuery.All retornou lista paginada');
+      AssertEqualsInt(1, List.Records.Count, 'TQuery.All retornou 1 registro');
+      if List.Records.Count > 0 then
+      begin
+        P := TProductModel(List.Records[0]);
+        AssertEquals('Monitor Ultrawide', P.Name.AsString, 'Registro lido por TQuery.All via binding');
+        AssertTrue(Abs(P.Price.AsFloat - 2499.90) < 0.01, 'Preço lido por TQuery.All via binding');
+      end;
+    finally
+      List.Free;
+    end;
+
+  finally
+    Engine.Free;
+  end;
+end;
+
 {==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
@@ -1641,6 +1739,7 @@ begin
     TestHasOneRelation;
     TestPaginatedList;
     TestRTTICacheAndMetadata;
+    TestColumnBindingMap;
   except
     on E: Exception do
     begin
