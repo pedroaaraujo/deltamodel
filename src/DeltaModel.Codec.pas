@@ -16,8 +16,13 @@ uses
 
 type
   { Exceções da Arquitetura de Codecs }
-  EDeltaCodecException = class(Exception);
+  EDeltaCodecException = class(Exception)
+  public
+    constructor CreateFmt(const AFormat: string; const AArgs: array of const);
+  end;
   EDeltaCodecNotFound = class(EDeltaCodecException);
+  EDeltaSerializationException = class(EDeltaCodecException);
+  EDeltaDeserializationException = class(EDeltaCodecException);
 
   { Contrato Universal de Codecs de Serialização / Desserialização }
   IDeltaCodec = interface
@@ -70,6 +75,13 @@ type
   end;
 
 implementation
+
+{ EDeltaCodecException }
+
+constructor EDeltaCodecException.CreateFmt(const AFormat: string; const AArgs: array of const);
+begin
+  inherited Create(Format(AFormat, AArgs));
+end;
 
 { Funções Utilitárias Locais }
 

@@ -17,6 +17,11 @@ uses
   DeltaModel.Metadata,
   DeltaModel.Codec;
 
+const
+  { Blindagem de Segurança RFC 8949 Seção 10.1 (Anti-OOM / DoS) }
+  MAX_CBOR_NESTING_DEPTH = 64;
+  MAX_CBOR_STRING_LENGTH = 16 * 1024 * 1024; // 16 MB
+
 type
   { TDeltaCborCodec: Codec CBOR (RFC 8949) Binário de Alta Performance (Zero-DOM)
     Especificação RFC 8949:
@@ -39,11 +44,11 @@ type
 
     function ReadHeader(AStream: TStream; out AMajor: Byte; out AVal: UInt64; out AAddInfo: Byte; out AIsIndefinite: Boolean): Boolean;
     function ReadTextString(AStream: TStream; ALength: UInt64): string;
-    procedure SkipCborValue(AStream: TStream);
+    procedure SkipCborValue(AStream: TStream; ADepth: Integer = 0);
 
     function CountModelPairs(AModel: TDeltaModel): Integer;
     procedure WriteModelMap(AModel: TDeltaModel; AStream: TStream);
-    procedure ReadModelMap(AStream: TStream; AModel: TDeltaModel; APairCount: UInt64; AIsIndefinite: Boolean);
+    procedure ReadModelMap(AStream: TStream; AModel: TDeltaModel; APairCount: UInt64; AIsIndefinite: Boolean; ADepth: Integer = 0);
   public
     function GetFormatName: string;
     function GetMimeType: string;
@@ -206,24 +211,32 @@ begin
   end
   else if AAddInfo = 24 then
   begin
+    if AStream.Position + 1 > AStream.Size then
+      raise EDeltaDeserializationException.Create('CBOR payload truncated: expected 1 byte for additional info (RFC 8949 Section 10.1)');
     AStream.ReadBuffer(U8, 1);
     AVal := U8;
     Result := True;
   end
   else if AAddInfo = 25 then
   begin
+    if AStream.Position + 2 > AStream.Size then
+      raise EDeltaDeserializationException.Create('CBOR payload truncated: expected 2 bytes for additional info (RFC 8949 Section 10.1)');
     AStream.ReadBuffer(U16, 2);
     AVal := BEtoN(U16);
     Result := True;
   end
   else if AAddInfo = 26 then
   begin
+    if AStream.Position + 4 > AStream.Size then
+      raise EDeltaDeserializationException.Create('CBOR payload truncated: expected 4 bytes for additional info (RFC 8949 Section 10.1)');
     AStream.ReadBuffer(U32, 4);
     AVal := BEtoN(U32);
     Result := True;
   end
   else if AAddInfo = 27 then
   begin
+    if AStream.Position + 8 > AStream.Size then
+      raise EDeltaDeserializationException.Create('CBOR payload truncated: expected 8 bytes for additional info (RFC 8949 Section 10.1)');
     AStream.ReadBuffer(U64, 8);
     AVal := BEtoN(U64);
     Result := True;
@@ -232,6 +245,29 @@ begin
   begin
     AIsIndefinite := True;
     Result := True;
+  end
+  else
+  begin
+    raise EDeltaDeserializationException.CreateFmt('Invalid CBOR additional info value %d (RFC 8949 Section 3)', [AAddInfo]);
+  end;
+
+  // RFC 8949 Seção 10.1 - Resource Exhaustion & Truncation Checks:
+  if (AMajor in [2, 3]) and not AIsIndefinite then
+  begin
+    if AVal > MAX_CBOR_STRING_LENGTH then
+      raise EDeltaDeserializationException.CreateFmt('CBOR string length (%u bytes) exceeds maximum limit (RFC 8949 Section 10.1)', [AVal]);
+    if AVal > UInt64(AStream.Size - AStream.Position) then
+      raise EDeltaDeserializationException.Create('CBOR payload truncated: declared string length exceeds available bytes in stream (RFC 8949 Section 10.1)');
+  end
+  else if (AMajor = 4) and not AIsIndefinite then
+  begin
+    if AVal > UInt64(AStream.Size - AStream.Position) then
+      raise EDeltaDeserializationException.Create('CBOR array truncated: declared item count exceeds available stream bytes (RFC 8949 Section 10.1)');
+  end
+  else if (AMajor = 5) and not AIsIndefinite then
+  begin
+    if AVal > UInt64((AStream.Size - AStream.Position) div 2) then
+      raise EDeltaDeserializationException.Create('CBOR map truncated: declared pair count exceeds available stream bytes (RFC 8949 Section 10.1)');
   end;
 end;
 
@@ -240,12 +276,17 @@ var
   Raw: RawByteString;
 begin
   if ALength = 0 then Exit('');
+  if ALength > MAX_CBOR_STRING_LENGTH then
+    raise EDeltaDeserializationException.CreateFmt('CBOR string length (%u bytes) exceeds maximum limit (RFC 8949 Section 10.1)', [ALength]);
+  if ALength > UInt64(AStream.Size - AStream.Position) then
+    raise EDeltaDeserializationException.Create('CBOR payload truncated: declared string length exceeds available bytes in stream (RFC 8949 Section 10.1)');
+
   SetLength(Raw, ALength);
   AStream.ReadBuffer(Raw[1], ALength);
   Result := UTF8ToString(Raw);
 end;
 
-procedure TDeltaCborCodec.SkipCborValue(AStream: TStream);
+procedure TDeltaCborCodec.SkipCborValue(AStream: TStream; ADepth: Integer = 0);
 var
   Major, AddInfo: Byte;
   Val: UInt64;
@@ -253,6 +294,9 @@ var
   I: UInt64;
   PeekB: Byte;
 begin
+  if ADepth > MAX_CBOR_NESTING_DEPTH then
+    raise EDeltaDeserializationException.Create('Maximum CBOR nesting depth exceeded (RFC 8949 Section 10.1)');
+
   if AStream.Position >= AStream.Size then Exit;
   if not ReadHeader(AStream, Major, Val, AddInfo, IsIndef) then Exit;
 
@@ -269,7 +313,7 @@ begin
           AStream.ReadBuffer(PeekB, 1);
           if PeekB = $FF then Break;
           AStream.Seek(-1, soCurrent);
-          SkipCborValue(AStream);
+          SkipCborValue(AStream, ADepth + 1);
         end;
       end
       else
@@ -285,13 +329,13 @@ begin
           AStream.ReadBuffer(PeekB, 1);
           if PeekB = $FF then Break;
           AStream.Seek(-1, soCurrent);
-          SkipCborValue(AStream);
+          SkipCborValue(AStream, ADepth + 1);
         end;
       end
       else
       begin
         for I := 1 to Val do
-          SkipCborValue(AStream);
+          SkipCborValue(AStream, ADepth + 1);
       end;
     end;
 
@@ -304,20 +348,20 @@ begin
           AStream.ReadBuffer(PeekB, 1);
           if PeekB = $FF then Break;
           AStream.Seek(-1, soCurrent);
-          SkipCborValue(AStream); // key
-          SkipCborValue(AStream); // value
+          SkipCborValue(AStream, ADepth + 1); // key
+          SkipCborValue(AStream, ADepth + 1); // value
         end;
       end
       else
       begin
         for I := 1 to Val * 2 do
-          SkipCborValue(AStream);
+          SkipCborValue(AStream, ADepth + 1);
       end;
     end;
 
     6: // Tag
     begin
-      SkipCborValue(AStream);
+      SkipCborValue(AStream, ADepth + 1);
     end;
 
     7: // Floats e valores simples (bytes já consumidos no ReadHeader)
@@ -505,7 +549,7 @@ begin
   end;
 end;
 
-procedure TDeltaCborCodec.ReadModelMap(AStream: TStream; AModel: TDeltaModel; APairCount: UInt64; AIsIndefinite: Boolean);
+procedure TDeltaCborCodec.ReadModelMap(AStream: TStream; AModel: TDeltaModel; APairCount: UInt64; AIsIndefinite: Boolean; ADepth: Integer = 0);
 var
   Meta: TModelMetadata;
   FMeta: PDeltaFieldMeta;
@@ -525,6 +569,9 @@ var
   ArrIndef: Boolean;
   ArrMajor, ArrAddInfo: Byte;
 begin
+  if ADepth > MAX_CBOR_NESTING_DEPTH then
+    raise EDeltaDeserializationException.Create('Maximum CBOR nesting depth exceeded (RFC 8949 Section 10.1)');
+
   if AModel = nil then Exit;
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
 
@@ -548,7 +595,7 @@ begin
       KeyName := ReadTextString(AStream, KeyVal)
     else
     begin
-      SkipCborValue(AStream);
+      SkipCborValue(AStream, ADepth + 1);
       Continue;
     end;
 
@@ -680,26 +727,26 @@ begin
                   ChildObj := TDeltaModelClass(TDFHasMany(NestedObj).RelationClass).Create;
                 if ChildObj is TDeltaModel then
                 begin
-                  ReadModelMap(AStream, TDeltaModel(ChildObj), ValVal, ValIndef);
+                  ReadModelMap(AStream, TDeltaModel(ChildObj), ValVal, ValIndef, ADepth + 1);
                   TDFHasMany(NestedObj).Add(ChildObj);
                 end
                 else
-                  SkipCborValue(AStream);
+                  SkipCborValue(AStream, ADepth + 1);
               end
               else
-                SkipCborValue(AStream);
+                SkipCborValue(AStream, ADepth + 1);
             end;
           end
           else
           begin
             for I := 1 to ArrCount do
-              SkipCborValue(AStream);
+              SkipCborValue(AStream, ADepth + 1);
           end;
         end
         else
         begin
           for I := 1 to ArrCount do
-            SkipCborValue(AStream);
+            SkipCborValue(AStream, ADepth + 1);
         end;
       end;
 
@@ -713,15 +760,66 @@ begin
             if (TDFHasOne(NestedObj).Model = nil) and (TDFHasOne(NestedObj).RelationClass <> nil) then
               TDFHasOne(NestedObj).Model := TDeltaModelClass(TDFHasOne(NestedObj).RelationClass).Create;
             if TDFHasOne(NestedObj).Model is TDeltaModel then
-              ReadModelMap(AStream, TDeltaModel(TDFHasOne(NestedObj).Model), ValVal, ValIndef)
+              ReadModelMap(AStream, TDeltaModel(TDFHasOne(NestedObj).Model), ValVal, ValIndef, ADepth + 1)
             else
-              SkipCborValue(AStream);
+            begin
+              if ValIndef then
+              begin
+                while AStream.Position < AStream.Size do
+                begin
+                  AStream.ReadBuffer(PeekB, 1);
+                  if PeekB = $FF then Break;
+                  AStream.Seek(-1, soCurrent);
+                  SkipCborValue(AStream, ADepth + 1);
+                  SkipCborValue(AStream, ADepth + 1);
+                end;
+              end
+              else
+              begin
+                for I := 1 to ValVal * 2 do
+                  SkipCborValue(AStream, ADepth + 1);
+              end;
+            end;
           end
           else
-            SkipCborValue(AStream);
+          begin
+            if ValIndef then
+            begin
+              while AStream.Position < AStream.Size do
+              begin
+                AStream.ReadBuffer(PeekB, 1);
+                if PeekB = $FF then Break;
+                AStream.Seek(-1, soCurrent);
+                SkipCborValue(AStream, ADepth + 1);
+                SkipCborValue(AStream, ADepth + 1);
+              end;
+            end
+            else
+            begin
+              for I := 1 to ValVal * 2 do
+                SkipCborValue(AStream, ADepth + 1);
+            end;
+          end;
         end
         else
-          SkipCborValue(AStream);
+        begin
+          if ValIndef then
+          begin
+            while AStream.Position < AStream.Size do
+            begin
+              AStream.ReadBuffer(PeekB, 1);
+              if PeekB = $FF then Break;
+              AStream.Seek(-1, soCurrent);
+              SkipCborValue(AStream, ADepth + 1);
+              SkipCborValue(AStream, ADepth + 1);
+            end;
+          end
+          else
+          begin
+            for I := 1 to ValVal * 2 do
+              SkipCborValue(AStream, ADepth + 1);
+          end;
+        end;
       end;
 
       6: // Tag semântica (ex: tag 0 = data RFC 3339, tag 1 = epoch)
@@ -740,7 +838,7 @@ begin
             end;
           end
           else
-            SkipCborValue(AStream);
+            SkipCborValue(AStream, ADepth + 1);
         end;
       end;
 
@@ -880,9 +978,11 @@ var
   IsIndef: Boolean;
 begin
   if (AInputStream = nil) or (AModel = nil) then Exit;
-  if not ReadHeader(AInputStream, Major, Val, AddInfo, IsIndef) then Exit;
-  if Major = 5 then
-    ReadModelMap(AInputStream, AModel, Val, IsIndef);
+  if not ReadHeader(AInputStream, Major, Val, AddInfo, IsIndef) then
+    raise EDeltaDeserializationException.Create('CBOR payload is empty or invalid (RFC 8949)');
+  if Major <> 5 then
+    raise EDeltaDeserializationException.CreateFmt('Expected CBOR Map (Major type 5) at root, found Major %d (RFC 8949)', [Major]);
+  ReadModelMap(AInputStream, AModel, Val, IsIndef, 0);
 end;
 
 procedure TDeltaCborCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
@@ -903,7 +1003,8 @@ begin
      (AList is TDeltaModelList) and AModelClass.InheritsFrom(TDeltaModel) then
     TDeltaModelList(AList).DeltaModelClass := TDeltaModelClass(AModelClass);
 
-  if not ReadHeader(AInputStream, Major, Val, AddInfo, IsIndef) then Exit;
+  if not ReadHeader(AInputStream, Major, Val, AddInfo, IsIndef) then
+    raise EDeltaDeserializationException.Create('CBOR payload is empty or invalid (RFC 8949)');
 
   // 1. Array direto de modelos: [ {..}, {..} ]
   if Major = 4 then
@@ -937,17 +1038,17 @@ begin
 
         if NewObj is TDeltaModel then
         begin
-          ReadModelMap(AInputStream, TDeltaModel(NewObj), ValVal, ValIndef);
+          ReadModelMap(AInputStream, TDeltaModel(NewObj), ValVal, ValIndef, 1);
           CustomList.AddObj(NewObj);
         end
         else
         begin
           NewObj.Free;
-          SkipCborValue(AInputStream);
+          SkipCborValue(AInputStream, 1);
         end;
       end
       else
-        SkipCborValue(AInputStream);
+        SkipCborValue(AInputStream, 1);
     end;
     Exit;
   end;
@@ -975,7 +1076,7 @@ begin
         KeyName := ReadTextString(AInputStream, KeyVal)
       else
       begin
-        SkipCborValue(AInputStream);
+        SkipCborValue(AInputStream, 1);
         Continue;
       end;
 
@@ -1012,17 +1113,17 @@ begin
 
             if NewObj is TDeltaModel then
             begin
-              ReadModelMap(AInputStream, TDeltaModel(NewObj), ValVal, ValIndef);
+              ReadModelMap(AInputStream, TDeltaModel(NewObj), ValVal, ValIndef, 2);
               CustomList.AddObj(NewObj);
             end
             else
             begin
               NewObj.Free;
-              SkipCborValue(AInputStream);
+              SkipCborValue(AInputStream, 2);
             end;
           end
           else
-            SkipCborValue(AInputStream);
+            SkipCborValue(AInputStream, 2);
         end;
       end
       else if SameText(KeyName, 'total_records') and (ValMajor in [0, 1]) then
@@ -1038,9 +1139,11 @@ begin
         CustomList.page_size := Integer(ValVal);
       end
       else
-        SkipCborValue(AInputStream);
+        SkipCborValue(AInputStream, 1);
     end;
-  end;
+  end
+  else
+    raise EDeltaDeserializationException.CreateFmt('Expected CBOR Array or Map envelope at list root, found Major %d (RFC 8949)', [Major]);
 end;
 
 initialization

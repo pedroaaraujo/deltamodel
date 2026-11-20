@@ -17,6 +17,13 @@ uses
   DeltaModel.Metadata,
   DeltaModel.Codec;
 
+const
+  { Blindagem de Segurança BSON (Anti-OOM / DoS) }
+  MAX_BSON_CSTRING_LENGTH = 1024;
+  MAX_BSON_STRING_LENGTH  = 16 * 1024 * 1024; // 16 MB
+  MAX_BSON_DOC_LENGTH     = 16 * 1024 * 1024; // 16 MB
+  MAX_BSON_NESTING_DEPTH  = 64;
+
 type
   { TDeltaBsonCodec: Codec BSON v1.1 Binário de Alta Performance (Zero-DOM)
     Especificação BSON v1.1 (bsonspec.org):
@@ -42,7 +49,7 @@ type
     procedure SkipBsonElementPayload(AStream: TStream; AType: Byte);
 
     procedure WriteModelDoc(AModel: TDeltaModel; AStream: TStream);
-    procedure ReadModelDoc(AStream: TStream; AModel: TDeltaModel);
+    procedure ReadModelDoc(AStream: TStream; AModel: TDeltaModel; ADepth: Integer = 0);
   public
     function GetFormatName: string;
     function GetMimeType: string;
@@ -140,12 +147,19 @@ begin
   while AStream.Position < AStream.Size do
   begin
     AStream.ReadBuffer(B, 1);
-    if B = 0 then Break;
+    if B = 0 then
+    begin
+      Result := UTF8ToString(Raw);
+      Exit;
+    end;
     Inc(Len);
+    if Len > MAX_BSON_CSTRING_LENGTH then
+      raise EDeltaDeserializationException.CreateFmt('BSON cstring length exceeds maximum limit of %d bytes without null terminator', [MAX_BSON_CSTRING_LENGTH]);
     SetLength(Raw, Len);
     Raw[Len] := AnsiChar(B);
   end;
-  Result := UTF8ToString(Raw);
+
+  raise EDeltaDeserializationException.Create('BSON cstring unterminated: reached end of stream without null terminator');
 end;
 
 function TDeltaBsonCodec.ReadBsonString(AStream: TStream): string;
@@ -155,10 +169,18 @@ var
   Zero: Byte;
 begin
   Result := '';
-  if AStream.Position + 4 > AStream.Size then Exit;
+  if AStream.Position + 4 > AStream.Size then
+    raise EDeltaDeserializationException.Create('BSON string truncated: insufficient bytes for string length');
+
   AStream.ReadBuffer(LenLE, 4);
   StrLen := LEtoN(LenLE);
-  if StrLen <= 0 then Exit;
+
+  if StrLen <= 0 then
+    raise EDeltaDeserializationException.Create('Invalid BSON string length (must be positive including null byte)');
+  if StrLen > MAX_BSON_STRING_LENGTH then
+    raise EDeltaDeserializationException.CreateFmt('BSON string length (%d bytes) exceeds maximum limit (%d bytes)', [StrLen, MAX_BSON_STRING_LENGTH]);
+  if StrLen > (AStream.Size - AStream.Position) then
+    raise EDeltaDeserializationException.Create('BSON string truncated: declared length exceeds available bytes in stream');
 
   if StrLen > 1 then
   begin
@@ -166,9 +188,11 @@ begin
     AStream.ReadBuffer(Raw[1], StrLen - 1);
     Result := UTF8ToString(Raw);
   end;
-  // Lê o byte nulo terminal \0
-  if AStream.Position < AStream.Size then
-    AStream.ReadBuffer(Zero, 1);
+
+  // Lê e valida o byte nulo terminal \0
+  AStream.ReadBuffer(Zero, 1);
+  if Zero <> 0 then
+    raise EDeltaDeserializationException.Create('BSON string invalid: missing null terminator byte');
 end;
 
 procedure TDeltaBsonCodec.SkipBsonElementPayload(AStream: TStream; AType: Byte);
@@ -559,7 +583,7 @@ begin
   AStream.Position := EndPos;
 end;
 
-procedure TDeltaBsonCodec.ReadModelDoc(AStream: TStream; AModel: TDeltaModel);
+procedure TDeltaBsonCodec.ReadModelDoc(AStream: TStream; AModel: TDeltaModel; ADepth: Integer = 0);
 var
   DocStartPos, DocEndPos: Int64;
   DocLenLE, DocLen: Int32;
@@ -585,16 +609,23 @@ var
   ArrElemType: Byte;
   ArrElemIdx: string;
 begin
-  if (AModel = nil) or (AStream.Position + 4 > AStream.Size) then Exit;
+  if ADepth > MAX_BSON_NESTING_DEPTH then
+    raise EDeltaDeserializationException.Create('Maximum BSON nesting depth exceeded');
+
+  if AModel = nil then Exit;
+  if AStream.Position + 4 > AStream.Size then
+    raise EDeltaDeserializationException.Create('BSON document truncated: insufficient bytes for header');
 
   DocStartPos := AStream.Position;
   AStream.ReadBuffer(DocLenLE, 4);
   DocLen := LEtoN(DocLenLE);
-  if DocLen < 5 then Exit;
-  DocEndPos := DocStartPos + DocLen;
-  if DocEndPos > AStream.Size then
-    DocEndPos := AStream.Size;
 
+  if (DocLen < 5) or (DocLen > MAX_BSON_DOC_LENGTH) then
+    raise EDeltaDeserializationException.CreateFmt('Invalid BSON document length (%d bytes)', [DocLen]);
+  if DocLen > (AStream.Size - DocStartPos) then
+    raise EDeltaDeserializationException.Create('BSON document truncated: declared size exceeds available stream bytes');
+
+  DocEndPos := DocStartPos + DocLen;
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
 
   while AStream.Position < DocEndPos - 1 do
@@ -667,7 +698,7 @@ begin
             if (TDFHasOne(NestedObj).Model = nil) and (TDFHasOne(NestedObj).RelationClass <> nil) then
               TDFHasOne(NestedObj).Model := TDeltaModelClass(TDFHasOne(NestedObj).RelationClass).Create;
             if TDFHasOne(NestedObj).Model is TDeltaModel then
-              ReadModelDoc(AStream, TDeltaModel(TDFHasOne(NestedObj).Model))
+              ReadModelDoc(AStream, TDeltaModel(TDFHasOne(NestedObj).Model), ADepth + 1)
             else
               SkipBsonElementPayload(AStream, $03);
           end
@@ -680,18 +711,24 @@ begin
 
       $04: // Array BSON (HasMany)
       begin
+        ArrStartPos := AStream.Position;
+        if ArrStartPos + 4 > DocEndPos then
+          raise EDeltaDeserializationException.Create('BSON array truncated: insufficient bytes for array header');
+        AStream.ReadBuffer(ArrDocLenLE, 4);
+        ArrDocLen := LEtoN(ArrDocLenLE);
+        if (ArrDocLen < 5) or (ArrDocLen > MAX_BSON_DOC_LENGTH) then
+          raise EDeltaDeserializationException.CreateFmt('Invalid BSON array length (%d bytes)', [ArrDocLen]);
+        if ArrDocLen > (DocEndPos - ArrStartPos) then
+          raise EDeltaDeserializationException.Create('BSON array truncated: declared size exceeds enclosing document boundary');
+
+        ArrEndPos := ArrStartPos + ArrDocLen;
+
         if (FMeta <> nil) and FMeta^.IsDeltaField then
         begin
           NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
           if NestedObj is TDFHasMany then
           begin
             TDFHasMany(NestedObj).Clear;
-            ArrStartPos := AStream.Position;
-            AStream.ReadBuffer(ArrDocLenLE, 4);
-            ArrDocLen := LEtoN(ArrDocLenLE);
-            ArrEndPos := ArrStartPos + ArrDocLen;
-            if ArrEndPos > DocEndPos then ArrEndPos := DocEndPos;
-
             while AStream.Position < ArrEndPos - 1 do
             begin
               AStream.ReadBuffer(ArrElemType, 1);
@@ -705,7 +742,7 @@ begin
                   ChildObj := TDeltaModelClass(TDFHasMany(NestedObj).RelationClass).Create;
                 if ChildObj is TDeltaModel then
                 begin
-                  ReadModelDoc(AStream, TDeltaModel(ChildObj));
+                  ReadModelDoc(AStream, TDeltaModel(ChildObj), ADepth + 1);
                   TDFHasMany(NestedObj).Add(ChildObj);
                 end
                 else
@@ -714,15 +751,15 @@ begin
               else
                 SkipBsonElementPayload(AStream, ArrElemType);
             end;
-
-            if AStream.Position < ArrEndPos then
-              AStream.Position := ArrEndPos;
           end
           else
-            SkipBsonElementPayload(AStream, $04);
+            AStream.Position := ArrEndPos;
         end
         else
-          SkipBsonElementPayload(AStream, $04);
+          AStream.Position := ArrEndPos;
+
+        if AStream.Position < ArrEndPos then
+          AStream.Position := ArrEndPos;
       end;
 
       $08: // Boolean
@@ -936,7 +973,7 @@ end;
 procedure TDeltaBsonCodec.DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
 begin
   if (AInputStream = nil) or (AModel = nil) then Exit;
-  ReadModelDoc(AInputStream, AModel);
+  ReadModelDoc(AInputStream, AModel, 0);
 end;
 
 procedure TDeltaBsonCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
@@ -962,15 +999,19 @@ begin
      (AList is TDeltaModelList) and AModelClass.InheritsFrom(TDeltaModel) then
     TDeltaModelList(AList).DeltaModelClass := TDeltaModelClass(AModelClass);
 
-  if AInputStream.Position + 4 > AInputStream.Size then Exit;
+  if AInputStream.Position + 4 > AInputStream.Size then
+    raise EDeltaDeserializationException.Create('BSON list payload truncated: insufficient bytes for header');
 
   DocStartPos := AInputStream.Position;
   AInputStream.ReadBuffer(DocLenLE, 4);
   DocLen := LEtoN(DocLenLE);
-  if DocLen < 5 then Exit;
+
+  if (DocLen < 5) or (DocLen > MAX_BSON_DOC_LENGTH) then
+    raise EDeltaDeserializationException.CreateFmt('Invalid BSON list document length (%d bytes)', [DocLen]);
+  if DocLen > (AInputStream.Size - DocStartPos) then
+    raise EDeltaDeserializationException.Create('BSON list payload truncated: declared size exceeds available stream bytes');
+
   DocEndPos := DocStartPos + DocLen;
-  if DocEndPos > AInputStream.Size then
-    DocEndPos := AInputStream.Size;
 
   while AInputStream.Position < DocEndPos - 1 do
   begin
@@ -982,10 +1023,16 @@ begin
     begin
       // Array ou documento com subdocumentos
       ArrStartPos := AInputStream.Position;
+      if ArrStartPos + 4 > DocEndPos then
+        raise EDeltaDeserializationException.Create('BSON array truncated: insufficient bytes for array header');
       AInputStream.ReadBuffer(ArrDocLenLE, 4);
       ArrDocLen := LEtoN(ArrDocLenLE);
+      if (ArrDocLen < 5) or (ArrDocLen > MAX_BSON_DOC_LENGTH) then
+        raise EDeltaDeserializationException.CreateFmt('Invalid BSON array length (%d bytes)', [ArrDocLen]);
+      if ArrDocLen > (DocEndPos - ArrStartPos) then
+        raise EDeltaDeserializationException.Create('BSON array truncated: declared size exceeds enclosing document boundary');
+
       ArrEndPos := ArrStartPos + ArrDocLen;
-      if ArrEndPos > DocEndPos then ArrEndPos := DocEndPos;
 
       while AInputStream.Position < ArrEndPos - 1 do
       begin
@@ -1003,7 +1050,7 @@ begin
 
           if NewObj is TDeltaModel then
           begin
-            ReadModelDoc(AInputStream, TDeltaModel(NewObj));
+            ReadModelDoc(AInputStream, TDeltaModel(NewObj), 1);
             CustomList.AddObj(NewObj);
           end
           else
@@ -1030,7 +1077,7 @@ begin
 
       if NewObj is TDeltaModel then
       begin
-        ReadModelDoc(AInputStream, TDeltaModel(NewObj));
+        ReadModelDoc(AInputStream, TDeltaModel(NewObj), 1);
         CustomList.AddObj(NewObj);
       end
       else
@@ -1062,7 +1109,7 @@ begin
       else
       begin
         AInputStream.ReadBuffer(I64, 8);
-        CustomList.page := LEtoN(I64);
+        CustomList.page := Integer(LEtoN(I64));
       end;
     end
     else if SameText(ElemName, 'page_size') and (ElemType in [$10, $12]) then
@@ -1075,16 +1122,14 @@ begin
       else
       begin
         AInputStream.ReadBuffer(I64, 8);
-        CustomList.page_size := LEtoN(I64);
+        CustomList.page_size := Integer(LEtoN(I64));
       end;
     end
     else
       SkipBsonElementPayload(AInputStream, ElemType);
   end;
 
-  if (AInputStream.Position < DocEndPos) and (AInputStream.Position = DocEndPos - 1) then
-    AInputStream.ReadBuffer(Zero, 1)
-  else if AInputStream.Position < DocEndPos then
+  if AInputStream.Position < DocEndPos then
     AInputStream.Position := DocEndPos;
 end;
 
