@@ -13,7 +13,7 @@ uses
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
   DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
   DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages,
-  DeltaModel.Codec;
+  DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -2587,7 +2587,9 @@ begin
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/json'), 'Codec "application/json" está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/json; charset=utf-8'), 'Codec com parâmetro MIME está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('text/json'), 'Codec "text/json" é aceito pelo CanHandleMimeType');
-  AssertFalse(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" não está registrado inicialmente');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('bson'), 'Codec "bson" está registrado');
+  AssertFalse(TDeltaCodecRegistry.HasCodec('yaml'), 'Codec "yaml" não está registrado inicialmente');
 
   // 2. Resolução do Codec JSON
   Codec := TDeltaCodecRegistry.GetCodec('json');
@@ -2649,6 +2651,205 @@ begin
 end;
 
 {==============================================================================}
+{ Test 22: Codec BSON v1.1 Binário (Zero-DOM)                                  }
+{==============================================================================}
+
+procedure TestBsonCodec;
+var
+  Codec: IDeltaCodec;
+  MS: TMemoryStream;
+  P, DecodedP: TProductModel;
+  List, DecodedList: TProductGenericList;
+  I: Integer;
+  DocSize: Int32;
+begin
+  Suite('Codec BSON v1.1 Binário (Zero-DOM)');
+
+  // 1. Resolução do Codec BSON
+  AssertTrue(TDeltaCodecRegistry.HasCodec('bson'), 'Codec "bson" registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/bson'), 'Codec "application/bson" registrado');
+  Codec := TDeltaCodecRegistry.GetCodec('bson');
+  AssertTrue(Codec <> nil, 'GetCodec("bson") retornou instância');
+  AssertEquals('bson', Codec.GetFormatName, 'GetFormatName é "bson"');
+  AssertEquals('application/bson', Codec.GetMimeType, 'GetMimeType é "application/bson"');
+
+  // 2. Round-trip de modelo simples e UTF-8
+  P := TProductModel.Create;
+  try
+    P.Id.Value := 202;
+    P.Name.Value := 'SSD NVMe 2TB Gen4 Alta Precisão & Performance';
+    P.Price.Value := 899.90;
+    P.Active.Value := True;
+    P.BigCode.Value := 9876543210123;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeModel(P, MS);
+      AssertTrue(MS.Size > 4, 'BSON gerou stream com conteúdo');
+
+      MS.Position := 0;
+      MS.ReadBuffer(DocSize, 4);
+      AssertEqualsInt(MS.Size, LEtoN(DocSize), 'Tamanho do cabeçalho BSON confere com o stream');
+
+      DecodedP := TProductModel.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeModel(MS, DecodedP);
+
+        AssertEqualsInt(202, DecodedP.Id.Value, 'BSON restaurou Id');
+        AssertEquals('SSD NVMe 2TB Gen4 Alta Precisão & Performance', DecodedP.Name.Value, 'BSON restaurou UTF-8 Name');
+        AssertTrue(Abs(DecodedP.Price.Value - 899.90) < 0.001, 'BSON restaurou Price Double');
+        AssertTrue(DecodedP.Active.Value, 'BSON restaurou Active Boolean');
+        AssertEqualsInt(9876543210123, DecodedP.BigCode.Value, 'BSON restaurou BigCode Int64');
+        AssertTrue(DecodedP.Description.IsNull, 'BSON preservou campo nulo Description');
+      finally
+        DecodedP.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // 3. Round-trip de List de modelos
+  List := TProductGenericList.Create;
+  try
+    for I := 1 to 5 do
+    begin
+      P := TProductModel.Create;
+      P.Id.Value := I;
+      P.Name.Value := 'Produto BSON #' + IntToStr(I);
+      P.Price.Value := I * 100.50;
+      P.Active.Value := (I mod 2 = 1);
+      List.Add(P);
+    end;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeList(List, MS);
+      AssertTrue(MS.Size > 20, 'BSON EncodeList gerou payload binário');
+
+      DecodedList := TProductGenericList.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeList(MS, DecodedList, TProductModel);
+        AssertEqualsInt(5, DecodedList.Count, 'BSON DecodeList restaurou todos os 5 itens');
+        for I := 0 to 4 do
+        begin
+          AssertEqualsInt(I + 1, DecodedList[I].Id.Value, 'Item ID confere');
+          AssertEquals('Produto BSON #' + IntToStr(I + 1), DecodedList[I].Name.Value, 'Item Name confere');
+          AssertTrue(Abs(DecodedList[I].Price.Value - ((I + 1) * 100.50)) < 0.001, 'Item Price confere');
+        end;
+      finally
+        DecodedList.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    List.Free;
+  end;
+end;
+
+{==============================================================================}
+{ Test 23: Codec CBOR (RFC 8949) Binário (Zero-DOM)                            }
+{==============================================================================}
+
+procedure TestCborCodec;
+var
+  Codec: IDeltaCodec;
+  MS: TMemoryStream;
+  P, DecodedP: TProductModel;
+  List, DecodedList: TProductGenericList;
+  I: Integer;
+begin
+  Suite('Codec CBOR (RFC 8949) Binário (Zero-DOM)');
+
+  // 1. Resolução do Codec CBOR
+  AssertTrue(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/cbor'), 'Codec "application/cbor" registrado');
+  Codec := TDeltaCodecRegistry.GetCodec('cbor');
+  AssertTrue(Codec <> nil, 'GetCodec("cbor") retornou instância');
+  AssertEquals('cbor', Codec.GetFormatName, 'GetFormatName é "cbor"');
+  AssertEquals('application/cbor', Codec.GetMimeType, 'GetMimeType é "application/cbor"');
+
+  // 2. Round-trip de modelo simples e UTF-8
+  P := TProductModel.Create;
+  try
+    P.Id.Value := 303;
+    P.Name.Value := 'Placa de Vídeo RTX 4080 Super - Edição Especial';
+    P.Price.Value := 7299.99;
+    P.Active.Value := True;
+    P.BigCode.Value := 123456789012345;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeModel(P, MS);
+      AssertTrue(MS.Size > 4, 'CBOR gerou stream com conteúdo');
+
+      DecodedP := TProductModel.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeModel(MS, DecodedP);
+
+        AssertEqualsInt(303, DecodedP.Id.Value, 'CBOR restaurou Id');
+        AssertEquals('Placa de Vídeo RTX 4080 Super - Edição Especial', DecodedP.Name.Value, 'CBOR restaurou Name');
+        AssertTrue(Abs(DecodedP.Price.Value - 7299.99) < 0.001, 'CBOR restaurou Price Double');
+        AssertTrue(DecodedP.Active.Value, 'CBOR restaurou Active Boolean');
+        AssertEqualsInt(123456789012345, DecodedP.BigCode.Value, 'CBOR restaurou BigCode Int64');
+        AssertTrue(DecodedP.Description.IsNull, 'CBOR preservou campo nulo Description');
+      finally
+        DecodedP.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // 3. Round-trip de List de modelos
+  List := TProductGenericList.Create;
+  try
+    for I := 1 to 4 do
+    begin
+      P := TProductModel.Create;
+      P.Id.Value := I * 10;
+      P.Name.Value := 'Produto CBOR #' + IntToStr(I);
+      P.Price.Value := I * 50.25;
+      P.Active.Value := True;
+      List.Add(P);
+    end;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeList(List, MS);
+      AssertTrue(MS.Size > 15, 'CBOR EncodeList gerou payload binário');
+
+      DecodedList := TProductGenericList.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeList(MS, DecodedList, TProductModel);
+        AssertEqualsInt(4, DecodedList.Count, 'CBOR DecodeList restaurou todos os 4 itens');
+        for I := 0 to 3 do
+        begin
+          AssertEqualsInt((I + 1) * 10, DecodedList[I].Id.Value, 'Item ID confere');
+          AssertEquals('Produto CBOR #' + IntToStr(I + 1), DecodedList[I].Name.Value, 'Item Name confere');
+          AssertTrue(Abs(DecodedList[I].Price.Value - ((I + 1) * 50.25)) < 0.001, 'Item Price confere');
+        end;
+      finally
+        DecodedList.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    List.Free;
+  end;
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -2679,6 +2880,8 @@ begin
     TestLocalizationMessages;
     TestEagerLoadingAndStreaming;
     TestCodecArchitecture;
+    TestBsonCodec;
+    TestCborCodec;
   except
     on E: Exception do
     begin

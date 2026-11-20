@@ -13,7 +13,8 @@ uses
   DatabaseURLParser, DeltaModel.SQLBuilder, DeltaModel.ORM.Types,
   DeltaModel.ORM.Interfaces, DeltaModel.ORM.Connection, DeltaModel.ORM.DDL,
   DeltaModel.ORM.DML, DeltaModel.ORM.Schema, DeltaModel.ORM.Pool,
-  DeltaModel.Codec, LazarusPackageIntf;
+  DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor,
+  LazarusPackageIntf;
 
 implementation
 
