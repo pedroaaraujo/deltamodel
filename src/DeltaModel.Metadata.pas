@@ -72,7 +72,6 @@ type
     FFieldCount: Integer;
     FRTTIInfo: TRTTIClassInfo;
     FSchema: TDeltaModelSchema;
-    procedure ExtractMetadata;
   public
     constructor Create(AModelClass: TClass; ARTTIInfo: TRTTIClassInfo);
     destructor Destroy; override;
@@ -87,6 +86,7 @@ type
     property FieldCount: Integer read FFieldCount;
     property RTTIInfo: TRTTIClassInfo read FRTTIInfo;
     property Schema: TDeltaModelSchema read FSchema;
+    procedure ExtractMetadata;
   end;
 
   { Cache global thread-safe de RTTI e Metadados }
@@ -206,7 +206,13 @@ begin
   FModelClass := AModelClass;
   FRTTIInfo := ARTTIInfo;
   FSchema := nil;
-  ExtractMetadata;
+  FFieldCount := 0;
+  SetLength(FFields, 0);
+  if Assigned(FModelClass) then
+    FTableName := AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt))
+  else
+    FTableName := '';
+  // ExtractMetadata é invocado por TRTTICache.GetModelMetadata após registrar no cache para proteção contra recursão
 end;
 
 destructor TModelMetadata.Destroy;
@@ -429,6 +435,7 @@ begin
     Meta := TModelMetadata.Create(AClass, RttiInfo);
     FModelMetaClassMap.Add(Pointer(AClass));
     FModelMetaList.Add(Meta);
+    Meta.ExtractMetadata;
     Result := Meta;
   finally
     FLock.Leave;
