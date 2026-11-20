@@ -7,15 +7,18 @@
 
 **DeltaModel** é um microframework leve, moderno e extensível para **Lazarus / Free Pascal (FPC)** que reúne em uma única biblioteca:
 
-- 🧱 **Modelagem de Dados**: Campos fortemente tipados com controle explícito de nulabilidade (`Null` vs `Required`).
-- ✅ **Motor de Validação Fluente**: Validação de CPF, CNPJ (numérico e alfanumérico - padrão RFB), E-mail, URL, Ranges, Regex e regras de negócio personalizadas.
-- 🔄 **Serialização JSON**: Conversão bidirecional entre Objetos/Listas e JSON (`ToJson`, `FromJson`), com suporte a objetos aninhados.
-- 📋 **OpenAPI / Swagger Schemas**: Geração automática de esquemas compatíveis com OpenAPI 3.0 para documentação de APIs.
-- 🗄️ **Micro-ORM Multi-SGDB**:
-  - DDL automatizado que inspeciona e cria/atualiza tabelas, colunas, chaves primárias, chaves estrangeiras, constraints (`UNIQUE`, `CHECK`) e índices de banco de dados (simples e compostos).
-  - Construtor fluente de consultas SQL com suporte a condições tipadas (`Where`, `WhereBetween`, `WhereIn`, etc.) e Joins (`InnerJoin`, `LeftJoin`, etc.).
-  - Operações CRUD inteligentes (`Save`, `Insert`, `Update`, `Delete`, `Find`, `Count`).
-  - Hooks de ciclo de vida (`BeforeInsert`, `AfterInsert`, `BeforeUpdate`, etc.).
+- 🧱 **Modelagem de Dados**: Campos fortemente tipados (`TDF*`) ou propriedades primitivas puras com Fluent Schema (`ConfigureSchema`).
+- ✅ **Motor de Validação Fluente**: Regras declarativas no schema (`Min`, `Max`, `Range`, `MinLength`, `MaxLength`, `Positive`, `NotEmpty`, `Email`, `CPF`, `CNPJ`, `URL`) e validação customizada (`Validate`).
+- 🔄 **Serialização JSON de Alta Performance**: Serializador zero-DOM `TDeltaFastJsonStreamer` e Desserializador lexical em streaming `TDeltaFastJsonParser`.
+- 🌐 **Internacionalização (i18n)**: Mensagens e erros em múltiplos idiomas (`en-US`, `pt-BR`, `es-ES`), configurável programaticamente (`SetDeltaLocale`) ou via ambiente (`DELTAMODEL_LOCALE`).
+- 📋 **OpenAPI / Swagger Schemas**: Geração automática de esquemas compatíveis com OpenAPI 3.1 para documentação de APIs.
+- 🗄️ **Micro-ORM Multi-SGDB com Generics**:
+  - DDL automatizado que inspeciona e cria/atualiza tabelas, colunas, chaves primárias, chaves estrangeiras, constraints (`UNIQUE`, `CHECK`) e índices de banco de dados.
+  - Construtor fluente de consultas SQL tipadas `TDeltaQuery<T>` com Generics e coleções `TGDeltaModelList<T>`.
+  - Eager Loading 1:N automático via `Include('RelationName')`.
+  - HTTP Streaming Response (`StreamJsonTo`) com consumo constante de memória em lotes.
+  - Escopo de transações atômico com auto-rollback RAII (`IDeltaTransaction`, `BeginTransaction`).
+  - Operações CRUD inteligentes e hooks de ciclo de vida.
 
 ---
 
@@ -718,6 +721,109 @@ begin
     //   "total_records": 100,
     //   "total_pages": 10
     // }
+  finally
+    PagList.Free;
+  end;
+end;
+```
+
+---
+
+## ⚡ Alta Performance: Fluent Class Schema & Generics (Abordagem B)
+
+No Free Pascal 3.2.x, propriedades do tipo `record` não podem ser `published` e não há suporte a Custom Attributes em tempo de execução via RTTI. O modelo legado utiliza classes wrappers (`TDF*`) com boxing de `Variant`, o que impõe um custo de alocação de ~6 a 8 objetos auxiliares por instância de modelo.
+
+A **Abordagem B** resolve essa limitação combinando **propriedades primitivas nativas** (`Int64`, `Integer`, `Double`, `string`, `Boolean`) com uma configuração fluente estática de classe (`ConfigureSchema`):
+
+```pascal
+type
+  TProduct = class(TDeltaModel)
+  private
+    FId: Int64;
+    FName: string;
+    FPrice: Double;
+    FCost: Double;
+    FStock: Integer;
+    FActive: Boolean;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property Name: string read FName write FName;
+    property Price: Double read FPrice write FPrice;
+    property Cost: Double read FCost write FCost;
+    property Stock: Integer read FStock write FStock;
+    property Active: Boolean read FActive write FActive;
+  end;
+
+class procedure TProduct.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  Schema.Table('products');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('Name').Column('name').Required.Size(150);
+  Schema.Field('Price').Column('price').Required;
+  Schema.Field('Cost').Column('cost').Nullable;
+  Schema.Field('Stock').Column('stock').Required;
+  Schema.Field('Active').Column('active').Required;
+end;
+```
+
+### Vantagens Arquiteturais:
+- **Zero Wrappers por Instância**: `TProduct.Create` aloca apenas o objeto principal, sem instanciar campos auxiliares.
+- **Configuração Única em Cache**: `ConfigureSchema` é executado estaticamente apenas uma vez via `TRTTICache.GetModelMetadata`, garantindo custo zero de metadados em runtime.
+- **Bitmask de Nulidade Ultraleve**: O controle de campos nulos utiliza um campo `FNullMask: UInt64` (8 bytes), permitindo testar e atribuir `null` em 1 ciclo de clock de CPU:
+  ```pascal
+  Product.SetNull('Cost');   // Marca o campo como nulo
+  if Product.IsNull('Cost') then ... // Verifica nulidade sem Variant boxing
+  Product.ClearNull('Cost'); // Desmarca nulidade
+  ```
+- **Consultas Fluentes e Tipadas (`TDeltaQuery<T>`)**:
+  ```pascal
+  uses DeltaModel.Generics;
+
+  var
+    Query: TDeltaQuery<TProduct>;
+    List: TGDeltaModelList<TProduct>;
+    P: TProduct;
+  begin
+    Query := TDeltaQuery<TProduct>.Create(Engine);
+    try
+      // Inserção direta
+      Query.Insert(NewProduct);
+
+      // Consulta fluente tipada
+      List := Query.Where('price > :min')
+                   .Param('min', 100.0)
+                   .OrderBy('price DESC')
+                   .All;
+      try
+        // Iteração idiomática direta sem typecasting!
+        for P in List do
+          WriteLn(P.Name, ' = R$ ', P.Price:0:2);
+      finally
+        List.Free;
+      end;
+    finally
+      Query.Free;
+    end;
+  end;
+  ```
+
+### 📊 Resultados Reais de Benchmark (SQLite3 em Disco | -O3)
+
+Benchmark executado em ambiente Linux x86_64 comparando o Modelo Legado (`TDF*`) vs Abordagem B (Primitivas Nativas + Fluent Schema):
+
+| Métrica Avaliada | Volume (Regs) | Modelo Legado (`TDF*`) | Abordagem B (Nativa) | Ganho / Otimização |
+| :--- | :---: | :---: | :---: | :---: |
+| **Footprint de Memória RAM (Heap)** | 1.000 | 1.257 bytes/obj (1,20 MB) | 585 bytes/obj (0,56 MB) | **-53,4% de RAM** |
+| **Footprint de Memória RAM (Heap)** | 10.000 | 1.257 bytes/obj (11,99 MB) | 585 bytes/obj (5,58 MB) | **-53,5% de RAM** |
+| **Footprint de Memória RAM (Heap)** | 50.000 | 1.256 bytes/obj (59,92 MB) | 584 bytes/obj (27,88 MB) | **-53,5% de RAM (32 MB livres)** |
+| **Tempo de Alocação de Objetos** | 50.000 | 257 ms | 73 ms | **3,5x mais rápido** |
+| **Leitura SQL + Hydration ORM** | 1.000 | 8 ms (125.000 recs/s) | 4 ms (250.000 recs/s) | **2,0x mais rápido** |
+| **Leitura SQL + Hydration ORM** | 10.000 | 83 ms (120.482 recs/s) | 44 ms (227.273 recs/s) | **1,9x mais rápido** |
+| **Leitura SQL + Hydration ORM** | 50.000 | 418 ms (119.617 recs/s) | 217 ms (230.415 recs/s) | **1,9x mais rápido** |
+| **Serialização JSON (FastStreamer)**| 50.000 | 245 ms (204.082 objs/s) | 230 ms (217.391 objs/s) | **23,6 MB/s sustentados** |
+| **Desalocação de Memória (Free)** | 50.000 | 60 ms | 30 ms | **2,0x mais rápido** |
     JsonPag := PagList.ToJson;
 
     // Desserializa preservando metadados e itens
@@ -866,7 +972,7 @@ if not Person.salary.IsNull then
 
 O DeltaModel possui uma cobertura abrangente de testes automatizados unitários e de integração, garantindo alta estabilidade, precisão de tipos e performance:
 
-- **`tests/test_suite.lpr`**: Suíte consolidada com **301 testes automatizados (100% aprovados)** cobrindo:
+- **`tests/test_suite.lpr`**: Suíte consolidada com **344 testes automatizados (100% aprovados)** cobrindo:
   - **Connection URL Parser** (SQLite memória/arquivo/relativo, PostgreSQL, MySQL, Firebird).
   - **Motor de Validação** (CPF e CNPJ numérico/alfanumérico com/sem máscara e dígitos inválidos, E-mail, UTF-8 multibyte, Between, GreaterThan, etc.).
   - **Serialização & Precisão Numérica** (JSON com escape de aspas, UTF-8, integridade de `Int64` sem truncamento, CSV tipado, `Clone`).
@@ -881,19 +987,25 @@ O DeltaModel possui uma cobertura abrangente de testes automatizados unitários 
   - **TColumnBindingMap & Direct Typed ORM Binding** (vinculação de datasets, leitura de tipos sem boxing de Variant em `TQuery.All` e `FromDataSet`).
   - **TDeltaFastJsonStreamer & Floats em Ponto Fixo** (ausência absoluta de notação científica `E+`/`E-`, números de ponto flutuante grandes e pequenos, preservação de nulls e parsing válido).
   - **Propriedades Tipadas de Campos** (acesso sem Variant: `.AsInt64`, `.AsLargeInt`, `.AsInteger`, `.AsString`, `.AsText`, `.AsFloat`, `.AsBoolean`).
+  - **Fluent Class Schema & Generics - Abordagem B** (configuração fluente de metadados, bitmask ultraleve de nulidade, `TDeltaQuery<T>` com CRUD tipado, `for .. in` tipado, BulkInsert tipado e serialização direta de tipos primitivos sem Variant boxing).
 - **`tests/test_pool.lpr`**: Testes de concorrência multithread do Connection Pool (10 threads simultâneas vs pool de 4 conexões, timeouts, sanitização RAII e métricas).
 - **`tests/test_bulk_insert.lpr`**: Validação de inserção em lote para todos os dialetos suportados.
+- **`tests/benchmark_real.pas`**: Benchmark comparativo com dados reais em SQLite para 1.000, 10.000 e 50.000 registros medindo footprint de memória Heap, velocidade de leitura SQL, BulkInsert e serialização JSON.
 
 ### Executando os testes via linha de comando:
 
 ```bash
 # Compilar e executar a suíte de testes principal
-fpc -B -FEtests -Futests -Fusrc tests/test_suite.lpr
-./tests/test_suite
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/test_suite.lpr
+/tmp/test_suite
 
 # Compilar e executar o teste de concorrência do pool
-fpc -B -FEtests -Futests -Fusrc tests/test_pool.lpr
-./tests/test_pool
+fpc -B -FE/tmp -FU/tmp -Fusrc tests/test_pool.lpr
+/tmp/test_pool
+
+# Compilar e executar os benchmarks reais
+fpc -O3 -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/benchmark_real.pas
+/tmp/benchmark_real
 ```
 
 ---
@@ -916,6 +1028,7 @@ lazbuild --build-all deltamodel_pkg.lpk
 - **`example/02-validation`**: Testes completos do motor de validação (`TValidator`) para documentos brasileiros, e-mails e regras customizadas.
 - **`example/03-connection-pool`**: Demonstração do pool de conexões thread-safe com RAII, callbacks e transações atômicas.
 - **`example/04-bulk-insert`**: Benchmark comparativo de inserção em massa (`BulkInsert` com array e `TDeltaModelList`) vs inserção individual (`Save`), com preview de SQL para os 6 dialetos.
+- **`example/05-fluent-generics`**: Demonstração completa da Abordagem B com propriedades primitivas nativas, `ConfigureSchema` fluente, `TDeltaQuery<T>`, iteração tipada `for in` e serialização JSON ultrarrápida.
 
 ---
 

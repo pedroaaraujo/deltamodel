@@ -69,10 +69,22 @@ type
     FFieldList: TFieldList;
     FConstraints: TConstraintList;
     FIndexes: TIndexList;
+    FNullMask: UInt64;
     procedure CreateFields;
+    function GetTableName: string;
     procedure SetTableName(AValue: string);
   public
-    property TableName: string read FTableName write SetTableName;
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); virtual;
+
+    function IsNull(const APropName: string): Boolean; overload;
+    function IsNull(APropIndex: Integer): Boolean; overload; inline;
+    procedure SetNull(const APropName: string); overload;
+    procedure SetNull(APropIndex: Integer); overload; inline;
+    procedure ClearNull(const APropName: string); overload;
+    procedure ClearNull(APropIndex: Integer); overload; inline;
+    procedure ClearAllNulls; inline;
+
+    property TableName: string read GetTableName write SetTableName;
     property FieldList: TFieldList read FFieldList;
     property Constraints: TConstraintList read FConstraints;
     property Indexes: TIndexList read FIndexes;
@@ -191,14 +203,28 @@ type
     procedure BeforeDestruction; override;
   end;
 
+  generic TGDeltaModelListEnumerator<T: TDeltaModel> = class
+  private
+    FList: TDeltaModelList;
+    FIndex: Integer;
+  public
+    constructor Create(AList: TDeltaModelList);
+    function MoveNext: Boolean;
+    function GetCurrent: T;
+    property Current: T read GetCurrent;
+  end;
+
   generic TGDeltaModelList<T: TDeltaModel> = class(TDeltaModelList)
   public
+    type
+      TEnumerator = specialize TGDeltaModelListEnumerator<T>;
     constructor Create;
     function Add(AModel: T): Integer;
     function GetTypedItem(AIndex: Integer): T;
     property Item[AIndex: Integer]: T read GetTypedItem; default;
     function First: T;
     function Last: T;
+    function GetEnumerator: TEnumerator;
   end;
 
   DeltaModelList = TDeltaModelList;
@@ -213,18 +239,21 @@ type
 
   generic TGDeltaModelPaginatedList<T: TDeltaModel> = class(TDeltaModelPaginatedList)
   public
+    type
+      TEnumerator = specialize TGDeltaModelListEnumerator<T>;
     constructor Create;
     function Add(AModel: T): Integer;
     function GetTypedItem(AIndex: Integer): T;
     property Item[AIndex: Integer]: T read GetTypedItem; default;
     function First: T;
     function Last: T;
+    function GetEnumerator: TEnumerator;
   end;
 
 implementation
 
 uses
-  DeltaModel.JsonStreamer;
+  DeltaModel.JsonStreamer, DeltaModel.Metadata, DeltaModel.Messages;
 
 var
   GDeltaModelRegisterSchemaProc: TDeltaModelRegisterSchemaProc = nil;
@@ -392,6 +421,94 @@ begin
 
 end;
 
+class procedure TDeltaModel.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+
+end;
+
+function TDeltaModel.IsNull(APropIndex: Integer): Boolean;
+begin
+  if (APropIndex >= 0) and (APropIndex < 64) then
+    Result := (FNullMask and (UInt64(1) shl APropIndex)) <> 0
+  else
+    Result := False;
+end;
+
+procedure TDeltaModel.SetNull(APropIndex: Integer);
+begin
+  if (APropIndex >= 0) and (APropIndex < 64) then
+    FNullMask := FNullMask or (UInt64(1) shl APropIndex);
+end;
+
+procedure TDeltaModel.ClearNull(APropIndex: Integer);
+begin
+  if (APropIndex >= 0) and (APropIndex < 64) then
+    FNullMask := FNullMask and not (UInt64(1) shl APropIndex);
+end;
+
+procedure TDeltaModel.ClearAllNulls;
+begin
+  FNullMask := 0;
+end;
+
+function TDeltaModel.IsNull(const APropName: string): Boolean;
+var
+  FieldObj: TDeltaField;
+  PropInfo: PPropInfo;
+  PropItem: PDeltaPropItem;
+  ClassProps: TRTTIClassInfo;
+begin
+  PropInfo := GetPropInfo(Self.ClassInfo, APropName);
+  if (PropInfo <> nil) and (PropInfo^.PropType^.Kind = tkClass) then
+  begin
+    FieldObj := TDeltaField(GetObjectProp(Self, PropInfo));
+    if FieldObj <> nil then
+      Exit(FieldObj.IsNull);
+  end;
+
+  ClassProps := TRTTICache.GetClassProps(Self.ClassType);
+  PropItem := ClassProps.FindProp(APropName);
+  if PropItem <> nil then
+    Exit(IsNull(PropItem^.Index));
+
+  Result := False;
+end;
+
+procedure TDeltaModel.SetNull(const APropName: string);
+var
+  FieldObj: TDeltaField;
+  PropInfo: PPropInfo;
+  PropItem: PDeltaPropItem;
+  ClassProps: TRTTIClassInfo;
+begin
+  PropInfo := GetPropInfo(Self.ClassInfo, APropName);
+  if (PropInfo <> nil) and (PropInfo^.PropType^.Kind = tkClass) then
+  begin
+    FieldObj := TDeltaField(GetObjectProp(Self, PropInfo));
+    if FieldObj <> nil then
+    begin
+      FieldObj.Clear;
+      Exit;
+    end;
+  end;
+
+  ClassProps := TRTTICache.GetClassProps(Self.ClassType);
+  PropItem := ClassProps.FindProp(APropName);
+  if PropItem <> nil then
+    SetNull(PropItem^.Index);
+end;
+
+procedure TDeltaModel.ClearNull(const APropName: string);
+var
+  PropItem: PDeltaPropItem;
+  ClassProps: TRTTIClassInfo;
+begin
+  ClassProps := TRTTICache.GetClassProps(Self.ClassType);
+  PropItem := ClassProps.FindProp(APropName);
+  if PropItem <> nil then
+    ClearNull(PropItem^.Index);
+end;
+
 procedure TDeltaModel.CopyObject(Obj: TDeltaModel);
 begin
   DeltaSerialization.CopyObject(Obj, Self);
@@ -407,17 +524,46 @@ function TDeltaModel.IsEmpty: Boolean;
 var
   I: Integer;
   Field: TDeltaField;
+  Meta: TModelMetadata;
 begin
   Result := True;
-  for I := 0 to Pred(Self.FFieldList.Count) do
+  if (FFieldList <> nil) and (FFieldList.Count > 0) then
   begin
-    Field := Self.FFieldList.Items[I];
-    if not Field.IsNull then
+    for I := 0 to Pred(Self.FFieldList.Count) do
     begin
-      Result := False;
-      Exit;
+      Field := Self.FFieldList.Items[I];
+      if not Field.IsNull then
+      begin
+        Result := False;
+        Exit;
+      end;
+    end;
+  end
+  else
+  begin
+    Meta := TRTTICache.GetModelMetadata(Self.ClassType);
+    for I := 0 to Meta.FieldCount - 1 do
+    begin
+      if not IsNull(Meta.Fields[I].PropIndex) then
+      begin
+        Result := False;
+        Exit;
+      end;
     end;
   end;
+end;
+
+function TDeltaModel.GetTableName: string;
+var
+  Meta: TModelMetadata;
+begin
+  if (FTableName = AnsiLowerCase(Copy(Self.ClassName, 2, MaxInt))) or FTableName.IsEmpty then
+  begin
+    Meta := TRTTICache.GetModelMetadata(Self.ClassType);
+    if (Meta <> nil) and not Meta.TableName.IsEmpty then
+      Exit(Meta.TableName);
+  end;
+  Result := FTableName;
 end;
 
 procedure TDeltaModel.SetTableName(AValue: string);
@@ -436,15 +582,21 @@ var
   I: Integer;
   Field: TDeltaField;
   Req: TDeltaFieldRequired;
+  Meta: TModelMetadata;
+  FMeta: TDeltaFieldMeta;
+  PropInfo: PPropInfo;
+  PropValueStr: string;
+  PropValueFloat: Double;
+  PropValueInt: Int64;
+  VVal: TValid;
 begin
+  // 1. Validação de campos de modelos legados (TDF*)
   for I := 0 to Pred(Self.FFieldList.Count) do
   begin
     Field := Self.FFieldList.Items[I];
 
     if not (Field is TDeltaFieldRequired) then
-    begin
       Continue;
-    end;
 
     // Chave primária auto-incremento não preenchida será gerada pelo banco
     if (dboAutoInc in Field.DBOptions) and Field.IsNull then
@@ -457,16 +609,124 @@ begin
     begin
       raise EDeltaValidation.CreateFmt(
         'Field %s.%s is required',
-        [
-          Self.ClassName,
-          Req.FieldName
-        ]
+        [Self.ClassName, Req.FieldName]
       );
     end;
   end;
 
-  // [Sugestão Arquitetural] No futuro, delegue este laço acima diretamente para:
-  // FValidator.CheckRequiredFields(Self.FFieldList);
+  // 2. Validação declarativa do Fluent Schema (Abordagem B)
+  Meta := TRTTICache.GetModelMetadata(Self.ClassType);
+  if (Meta <> nil) and (Meta.FieldCount > 0) then
+  begin
+    for I := 0 to Meta.FieldCount - 1 do
+    begin
+      FMeta := Meta.Fields[I];
+      if FMeta.IsDeltaField then
+        Continue;
+
+      // Se for auto-inc PK e estiver nulo, será gerado pelo banco
+      if (dboAutoInc in FMeta.DBOptions) and IsNull(FMeta.PropIndex) then
+        Continue;
+
+      // Required
+      if (FMeta.IsRequired) and IsNull(FMeta.PropIndex) then
+        raise EDeltaValidation.CreateFmt('Field %s.%s is required', [Self.ClassName, FMeta.PropName]);
+
+      // Se não for nulo, valida regras declarativas
+      if not IsNull(FMeta.PropIndex) then
+      begin
+        PropInfo := GetPropInfo(Self.ClassInfo, FMeta.PropName);
+        if PropInfo <> nil then
+        begin
+          case PropInfo^.PropType^.Kind of
+            tkAString, tkUString, tkString:
+            begin
+              PropValueStr := GetStrProp(Self, PropInfo);
+              if (FMeta.IsRequired) and (PropValueStr.Trim.IsEmpty) then
+                raise EDeltaValidation.CreateFmt('Field %s.%s is required', [Self.ClassName, FMeta.PropName]);
+
+              if FMeta.SchemaField <> nil then
+              begin
+                if FMeta.SchemaField.IsNotEmpty and PropValueStr.Trim.IsEmpty then
+                  raise EDeltaValidation.Create(MsgFieldCannotBeEmpty(Self.ClassName, FMeta.PropName));
+
+                if FMeta.SchemaField.HasMinLength and (Length(PropValueStr) < FMeta.SchemaField.MinLengthValue) then
+                  raise EDeltaValidation.Create(MsgFieldMinLength(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MinLengthValue));
+
+                if FMeta.SchemaField.HasMaxLength and (Length(PropValueStr) > FMeta.SchemaField.MaxLengthValue) then
+                  raise EDeltaValidation.Create(MsgFieldMaxLength(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MaxLengthValue));
+
+                if FMeta.SchemaField.IsEmail then
+                begin
+                  VVal := TValidatorEmail.Create.Validate(PropValueStr);
+                  if not VVal.OK then
+                    raise EDeltaValidation.Create(MsgFieldInvalidEmail(Self.ClassName, FMeta.PropName));
+                end;
+
+                if FMeta.SchemaField.IsCPF then
+                begin
+                  VVal := TValidatorItemCPF.Create.Validate(PropValueStr);
+                  if not VVal.OK then
+                    raise EDeltaValidation.Create(MsgFieldInvalidCPF(Self.ClassName, FMeta.PropName));
+                end;
+
+                if FMeta.SchemaField.IsCNPJ then
+                begin
+                  VVal := TValidatorItemCNPJ.Create.Validate(PropValueStr);
+                  if not VVal.OK then
+                    raise EDeltaValidation.Create(MsgFieldInvalidCNPJ(Self.ClassName, FMeta.PropName));
+                end;
+
+                if FMeta.SchemaField.IsCPF_CNPJ then
+                begin
+                  VVal := TValidatorItemCPF.Create.Validate(PropValueStr);
+                  if not VVal.OK then
+                  begin
+                    VVal := TValidatorItemCNPJ.Create.Validate(PropValueStr);
+                    if not VVal.OK then
+                      raise EDeltaValidation.Create(MsgFieldInvalidCPF_CNPJ(Self.ClassName, FMeta.PropName));
+                  end;
+                end;
+
+                if FMeta.SchemaField.IsURL then
+                begin
+                  VVal := TValidatorItemUrl.Create.Validate(PropValueStr);
+                  if not VVal.OK then
+                    raise EDeltaValidation.Create(MsgFieldInvalidUrl(Self.ClassName, FMeta.PropName));
+                end;
+              end;
+            end;
+            tkInteger, tkInt64:
+            begin
+              PropValueInt := GetOrdProp(Self, PropInfo);
+              if FMeta.SchemaField <> nil then
+              begin
+                if FMeta.SchemaField.IsPositive and (PropValueInt <= 0) then
+                  raise EDeltaValidation.Create(MsgFieldMustBePositive(Self.ClassName, FMeta.PropName));
+                if FMeta.SchemaField.HasMin and (PropValueInt < FMeta.SchemaField.MinValue) then
+                  raise EDeltaValidation.Create(MsgFieldMinValue(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MinValue));
+                if FMeta.SchemaField.HasMax and (PropValueInt > FMeta.SchemaField.MaxValue) then
+                  raise EDeltaValidation.Create(MsgFieldMaxValue(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MaxValue));
+              end;
+            end;
+            tkFloat:
+            begin
+              PropValueFloat := GetFloatProp(Self, PropInfo);
+              if FMeta.SchemaField <> nil then
+              begin
+                if FMeta.SchemaField.IsPositive and (PropValueFloat <= 0) then
+                  raise EDeltaValidation.Create(MsgFieldMustBePositive(Self.ClassName, FMeta.PropName));
+                if FMeta.SchemaField.HasMin and (PropValueFloat < FMeta.SchemaField.MinValue) then
+                  raise EDeltaValidation.Create(MsgFieldMinValue(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MinValue));
+                if FMeta.SchemaField.HasMax and (PropValueFloat > FMeta.SchemaField.MaxValue) then
+                  raise EDeltaValidation.Create(MsgFieldMaxValue(Self.ClassName, FMeta.PropName, FMeta.SchemaField.MaxValue));
+              end;
+            end;
+          end;
+        end;
+      end;
+    end;
+  end;
 end;
 
 function TDeltaModel.ToJson: RawByteString;
@@ -583,6 +843,7 @@ begin
   FFieldList := TFieldList.Create();
   FConstraints := TConstraintList.Create();
   FIndexes := TIndexList.Create();
+  FNullMask := 0;
 
   CreateFields();
 
@@ -980,6 +1241,26 @@ begin
   FRecords.Free;
 end;
 
+{ TGDeltaModelListEnumerator }
+
+constructor TGDeltaModelListEnumerator.Create(AList: TDeltaModelList);
+begin
+  inherited Create;
+  FList := AList;
+  FIndex := -1;
+end;
+
+function TGDeltaModelListEnumerator.MoveNext: Boolean;
+begin
+  Inc(FIndex);
+  Result := (FList <> nil) and (FIndex < FList.Count);
+end;
+
+function TGDeltaModelListEnumerator.GetCurrent: T;
+begin
+  Result := T(FList[FIndex]);
+end;
+
 { TGDeltaModelList }
 
 constructor TGDeltaModelList.Create;
@@ -1012,6 +1293,11 @@ begin
     Result := T(FRecords[FRecords.Count - 1])
   else
     Result := nil;
+end;
+
+function TGDeltaModelList.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
 end;
 
 { TDeltaModelPaginatedList }
@@ -1058,6 +1344,11 @@ begin
     Result := T(FRecords[FRecords.Count - 1])
   else
     Result := nil;
+end;
+
+function TGDeltaModelPaginatedList.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(Self);
 end;
 
 end.

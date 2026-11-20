@@ -12,7 +12,7 @@ uses
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
   DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
-  DeltaModel.JsonStreamer;
+  DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -89,6 +89,122 @@ type
 
   TProductGenericList = specialize TGDeltaModelList<TProductModel>;
   TProductPaginatedGenericList = specialize TGDeltaModelPaginatedList<TProductModel>;
+
+  { Modelo Abordagem B: Fluent Class Schema + Propriedades Primitivas Nativas }
+  TFastProductModel = class(TDeltaModel)
+  private
+    FId: Int64;
+    FName: string;
+    FPrice: Double;
+    FCost: Double;
+    FStock: Integer;
+    FActive: Boolean;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property Name: string read FName write FName;
+    property Price: Double read FPrice write FPrice;
+    property Cost: Double read FCost write FCost;
+    property Stock: Integer read FStock write FStock;
+    property Active: Boolean read FActive write FActive;
+  end;
+
+  TFastProductList = specialize TGDeltaModelList<TFastProductModel>;
+  TFastProductQuery = specialize TDeltaQuery<TFastProductModel>;
+
+  { Model with Declarative Schema Validations }
+  TValidatedCustomerModel = class(TDeltaModel)
+  private
+    FId: Int64;
+    FName: string;
+    FAge: Integer;
+    FEmail: string;
+    FCpf: string;
+    FScore: Double;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property Name: string read FName write FName;
+    property Age: Integer read FAge write FAge;
+    property Email: string read FEmail write FEmail;
+    property Cpf: string read FCpf write FCpf;
+    property Score: Double read FScore write FScore;
+  end;
+
+  { Models for 1:N Eager Loading }
+  TTestOrderItem = class;
+
+  TTestOrder = class(TDeltaModel)
+  private
+    FId: Int64;
+    FCustomerName: string;
+    FItems: TDFHasMany;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property CustomerName: string read FCustomerName write FCustomerName;
+    property Items: TDFHasMany read FItems write FItems;
+  end;
+
+  TTestOrderItem = class(TDeltaModel)
+  private
+    FId: Int64;
+    FOrderId: Int64;
+    FProductName: string;
+    FQuantity: Integer;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property OrderId: Int64 read FOrderId write FOrderId;
+    property ProductName: string read FProductName write FProductName;
+    property Quantity: Integer read FQuantity write FQuantity;
+  end;
+
+class procedure TValidatedCustomerModel.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  inherited ConfigureSchema(Schema);
+  Schema.Table('validated_customers');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('Name').Column('name').MinLength(3).MaxLength(50).NotEmpty;
+  Schema.Field('Age').Column('age').Range(18, 120);
+  Schema.Field('Email').Column('email').Email;
+  Schema.Field('Cpf').Column('cpf').CPF;
+  Schema.Field('Score').Column('score').Positive;
+end;
+
+class procedure TTestOrder.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  inherited ConfigureSchema(Schema);
+  Schema.Table('test_orders');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('CustomerName').Column('customer_name').Required;
+  Schema.HasMany('Items', TTestOrderItem, 'order_id');
+end;
+
+class procedure TTestOrderItem.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  inherited ConfigureSchema(Schema);
+  Schema.Table('test_order_items');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('OrderId').Column('order_id').Required;
+  Schema.Field('ProductName').Column('product_name').Required;
+  Schema.Field('Quantity').Column('quantity').Required;
+end;
+
+class procedure TFastProductModel.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  Schema.Table('fast_products');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('Name').Column('name').Required.Size(150);
+  Schema.Field('Price').Column('price').Required;
+  Schema.Field('Cost').Column('cost').Nullable;
+  Schema.Field('Stock').Column('stock').Required;
+  Schema.Field('Active').Column('active').Required;
+end;
 
 procedure TProductModel.AfterConstruction;
 begin
@@ -1880,6 +1996,520 @@ begin
 end;
 
 {==============================================================================}
+{ Test 15: Fluent Class Schema, Generics & Pure Primitive Properties           }
+{==============================================================================}
+
+procedure TestApproachBFluentSchemaAndGenerics;
+const
+  TEST_DB = '/tmp/deltamodel_test_approach_b.sqlite';
+var
+  Engine: TDeltaORMEngine;
+  Query: TFastProductQuery;
+  Meta: TModelMetadata;
+  P, Found: TFastProductModel;
+  List, List2: TFastProductList;
+  JsonStr: RawByteString;
+  I: Integer;
+  ParsedData: TJSONData;
+begin
+  Suite('15. Fluent Class Schema, Generics & Pure Primitive Properties (Approach B)');
+
+  if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+
+  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  try
+    Engine.ExecuteDirect(
+      'CREATE TABLE fast_products (' +
+      '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      '  name VARCHAR(150) NOT NULL,' +
+      '  price REAL NOT NULL,' +
+      '  cost REAL,' +
+      '  stock INTEGER NOT NULL,' +
+      '  active INTEGER NOT NULL' +
+      ');'
+    );
+    if Engine.TransactionActive then Engine.Commit;
+
+    // 1. Validação de Metadados de Classe
+    Meta := TRTTICache.GetModelMetadata(TFastProductModel);
+    AssertTrue(Meta <> nil, 'Metadados da classe TFastProductModel extraídos com sucesso');
+    AssertEquals('fast_products', Meta.TableName, 'Nome da tabela correto via ConfigureSchema');
+    AssertEquals('id', Meta.PKFieldName, 'Nome do campo PK correto');
+    AssertEquals('Id', Meta.PKPropName, 'Nome da propriedade PK correto');
+    AssertEqualsInt(6, Meta.FieldCount, 'Quantidade de campos configurados no Schema');
+    AssertTrue(Meta.FindField('name') <> nil, 'Campo name encontrado');
+    AssertTrue(Meta.FindField('price') <> nil, 'Campo price encontrado');
+    AssertTrue(Meta.FindField('cost') <> nil, 'Campo cost encontrado');
+
+    // 2. Validação de Nulidade (Bitmask Ultraleve)
+    P := TFastProductModel.Create;
+    try
+      P.Name := 'Teclado Mecanico';
+      P.Price := 350.00;
+      P.Cost := 200.00;
+      P.Stock := 15;
+      P.Active := True;
+
+      AssertFalse(P.IsNull('Cost'), 'Cost inicialmente não é nulo');
+      P.SetNull('Cost');
+      AssertTrue(P.IsNull('Cost'), 'Cost marcado como nulo via SetNull(Cost)');
+      P.ClearNull('Cost');
+      AssertFalse(P.IsNull('Cost'), 'Cost desmarcado como nulo via ClearNull(Cost)');
+    finally
+      P.Free;
+    end;
+
+    // 3. Inserção e Consulta Tipada via TDeltaQuery<T>
+    Query := TFastProductQuery.Create(Engine);
+    try
+      P := TFastProductModel.Create;
+      P.Name := 'Monitor Gamer 240Hz';
+      P.Price := 1899.90;
+      P.Cost := 1200.00;
+      P.Stock := 25;
+      P.Active := True;
+      AssertTrue(Query.Insert(P), 'Query.Insert(P) retornou True');
+      P.Free;
+
+      P := TFastProductModel.Create;
+      P.Name := 'Mouse Sem Fio RGB';
+      P.Price := 149.50;
+      P.SetNull('Cost'); // Testa nulidade no banco
+      P.Stock := 50;
+      P.Active := True;
+      AssertTrue(Query.Insert(P), 'Query.Insert(P) com Cost nulo retornou True');
+      P.Free;
+
+      P := TFastProductModel.Create;
+      P.Name := 'Headset 7.1 Surround';
+      P.Price := 499.00;
+      P.Cost := 310.00;
+      P.Stock := 0;
+      P.Active := False;
+      AssertTrue(Query.Insert(P), 'Query.Insert(P) inativo retornou True');
+      P.Free;
+
+      // Contagem e Exists
+      AssertEqualsInt(3, Query.Count, 'Query.Count retornou 3 produtos');
+      AssertTrue(Query.Where('price > 1000').Exists, 'Query.Exists com preco > 1000 retornou True');
+
+      // Busca por ID tipada
+      Found := Query.FindById(1);
+      AssertTrue(Found <> nil, 'Query.FindById(1) retornou objeto');
+      if Found <> nil then
+      try
+        AssertEqualsInt(1, Found.Id, 'Id confere');
+        AssertEquals('Monitor Gamer 240Hz', Found.Name, 'Name confere');
+        AssertTrue(Abs(Found.Price - 1899.90) < 0.001, 'Price confere');
+        AssertFalse(Found.IsNull('Cost'), 'Cost não é nulo');
+        AssertEqualsInt(25, Found.Stock, 'Stock confere');
+        AssertTrue(Found.Active, 'Active confere');
+      finally
+        Found.Free;
+      end;
+
+      // Busca por ID com campo nulo
+      Found := Query.FindById(2);
+      AssertTrue(Found <> nil, 'Query.FindById(2) retornou objeto');
+      if Found <> nil then
+      try
+        AssertEquals('Mouse Sem Fio RGB', Found.Name, 'Name confere');
+        AssertTrue(Found.IsNull('Cost'), 'Cost nulo preservado corretamente ao ler do banco');
+      finally
+        Found.Free;
+      end;
+
+      // 4. Consulta de Coleção Tipada e Iteração com "for P in List do"
+      Query.Clear;
+      List := Query.Where('price > 200').OrderBy('price DESC').All;
+      try
+        AssertEqualsInt(2, List.Count, 'List.Count retornou 2 produtos com preco > 200');
+
+        // Loop idiomático tipado sem typecast!
+        I := 0;
+        for P in List do
+        begin
+          Inc(I);
+          AssertTrue(P.Price > 200, Format('Item %d (%s) tem preco R$ %.2f > 200', [I, P.Name, P.Price]));
+        end;
+        AssertEqualsInt(2, I, 'Iterador MoveNext percorreu exatamente 2 itens tipados');
+
+        // 5. Serialização e Desserialização JSON
+        JsonStr := List.ToJson;
+        AssertTrue(Length(JsonStr) > 0, 'Json gerado com sucesso via ToJson');
+        AssertTrue(Pos('Monitor Gamer 240Hz', JsonStr) > 0, 'JSON contém nome do monitor');
+        AssertTrue(Pos('1899.9', JsonStr) > 0, 'JSON contém preco em ponto fixo');
+
+        ParsedData := GetJSON(JsonStr);
+        try
+          AssertTrue(ParsedData is TJSONArray, 'JSON gerado é um array puro TJSONArray');
+          AssertEqualsInt(2, TJSONArray(ParsedData).Count, 'Array contém 2 elementos');
+        finally
+          ParsedData.Free;
+        end;
+
+        // Desserialização com FromJson
+        List2 := TFastProductList.Create;
+        try
+          List2.FromJson(JsonStr);
+          AssertEqualsInt(2, List2.Count, 'FromJson desserializou 2 itens na nova lista');
+          AssertEquals('Monitor Gamer 240Hz', List2[0].Name, 'Primeiro item desserializado confere');
+          AssertTrue(Abs(List2[0].Price - 1899.90) < 0.001, 'Preço do primeiro item confere');
+        finally
+          List2.Free;
+        end;
+      finally
+        List.Free;
+      end;
+
+      // 6. Atualização (Update) e BulkInsert Tipado
+      Found := Query.FindById(1);
+      if Found <> nil then
+      try
+        Found.Price := 1750.00;
+        Found.Stock := 30;
+        AssertTrue(Query.Update(Found), 'Query.Update(Found) retornou True');
+      finally
+        Found.Free;
+      end;
+
+      Found := Query.FindById(1);
+      if Found <> nil then
+      try
+        AssertTrue(Abs(Found.Price - 1750.00) < 0.001, 'Preço atualizado conferido');
+        AssertEqualsInt(30, Found.Stock, 'Estoque atualizado conferido');
+      finally
+        Found.Free;
+      end;
+
+      // BulkInsert tipado
+      List := TFastProductList.Create;
+      try
+        for I := 1 to 10 do
+        begin
+          P := TFastProductModel.Create;
+          P.Name := 'Produto em Lote #' + IntToStr(I);
+          P.Price := 10.0 + I;
+          P.Stock := 100;
+          P.Active := True;
+          List.Add(P);
+        end;
+        AssertEqualsInt(10, Query.BulkInsert(List, 5), 'BulkInsert inseriu 10 itens em lotes');
+      finally
+        List.Free;
+      end;
+
+      Query.Clear;
+      AssertEqualsInt(13, Query.Count, 'Total de produtos no banco após BulkInsert é 13');
+    finally
+      Query.Free;
+    end;
+  finally
+    Engine.Free;
+    if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  end;
+end;
+
+procedure TestDeclarativeSchemaValidation;
+var
+  M: TValidatedCustomerModel;
+  Passed: Boolean;
+begin
+  Suite('16. Declarative Schema Validations (Min/Max, Length, Range, Email, CPF, Positive)');
+
+  M := TValidatedCustomerModel.Create;
+  try
+    M.Name := 'Carlos Silva';
+    M.Age := 30;
+    M.Email := 'carlos.silva@empresa.com';
+    M.Cpf := '52998224725';
+    M.Score := 95.5;
+
+    Passed := False;
+    try
+      M.Validate;
+      Passed := True;
+    except
+      Passed := False;
+    end;
+    AssertTrue(Passed, 'Modelo válido passou em todas as regras declarativas');
+
+    M.Name := 'AB';
+    Passed := False;
+    try
+      M.Validate;
+    except
+      on E: EDeltaValidation do
+        Passed := True;
+    end;
+    AssertTrue(Passed, 'Nome com menos de 3 caracteres gerou EDeltaValidation');
+
+    M.Name := 'Carlos Silva';
+    M.Age := 15;
+    Passed := False;
+    try
+      M.Validate;
+    except
+      on E: EDeltaValidation do
+        Passed := True;
+    end;
+    AssertTrue(Passed, 'Idade 15 fora de Range(18, 120) gerou EDeltaValidation');
+
+    M.Age := 25;
+    M.Email := 'email-invalido';
+    Passed := False;
+    try
+      M.Validate;
+    except
+      on E: EDeltaValidation do
+        Passed := True;
+    end;
+    AssertTrue(Passed, 'Email sem formato válido gerou EDeltaValidation');
+
+    M.Email := 'carlos@empresa.com';
+    M.Cpf := '11111111111';
+    Passed := False;
+    try
+      M.Validate;
+    except
+      on E: EDeltaValidation do
+        Passed := True;
+    end;
+    AssertTrue(Passed, 'CPF com dígitos repetidos gerou EDeltaValidation');
+
+    M.Cpf := '52998224725';
+    M.Score := -5.0;
+    Passed := False;
+    try
+      M.Validate;
+    except
+      on E: EDeltaValidation do
+        Passed := True;
+    end;
+    AssertTrue(Passed, 'Score negativo violando Positive gerou EDeltaValidation');
+  finally
+    M.Free;
+  end;
+end;
+
+procedure TestTransactionScopeRAII;
+var
+  Engine: TDeltaORMEngine;
+  Tx: IDeltaTransaction;
+  CountVal: Int64;
+const
+  TEST_DB = '/tmp/test_tx_scope.sqlite';
+begin
+  Suite('17. Safe Transaction Scope & RAII Rollback');
+
+  if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  try
+    Engine.Connection.Open;
+    Engine.ExecuteDirect('CREATE TABLE tx_records (id INTEGER PRIMARY KEY, title TEXT);');
+
+    Tx := Engine.BeginTransaction;
+    AssertTrue(Tx.IsActive, 'Tx.IsActive é True após BeginTransaction');
+    AssertTrue(Engine.TransactionActive, 'Engine.TransactionActive é True');
+    Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (1, ''Item Confirmado'');');
+    Tx.Commit;
+    AssertFalse(Tx.IsActive, 'Tx.IsActive é False após Commit');
+    AssertFalse(Engine.TransactionActive, 'Engine.TransactionActive é False após Commit');
+
+    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    AssertEqualsInt(1, CountVal, 'Registro persistido após Commit');
+
+    begin
+      Tx := Engine.BeginTransaction;
+      AssertTrue(Tx.IsActive, 'Tx.IsActive é True dentro do escopo RAII');
+      Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (2, ''Item Abandonado'');');
+      Tx := nil;
+    end;
+    AssertFalse(Engine.TransactionActive, 'Engine.TransactionActive é False após auto-rollback de Tx');
+
+    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    AssertEqualsInt(1, CountVal, 'Registro não persistido após auto-rollback automático');
+
+    Tx := Engine.BeginTransaction;
+    Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (3, ''Item Revertido'');');
+    Tx.Rollback;
+    AssertFalse(Tx.IsActive, 'Tx.IsActive é False após Rollback explícito');
+    Tx := nil;
+
+    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    AssertEqualsInt(1, CountVal, 'Total no banco permanece 1 após rollback explícito');
+  finally
+    Engine.Free;
+    if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  end;
+end;
+
+procedure TestFastJsonParser;
+var
+  P: TFastProductModel;
+  List: TFastProductList;
+  Order: TTestOrder;
+  Parser: TDeltaFastJsonParser;
+  JsonStr: string;
+begin
+  Suite('18. High-Performance Lexical Fast JSON Parser');
+
+  JsonStr := '{"Id": 42, "Name": "Teclado Sem Fio", "Price": 350.50, "Cost": 180.0, "Stock": 15, "Active": true}';
+  P := TFastProductModel.Create;
+  Parser := TDeltaFastJsonParser.Create(JsonStr);
+  try
+    Parser.ParseIntoModel(P);
+    AssertEqualsInt(42, P.Id, 'Id parseado com sucesso');
+    AssertEquals('Teclado Sem Fio', P.Name, 'Name parseado com sucesso');
+    AssertTrue(Abs(P.Price - 350.50) < 0.001, 'Price parseado com sucesso');
+    AssertEqualsInt(15, P.Stock, 'Stock parseado com sucesso');
+    AssertTrue(P.Active, 'Active parseado com sucesso');
+  finally
+    Parser.Free;
+    P.Free;
+  end;
+
+  JsonStr := '{"items": [{"Id": 101, "Name": "Produto A", "Price": 10.0, "Stock": 5, "Active": true}, ' +
+             '{"Id": 102, "Name": "Produto B", "Price": 20.0, "Stock": 8, "Active": false}], ' +
+             '"page": 2, "page_size": 25, "total_records": 100, "total_pages": 4}';
+  List := TFastProductList.Create;
+  Parser := TDeltaFastJsonParser.Create(JsonStr);
+  try
+    Parser.ParseIntoList(List);
+    AssertEqualsInt(2, List.Count, 'Lista contém 2 itens parseados');
+    AssertEquals('Produto A', List[0].Name, 'Primeiro item tem nome Produto A');
+    AssertEqualsInt(102, List[1].Id, 'Segundo item tem Id 102');
+    AssertEqualsInt(2, List.page, 'Metadado page parseado');
+    AssertEqualsInt(25, List.page_size, 'Metadado page_size parseado');
+    AssertEqualsInt(100, List.total_records, 'Metadado total_records parseado');
+    AssertEqualsInt(4, List.total_pages, 'Metadado total_pages parseado');
+  finally
+    Parser.Free;
+    List.Free;
+  end;
+
+  JsonStr := '{"Id": 500, "CustomerName": "Tech Corp", "Items": [' +
+             '{"Id": 1, "OrderId": 500, "ProductName": "Mouse Gamer", "Quantity": 2}, ' +
+             '{"Id": 2, "OrderId": 500, "ProductName": "Teclado RGB", "Quantity": 1}]}';
+  Order := TTestOrder.Create;
+  Order.Items.References(TTestOrderItem, 'order_id');
+  Parser := TDeltaFastJsonParser.Create(JsonStr);
+  try
+    Parser.ParseIntoModel(Order);
+    AssertEqualsInt(500, Order.Id, 'Order.Id parseado');
+    AssertEquals('Tech Corp', Order.CustomerName, 'Order.CustomerName parseado');
+    AssertEqualsInt(2, Order.Items.Count, 'Order.Items contém 2 itens filhos');
+    AssertEquals('Mouse Gamer', TTestOrderItem(Order.Items[0]).ProductName, 'Filho 1 ProductName parseado');
+    AssertEqualsInt(2, TTestOrderItem(Order.Items[0]).Quantity, 'Filho 1 Quantity parseado');
+    AssertEquals('Teclado RGB', TTestOrderItem(Order.Items[1]).ProductName, 'Filho 2 ProductName parseado');
+  finally
+    Parser.Free;
+    Order.Free;
+  end;
+end;
+
+procedure TestLocalizationMessages;
+begin
+  Suite('19. Unified i18n Localization Messages');
+
+  SetDeltaLocale(dlEnUS);
+  AssertEquals('en-US', GetDeltaLocaleName, 'Locale padrão é en-US');
+  AssertEquals('Field Customer.Name is required.', MsgFieldRequired('Customer', 'Name'), 'MsgFieldRequired em inglês');
+  AssertEquals('Field Customer.Name minimum length is 3 characters.', MsgFieldMinLength('Customer', 'Name', 3), 'MsgFieldMinLength em inglês');
+  AssertEquals('Field Customer.Email is not a valid email address.', MsgFieldInvalidEmail('Customer', 'Email'), 'MsgFieldInvalidEmail em inglês');
+
+  SetDeltaLocale(dlPtBR);
+  AssertEquals('pt-BR', GetDeltaLocaleName, 'Locale alterado para pt-BR');
+  AssertEquals('O campo Customer.Name é obrigatório.', MsgFieldRequired('Customer', 'Name'), 'MsgFieldRequired em português');
+  AssertEquals('O campo Customer.Name deve ter no mínimo 3 caracteres.', MsgFieldMinLength('Customer', 'Name', 3), 'MsgFieldMinLength em português');
+  AssertEquals('O campo Customer.Email não é um e-mail válido.', MsgFieldInvalidEmail('Customer', 'Email'), 'MsgFieldInvalidEmail em português');
+
+  SetDeltaLocaleByName('es-es');
+  AssertEquals('es-ES', GetDeltaLocaleName, 'Locale alterado para es-ES por nome');
+  AssertEquals('El campo Customer.Name es obligatorio.', MsgFieldRequired('Customer', 'Name'), 'MsgFieldRequired em espanhol');
+  AssertEquals('El campo Customer.Name debe tener un mínimo de 3 caracteres.', MsgFieldMinLength('Customer', 'Name', 3), 'MsgFieldMinLength em espanhol');
+
+  SetDeltaLocaleByName('en-us');
+  AssertEquals('en-US', GetDeltaLocaleName, 'Locale retornado para en-US');
+end;
+
+procedure TestEagerLoadingAndStreaming;
+var
+  Engine: TDeltaORMEngine;
+  OrderQuery: specialize TDeltaQuery<TTestOrder>;
+  OrderList: specialize TGDeltaModelList<TTestOrder>;
+  SingleOrder: TTestOrder;
+  MemStream: TMemoryStream;
+  StreamStr: string;
+  StreamedCount: Int64;
+const
+  TEST_DB = '/tmp/test_eager_loading.sqlite';
+begin
+  Suite('20. 1:N Eager Loading (Include) & HTTP Chunked Streaming');
+
+  if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  try
+    Engine.Connection.Open;
+    Engine.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
+    Engine.ExecuteDirect('CREATE TABLE test_order_items (id INTEGER PRIMARY KEY, order_id INTEGER, product_name TEXT, quantity INTEGER);');
+
+    Engine.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (1, ''Alpha Inc'');');
+    Engine.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (2, ''Beta Ltd'');');
+
+    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (10, 1, ''Server Rack'', 1);');
+    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (11, 1, ''Ethernet Switch'', 4);');
+    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (12, 2, ''Fiber Cable'', 20);');
+
+    OrderQuery := specialize TDeltaQuery<TTestOrder>.Create(Engine);
+    try
+      OrderList := OrderQuery.Include('Items').All;
+      try
+        AssertEqualsInt(2, OrderList.Count, 'Consulta retornou 2 pedidos');
+        AssertEquals('Alpha Inc', OrderList[0].CustomerName, 'Primeiro pedido é Alpha Inc');
+        AssertEqualsInt(2, OrderList[0].Items.Count, 'Pedido 1 carregou eager 2 itens filhos');
+        AssertEquals('Server Rack', TTestOrderItem(OrderList[0].Items[0]).ProductName, 'Item 1 do Pedido 1 confere');
+        AssertEquals('Ethernet Switch', TTestOrderItem(OrderList[0].Items[1]).ProductName, 'Item 2 do Pedido 1 confere');
+
+        AssertEquals('Beta Ltd', OrderList[1].CustomerName, 'Segundo pedido é Beta Ltd');
+        AssertEqualsInt(1, OrderList[1].Items.Count, 'Pedido 2 carregou eager 1 item filho');
+        AssertEquals('Fiber Cable', TTestOrderItem(OrderList[1].Items[0]).ProductName, 'Item 1 do Pedido 2 confere');
+      finally
+        OrderList.Free;
+      end;
+
+      SingleOrder := OrderQuery.Include('Items').FindById(1);
+      try
+        AssertTrue(SingleOrder <> nil, 'FindById(1) retornou pedido');
+        AssertEquals('Alpha Inc', SingleOrder.CustomerName, 'SingleOrder é Alpha Inc');
+        AssertEqualsInt(2, SingleOrder.Items.Count, 'SingleOrder carregou 2 itens associados');
+      finally
+        SingleOrder.Free;
+      end;
+
+      MemStream := TMemoryStream.Create;
+      try
+        OrderQuery.Clear;
+        StreamedCount := OrderQuery.StreamJsonTo(MemStream, 1);
+        AssertEqualsInt(2, StreamedCount, 'StreamJsonTo transmitiu 2 registros em lotes de tamanho 1');
+        SetString(StreamStr, PAnsiChar(MemStream.Memory), MemStream.Size);
+        AssertTrue(StreamStr.StartsWith('['), 'Stream JSON inicia com array "["');
+        AssertTrue(StreamStr.EndsWith(']'), 'Stream JSON encerra com array "]"');
+        AssertTrue(Pos('Alpha Inc', StreamStr) > 0, 'Stream contém Alpha Inc');
+        AssertTrue(Pos('Beta Ltd', StreamStr) > 0, 'Stream contém Beta Ltd');
+      finally
+        MemStream.Free;
+      end;
+    finally
+      OrderQuery.Free;
+    end;
+  finally
+    Engine.Free;
+    if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  end;
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -1903,6 +2533,12 @@ begin
     TestColumnBindingMap;
     TestFastJsonStreamer;
     TestDirectTypedProperties;
+    TestApproachBFluentSchemaAndGenerics;
+    TestDeclarativeSchemaValidation;
+    TestTransactionScopeRAII;
+    TestFastJsonParser;
+    TestLocalizationMessages;
+    TestEagerLoadingAndStreaming;
   except
     on E: Exception do
     begin

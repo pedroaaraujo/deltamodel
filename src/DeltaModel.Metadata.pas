@@ -11,6 +11,7 @@ type
   { Representa os metadados de uma propriedade RTTI em cache }
   PDeltaPropItem = ^TDeltaPropItem;
   TDeltaPropItem = record
+    Index: Integer;
     PropInfo: PPropInfo;
     Name: string;
     PropKind: TTypeKind;
@@ -33,23 +34,29 @@ type
   public
     constructor Create(AClass: TClass);
     function FindProp(const AName: string): PDeltaPropItem;
+    function FindPropIndex(const AName: string): Integer;
     property ClassType: TClass read FClassType;
     property Props: TDeltaPropItemArray read FProps;
     property PropCount: Integer read FPropCount;
   end;
 
-  { Metadados específicos de um campo TDeltaField dentro de TDeltaModel }
+  { Metadados específicos de um campo TDeltaField ou propriedade primitiva dentro de TDeltaModel }
   PDeltaFieldMeta = ^TDeltaFieldMeta;
   TDeltaFieldMeta = record
     PropInfo: PPropInfo;
     PropName: string;
     FieldName: string;
+    PropIndex: Integer;
     IsPrimaryKey: Boolean;
     IsAutoInc: Boolean;
     IsRequired: Boolean;
     FieldClass: TClass;
     FieldKind: TDeltaFieldKind;
     IsVirtual: Boolean;
+    IsDeltaField: Boolean;
+    DBOptions: TDBOptionsSet;
+    FieldSize: Integer;
+    SchemaField: TDeltaSchemaField;
   end;
   TDeltaFieldMetaArray = array of TDeltaFieldMeta;
 
@@ -64,9 +71,11 @@ type
     FFields: TDeltaFieldMetaArray;
     FFieldCount: Integer;
     FRTTIInfo: TRTTIClassInfo;
+    FSchema: TDeltaModelSchema;
     procedure ExtractMetadata;
   public
     constructor Create(AModelClass: TClass; ARTTIInfo: TRTTIClassInfo);
+    destructor Destroy; override;
     function FindField(const AFieldName: string): PDeltaFieldMeta;
     function FindFieldByProp(const APropName: string): PDeltaFieldMeta;
     property ModelClass: TClass read FModelClass;
@@ -77,6 +86,7 @@ type
     property Fields: TDeltaFieldMetaArray read FFields;
     property FieldCount: Integer read FFieldCount;
     property RTTIInfo: TRTTIClassInfo read FRTTIInfo;
+    property Schema: TDeltaModelSchema read FSchema;
   end;
 
   { Cache global thread-safe de RTTI e Metadados }
@@ -133,6 +143,7 @@ begin
       for I := 0 to RawCount - 1 do
       begin
         PInfo := RawPropList^[I];
+        FProps[I].Index := I;
         FProps[I].PropInfo := PInfo;
         FProps[I].Name := PInfo^.Name;
         FProps[I].PropKind := PInfo^.PropType^.Kind;
@@ -175,6 +186,18 @@ begin
   Result := nil;
 end;
 
+function TRTTIClassInfo.FindPropIndex(const AName: string): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to FPropCount - 1 do
+  begin
+    if SameText(FProps[I].Name, AName) then
+      Exit(I);
+  end;
+  Result := -1;
+end;
+
 { TModelMetadata }
 
 constructor TModelMetadata.Create(AModelClass: TClass; ARTTIInfo: TRTTIClassInfo);
@@ -182,7 +205,14 @@ begin
   inherited Create;
   FModelClass := AModelClass;
   FRTTIInfo := ARTTIInfo;
+  FSchema := nil;
   ExtractMetadata;
+end;
+
+destructor TModelMetadata.Destroy;
+begin
+  FSchema.Free;
+  inherited Destroy;
 end;
 
 procedure TModelMetadata.ExtractMetadata;
@@ -193,6 +223,7 @@ var
   NestedObj: TObject;
   DField: TDeltaField;
   Meta: TDeltaFieldMeta;
+  SchemaField: TDeltaSchemaField;
 begin
   FTableName := '';
   FPKFieldName := '';
@@ -204,21 +235,79 @@ begin
   if not Assigned(FModelClass) then
     Exit;
 
-  // Extrai nome padrão da tabela por convenção caso não consiga instanciar
+  // Extrai nome padrão da tabela por convenção
   FTableName := AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt));
 
-  // Instancia uma única vez para ler propriedades configuradas em TDeltaModel.Configure
   if FModelClass.InheritsFrom(TDeltaModel) then
   begin
+    // 1. Processa Schema fluente da classe (Abordagem B: Propriedades Primitivas)
+    FSchema := TDeltaModelSchema.Create;
+    TDeltaModelClass(FModelClass).ConfigureSchema(FSchema);
+    if not FSchema.TableName.IsEmpty then
+      FTableName := FSchema.TableName;
+
+    for I := 0 to FSchema.FieldCount - 1 do
+    begin
+      SchemaField := FSchema.Fields[I];
+      PropItem := FRTTIInfo.FindProp(SchemaField.PropName);
+      if PropItem <> nil then
+      begin
+        Meta.PropInfo := PropItem^.PropInfo;
+        Meta.PropName := PropItem^.Name;
+        Meta.FieldName := SchemaField.FieldName;
+        if Meta.FieldName.IsEmpty then
+          Meta.FieldName := LowerCase(PropItem^.Name);
+        Meta.PropIndex := PropItem^.Index;
+        Meta.IsPrimaryKey := (dboPrimaryKey in SchemaField.DBOptions);
+        Meta.IsAutoInc := (dboAutoInc in SchemaField.DBOptions);
+        Meta.IsRequired := SchemaField.IsRequired;
+        Meta.FieldClass := nil;
+        Meta.IsVirtual := False;
+        Meta.IsDeltaField := False;
+        Meta.DBOptions := SchemaField.DBOptions;
+        Meta.FieldSize := SchemaField.FieldSize;
+        Meta.SchemaField := SchemaField;
+
+        case PropItem^.PropKind of
+          tkInteger, tkInt64:
+            Meta.FieldKind := dfkInteger;
+          tkFloat:
+            Meta.FieldKind := dfkFloat;
+          tkBool:
+            Meta.FieldKind := dfkBoolean;
+          tkString, tkLString, tkAString, tkWString, tkUString:
+            Meta.FieldKind := dfkString;
+        else
+          Meta.FieldKind := dfkString;
+        end;
+
+        SetLength(FFields, FFieldCount + 1);
+        FFields[FFieldCount] := Meta;
+        Inc(FFieldCount);
+
+        if Meta.IsPrimaryKey and (FPKFieldName.IsEmpty) then
+        begin
+          FPKFieldName := Meta.FieldName;
+          FPKPropName := Meta.PropName;
+          FPKPropInfo := Meta.PropInfo;
+        end;
+      end;
+    end;
+
+    // 2. Processa campos adicionais ou TDeltaField (incluindo TDFHasOne, TDFHasMany)
     try
       TempInstance := TDeltaModelClass(FModelClass).Create;
       try
-        FTableName := TDeltaModel(TempInstance).TableName;
+        if FTableName = AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt)) then
+        begin
+          if not TDeltaModel(TempInstance).TableName.IsEmpty then
+            FTableName := TDeltaModel(TempInstance).TableName;
+        end;
 
         for I := 0 to FRTTIInfo.PropCount - 1 do
         begin
           PropItem := @FRTTIInfo.Props[I];
-          if PropItem^.IsClass and PropItem^.HasGetProc then
+          if (FindFieldByProp(PropItem^.Name) = nil) and PropItem^.IsClass and PropItem^.HasGetProc then
           begin
             NestedObj := GetObjectProp(TempInstance, PropItem^.PropInfo);
             if NestedObj is TDeltaField then
@@ -229,12 +318,17 @@ begin
               Meta.FieldName := DField.FieldName;
               if Meta.FieldName.IsEmpty then
                 Meta.FieldName := PropItem^.Name;
+              Meta.PropIndex := PropItem^.Index;
               Meta.IsPrimaryKey := (dboPrimaryKey in DField.DBOptions);
               Meta.IsAutoInc := (dboAutoInc in DField.DBOptions);
               Meta.IsRequired := (DField.IsRequired);
               Meta.FieldClass := DField.ClassType;
               Meta.FieldKind := DField.FieldKind;
               Meta.IsVirtual := DField.IsVirtual;
+              Meta.IsDeltaField := True;
+              Meta.DBOptions := DField.DBOptions;
+              Meta.FieldSize := 0;
+              Meta.SchemaField := nil;
 
               SetLength(FFields, FFieldCount + 1);
               FFields[FFieldCount] := Meta;

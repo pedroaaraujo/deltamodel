@@ -17,6 +17,7 @@ type
     FieldKind: TDeltaFieldKind;
     IsDeltaField: Boolean;
     RegularPropKind: TTypeKind;
+    PropIndex: Integer;
   end;
   TColumnBindingItemArray = array of TColumnBindingItem;
 
@@ -68,7 +69,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(FModelClass);
   ClassProps := TRTTICache.GetClassProps(FModelClass);
 
-  // 1. Vincula campos TDeltaField via TModelMetadata
+  // 1. Vincula campos via TModelMetadata (TDeltaField e propriedades primitivas do Schema)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -83,8 +84,12 @@ begin
       Item.Field := F;
       Item.PropInfo := FieldMeta^.PropInfo;
       Item.FieldKind := FieldMeta^.FieldKind;
-      Item.IsDeltaField := True;
-      Item.RegularPropKind := tkUnknown;
+      Item.IsDeltaField := FieldMeta^.IsDeltaField;
+      Item.PropIndex := FieldMeta^.PropIndex;
+      if not FieldMeta^.IsDeltaField then
+        Item.RegularPropKind := FieldMeta^.PropInfo^.PropType^.Kind
+      else
+        Item.RegularPropKind := tkUnknown;
 
       SetLength(FBindings, FBindingCount + 1);
       FBindings[FBindingCount] := Item;
@@ -92,11 +97,14 @@ begin
     end;
   end;
 
-  // 2. Vincula propriedades publicadas regulares (não-TDeltaField)
+  // 2. Vincula propriedades publicadas regulares não declaradas no Schema
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
     if PropItem^.IsDeltaField or (not PropItem^.HasSetProc) then Continue;
+
+    // Se já foi vinculada pelo Schema, pula
+    if Meta.FindFieldByProp(PropItem^.Name) <> nil then Continue;
 
     F := ADS.FindField(PropItem^.Name);
     if F <> nil then
@@ -106,6 +114,7 @@ begin
       Item.FieldKind := dfkString;
       Item.IsDeltaField := False;
       Item.RegularPropKind := PropItem^.PropKind;
+      Item.PropIndex := PropItem^.Index;
 
       SetLength(FBindings, FBindingCount + 1);
       FBindings[FBindingCount] := Item;
@@ -162,8 +171,13 @@ begin
     end
     else
     begin
-      if DSField.IsNull then Continue;
+      if DSField.IsNull then
+      begin
+        AModel.SetNull(Item^.PropIndex);
+        Continue;
+      end;
 
+      AModel.ClearNull(Item^.PropIndex);
       try
         case Item^.RegularPropKind of
           tkInteger, tkInt64:
@@ -224,53 +238,83 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos TDeltaField
+  // 1. Campos mapeados via TModelMetadata (TDeltaField e primitivos)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
     if FieldMeta^.IsVirtual or FieldMeta^.FieldName.IsEmpty then Continue;
 
     Param := DS.Params.FindParam(FieldMeta^.FieldName);
+    if Param = nil then
+      Param := DS.Params.FindParam(FieldMeta^.PropName);
+
     if Param <> nil then
     begin
-      PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
-      if PropObj is TDeltaField then
+      if FieldMeta^.IsDeltaField then
       begin
-        DeltaField := TDeltaField(PropObj);
-        if DeltaField.IsNull then
-          Param.Clear
-        else
-        if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+        PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
+        if PropObj is TDeltaField then
         begin
-          Param.DataType := ftMemo;
-          Param.AsMemo := DeltaField.AsString;
-        end
+          DeltaField := TDeltaField(PropObj);
+          if DeltaField.IsNull then
+            Param.Clear
+          else
+          if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+          begin
+            Param.DataType := ftMemo;
+            Param.AsMemo := DeltaField.AsString;
+          end
+          else
+          begin
+            case FieldMeta^.FieldKind of
+              dfkInteger:
+                Param.AsLargeInt := DeltaField.AsLargeInt;
+              dfkFloat:
+                Param.AsFloat := DeltaField.AsFloat;
+              dfkString:
+                Param.AsString := DeltaField.AsString;
+              dfkBoolean:
+                Param.AsBoolean := DeltaField.AsBoolean;
+              dfkDateTime:
+                Param.AsDateTime := DeltaField.AsDateTime;
+            else
+              Param.Value := DeltaField.Value;
+            end;
+          end;
+        end;
+      end
+      else
+      begin
+        // Propriedade Primitiva
+        if AModel.IsNull(FieldMeta^.PropIndex) then
+          Param.Clear
         else
         begin
           case FieldMeta^.FieldKind of
             dfkInteger:
-              Param.AsLargeInt := DeltaField.AsLargeInt;
+              Param.AsLargeInt := GetOrdProp(AModel, FieldMeta^.PropInfo);
             dfkFloat:
-              Param.AsFloat := DeltaField.AsFloat;
-            dfkString:
-              Param.AsString := DeltaField.AsString;
+              Param.AsFloat := GetFloatProp(AModel, FieldMeta^.PropInfo);
             dfkBoolean:
-              Param.AsBoolean := DeltaField.AsBoolean;
+              Param.AsBoolean := Boolean(GetOrdProp(AModel, FieldMeta^.PropInfo));
             dfkDateTime:
-              Param.AsDateTime := DeltaField.AsDateTime;
+              Param.AsDateTime := GetFloatProp(AModel, FieldMeta^.PropInfo);
+            dfkString:
+              Param.AsString := GetStrProp(AModel, FieldMeta^.PropInfo);
           else
-            Param.Value := DeltaField.Value;
+            Param.Value := GetPropValue(AModel, FieldMeta^.PropName);
           end;
         end;
       end;
     end;
   end;
 
-  // 2. Propriedades publicadas normais
+  // 2. Propriedades publicadas normais (não declaradas no Schema)
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
     if PropItem^.IsDeltaField or (not PropItem^.HasGetProc) then Continue;
+    if Meta.FindFieldByProp(PropItem^.Name) <> nil then Continue;
 
     Param := DS.Params.FindParam(PropItem^.Name);
     if Param <> nil then
@@ -311,7 +355,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos TDeltaField
+  // 1. Campos mapeados via TModelMetadata (TDeltaField e primitivos)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -319,35 +363,67 @@ begin
 
     ParamName := FieldMeta^.FieldName + '_' + IntToStr(AIndex);
     Param := DS.Params.FindParam(ParamName);
+    if Param = nil then
+    begin
+      ParamName := FieldMeta^.PropName + '_' + IntToStr(AIndex);
+      Param := DS.Params.FindParam(ParamName);
+    end;
+
     if Param <> nil then
     begin
-      PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
-      if PropObj is TDeltaField then
+      if FieldMeta^.IsDeltaField then
       begin
-        DeltaField := TDeltaField(PropObj);
-        if DeltaField.IsNull then
-          Param.Clear
-        else
-        if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+        PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
+        if PropObj is TDeltaField then
         begin
-          Param.DataType := ftMemo;
-          Param.AsMemo := DeltaField.AsString;
-        end
+          DeltaField := TDeltaField(PropObj);
+          if DeltaField.IsNull then
+            Param.Clear
+          else
+          if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
+          begin
+            Param.DataType := ftMemo;
+            Param.AsMemo := DeltaField.AsString;
+          end
+          else
+          begin
+            case FieldMeta^.FieldKind of
+              dfkInteger:
+                Param.AsLargeInt := DeltaField.AsLargeInt;
+              dfkFloat:
+                Param.AsFloat := DeltaField.AsFloat;
+              dfkString:
+                Param.AsString := DeltaField.AsString;
+              dfkBoolean:
+                Param.AsBoolean := DeltaField.AsBoolean;
+              dfkDateTime:
+                Param.AsDateTime := DeltaField.AsDateTime;
+            else
+              Param.Value := DeltaField.Value;
+            end;
+          end;
+        end;
+      end
+      else
+      begin
+        // Propriedade Primitiva
+        if AModel.IsNull(FieldMeta^.PropIndex) then
+          Param.Clear
         else
         begin
           case FieldMeta^.FieldKind of
             dfkInteger:
-              Param.AsLargeInt := DeltaField.AsLargeInt;
+              Param.AsLargeInt := GetOrdProp(AModel, FieldMeta^.PropInfo);
             dfkFloat:
-              Param.AsFloat := DeltaField.AsFloat;
-            dfkString:
-              Param.AsString := DeltaField.AsString;
+              Param.AsFloat := GetFloatProp(AModel, FieldMeta^.PropInfo);
             dfkBoolean:
-              Param.AsBoolean := DeltaField.AsBoolean;
+              Param.AsBoolean := Boolean(GetOrdProp(AModel, FieldMeta^.PropInfo));
             dfkDateTime:
-              Param.AsDateTime := DeltaField.AsDateTime;
+              Param.AsDateTime := GetFloatProp(AModel, FieldMeta^.PropInfo);
+            dfkString:
+              Param.AsString := GetStrProp(AModel, FieldMeta^.PropInfo);
           else
-            Param.Value := DeltaField.Value;
+            Param.Value := GetPropValue(AModel, FieldMeta^.PropName);
           end;
         end;
       end;
@@ -359,6 +435,7 @@ begin
   begin
     PropItem := @ClassProps.Props[I];
     if PropItem^.IsDeltaField or (not PropItem^.HasGetProc) then Continue;
+    if Meta.FindFieldByProp(PropItem^.Name) <> nil then Continue;
 
     ParamName := PropItem^.Name + '_' + IntToStr(AIndex);
     Param := DS.Params.FindParam(ParamName);

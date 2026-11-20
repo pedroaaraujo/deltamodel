@@ -11,12 +11,21 @@ type
   TDeltaTransactionProc = procedure of object;
   TDeltaTransactionStaticProc = procedure;
 
+  { IDeltaTransaction: Escopo de transação seguro RAII }
+  IDeltaTransaction = interface
+    ['{B1A456C8-1122-3344-5566-778899AABBCC}']
+    procedure Commit;
+    procedure Rollback;
+    function IsActive: Boolean;
+  end;
+
   IDeltaORMEngine = interface
   ['{5FCD6178-213B-42D9-8712-33B953EEDACD}']
     procedure StartTransaction;
     procedure Commit;
     procedure Rollback;
     function TransactionActive: Boolean;
+    function BeginTransaction: IDeltaTransaction;
     procedure InTransaction(AProc: TDeltaTransactionProc); overload;
     procedure InTransaction(AProc: TDeltaTransactionStaticProc); overload;
 

@@ -184,7 +184,7 @@ procedure TDeltaFastJsonStreamer.WriteModel(AModel: TDeltaModel);
 var
   Meta: TModelMetadata;
   ClassProps: TRTTIClassInfo;
-  I: Integer;
+  I, J: Integer;
   FieldMeta: PDeltaFieldMeta;
   PropItem: PDeltaPropItem;
   PropObj: TObject;
@@ -203,61 +203,110 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos gerenciados TDeltaField
+  // 1. Campos gerenciados (TDeltaField e primitivos via TModelMetadata)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
-    PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
-    if (PropObj = nil) or not (PropObj is TDeltaField) then Continue;
-    DeltaField := TDeltaField(PropObj);
 
-    if not DeltaField.Visible then Continue;
-
-    if HasWrittenField then AppendChar(',');
-    HasWrittenField := True;
-
-    AppendString(FieldMeta^.PropName);
-    AppendChar(':');
-
-    if DeltaField is TDFHasOne then
+    if FieldMeta^.IsDeltaField then
     begin
-      if Assigned(TDFHasOne(DeltaField).Model) then
-        WriteModel(TDeltaModel(TDFHasOne(DeltaField).Model))
-      else
+      PropObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
+      if (PropObj = nil) or not (PropObj is TDeltaField) then Continue;
+      DeltaField := TDeltaField(PropObj);
+
+      if not DeltaField.Visible then Continue;
+
+      if HasWrittenField then AppendChar(',');
+      HasWrittenField := True;
+
+      AppendString(FieldMeta^.PropName);
+      AppendChar(':');
+
+      if DeltaField is TDFHasOne then
+      begin
+        if Assigned(TDFHasOne(DeltaField).Model) then
+          WriteModel(TDeltaModel(TDFHasOne(DeltaField).Model))
+        else
+          AppendNull;
+      end
+      else if DeltaField is TDFHasMany then
+      begin
+        AppendChar('[');
+        for J := 0 to TDFHasMany(DeltaField).Count - 1 do
+        begin
+          if J > 0 then AppendChar(',');
+          if TDFHasMany(DeltaField)[J] is TDeltaModel then
+            WriteModel(TDeltaModel(TDFHasMany(DeltaField)[J]))
+          else
+            AppendNull;
+        end;
+        AppendChar(']');
+      end
+      else if DeltaField.IsNull then
+      begin
         AppendNull;
-    end
-    else if DeltaField.IsNull then
-    begin
-      AppendNull;
+      end
+      else
+      begin
+        case FieldMeta^.FieldKind of
+          dfkInteger:
+            AppendInt64(DeltaField.AsLargeInt);
+
+          dfkFloat:
+            AppendFloat(DeltaField.AsFloat, 8);
+
+          dfkBoolean:
+            AppendBoolean(DeltaField.AsBoolean);
+
+          dfkDateTime:
+            AppendString(DeltaField.AsString);
+
+          dfkString:
+            AppendString(DeltaField.AsString);
+        else
+          AppendString(DeltaField.AsString);
+        end;
+      end;
     end
     else
     begin
-      case FieldMeta^.FieldKind of
-        dfkInteger:
-          AppendInt64(DeltaField.AsLargeInt);
+      // Propriedade Primitiva (Abordagem B)
+      if HasWrittenField then AppendChar(',');
+      HasWrittenField := True;
 
-        dfkFloat:
-          AppendFloat(DeltaField.AsFloat, 8);
+      AppendString(FieldMeta^.PropName);
+      AppendChar(':');
 
-        dfkBoolean:
-          AppendBoolean(DeltaField.AsBoolean);
-
-        dfkDateTime:
-          AppendString(DeltaField.AsString);
-
-        dfkString:
-          AppendString(DeltaField.AsString);
+      if AModel.IsNull(FieldMeta^.PropIndex) then
+      begin
+        AppendNull;
+      end
       else
-        AppendString(DeltaField.AsString);
+      begin
+        case FieldMeta^.FieldKind of
+          dfkInteger:
+            AppendInt64(GetOrdProp(AModel, FieldMeta^.PropInfo));
+          dfkFloat:
+            AppendFloat(GetFloatProp(AModel, FieldMeta^.PropInfo), 8);
+          dfkBoolean:
+            AppendBoolean(Boolean(GetOrdProp(AModel, FieldMeta^.PropInfo)));
+          dfkDateTime:
+            AppendString(FormatDateTime('yyyy-mm-dd hh:nn:ss', GetFloatProp(AModel, FieldMeta^.PropInfo)));
+          dfkString:
+            AppendString(GetStrProp(AModel, FieldMeta^.PropInfo));
+        else
+          AppendString(GetStrProp(AModel, FieldMeta^.PropInfo));
+        end;
       end;
     end;
   end;
 
-  // 2. Propriedades publicadas normais (não-TDeltaField)
+  // 2. Propriedades publicadas normais (não declaradas no Schema e não-TDeltaField)
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
     if PropItem^.IsDeltaField or (not PropItem^.HasGetProc) then Continue;
+    if Meta.FindFieldByProp(PropItem^.Name) <> nil then Continue;
 
     if HasWrittenField then AppendChar(',');
     HasWrittenField := True;

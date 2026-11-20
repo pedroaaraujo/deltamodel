@@ -111,6 +111,7 @@ type
     procedure Commit;
     procedure Rollback;
     function TransactionActive: Boolean;
+    function BeginTransaction: IDeltaTransaction;
     procedure InTransaction(AProc: TDeltaTransactionProc); overload;
     procedure InTransaction(AProc: TDeltaTransactionStaticProc); overload;
     function Connection: TSQLConnector;
@@ -403,6 +404,12 @@ function TDeltaPooledEngine.TransactionActive: Boolean;
 begin
   CheckReleased;
   Result := FEngine.TransactionActive;
+end;
+
+function TDeltaPooledEngine.BeginTransaction: IDeltaTransaction;
+begin
+  CheckReleased;
+  Result := FEngine.BeginTransaction;
 end;
 
 procedure TDeltaPooledEngine.InTransaction(AProc: TDeltaTransactionProc);

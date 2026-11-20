@@ -34,6 +34,7 @@ type
     function TransactionActive: Boolean;
     procedure Commit;
     procedure Rollback;
+    function BeginTransaction: IDeltaTransaction;
     procedure InTransaction(AProc: TDeltaTransactionProc); overload;
     procedure InTransaction(AProc: TDeltaTransactionStaticProc); overload;
     procedure Disconnect;
@@ -204,6 +205,69 @@ procedure TDeltaORMEngine.Commit;
 begin
   if FTransaction.Active then
     FTransaction.Commit;
+end;
+
+{ TDeltaTransactionScope }
+
+type
+  TDeltaTransactionScope = class(TInterfacedObject, IDeltaTransaction)
+  private
+    FEngine: IDeltaORMEngine;
+    FActive: Boolean;
+  public
+    constructor Create(AEngine: IDeltaORMEngine);
+    destructor Destroy; override;
+    procedure Commit;
+    procedure Rollback;
+    function IsActive: Boolean;
+  end;
+
+constructor TDeltaTransactionScope.Create(AEngine: IDeltaORMEngine);
+begin
+  inherited Create;
+  FEngine := AEngine;
+  FActive := False;
+  if FEngine <> nil then
+  begin
+    if not FEngine.TransactionActive then
+      FEngine.StartTransaction;
+    FActive := True;
+  end;
+end;
+
+destructor TDeltaTransactionScope.Destroy;
+begin
+  if FActive then
+    Rollback;
+  inherited Destroy;
+end;
+
+procedure TDeltaTransactionScope.Commit;
+begin
+  if FActive and (FEngine <> nil) then
+  begin
+    FEngine.Commit;
+    FActive := False;
+  end;
+end;
+
+procedure TDeltaTransactionScope.Rollback;
+begin
+  if FActive and (FEngine <> nil) then
+  begin
+    FEngine.Rollback;
+    FActive := False;
+  end;
+end;
+
+function TDeltaTransactionScope.IsActive: Boolean;
+begin
+  Result := FActive and (FEngine <> nil) and FEngine.TransactionActive;
+end;
+
+function TDeltaORMEngine.BeginTransaction: IDeltaTransaction;
+begin
+  Result := TDeltaTransactionScope.Create(Self);
 end;
 
 procedure TDeltaORMEngine.Rollback;

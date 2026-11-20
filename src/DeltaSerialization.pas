@@ -21,7 +21,7 @@ procedure CopyObject(AFrom, ATo: TObject);
 implementation
 
 uses
-  DeltaModel, DeltaModel.Metadata;
+  DeltaModel, DeltaModel.Metadata, DeltaModel.JsonParser;
 
 type
   { TDeltaJSONFloat }
@@ -84,7 +84,8 @@ var
   PropItem: PDeltaPropItem;
   PropInfo: PPropInfo;
   PropType: PTypeInfo;
-  I: Integer;
+  I, K: Integer;
+  ChildObj: TObject;
   PropValue: TJSONData;
   PropObj: TObject;
   PropName, ValueStr: string;
@@ -104,9 +105,20 @@ begin
     begin
       if not JsonData.Find(LowerCase(PropName), PropValue) then
           Continue;
-      end;
+    end;
 
-      PropType := PropInfo^.PropType;
+    if (PropValue.JSONType = jtNull) and not (PropInfo^.PropType^.Kind = tkClass) then
+    begin
+      if Obj is TDeltaModel then
+        TDeltaModel(Obj).SetNull(PropItem^.Index);
+      Continue;
+    end
+    else if (Obj is TDeltaModel) and not (PropInfo^.PropType^.Kind = tkClass) then
+    begin
+      TDeltaModel(Obj).ClearNull(PropItem^.Index);
+    end;
+
+    PropType := PropInfo^.PropType;
       case PropType^.Kind of
         tkString, tkWString, tkLString, tkAString, tkChar, tkWChar, tkUnicodeString:
         begin
@@ -156,6 +168,20 @@ begin
                   end;
                   if Assigned((PropObj as TDFHasOne).Model) then
                     DeserializeObj((PropObj as TDFHasOne).Model, TJSONObject(PropValue));
+                end;
+              end
+              else if (PropObj is TDFHasMany) then
+              begin
+                (PropObj as TDFHasMany).Clear;
+                if (PropValue is TJSONArray) and ((PropObj as TDFHasMany).RelationClass <> nil) then
+                begin
+                  for K := 0 to TJSONArray(PropValue).Count - 1 do
+                  begin
+                    ChildObj := CreateModelInstance((PropObj as TDFHasMany).RelationClass);
+                    if TJSONArray(PropValue)[K] is TJSONObject then
+                      DeserializeObj(ChildObj, TJSONObject(TJSONArray(PropValue)[K]));
+                    (PropObj as TDFHasMany).Add(ChildObj);
+                  end;
                 end;
               end
               else if (PropObj is TDFDateRequired) or (PropObj is TDFDateNull) or
@@ -293,6 +319,13 @@ begin
                     JsonData.Add(PropName, SerializeToJsonObj((NestedObj as TDFHasOne).Model))
                   else
                     JsonData.Add(PropName, TJSONNull.Create);
+                end
+                else if NestedObj is TDFHasMany then
+                begin
+                  JsonArr := TJSONArray.Create;
+                  for Item := 0 to (NestedObj as TDFHasMany).Count - 1 do
+                    JsonArr.Add(SerializeToJsonObj((NestedObj as TDFHasMany)[Item]));
+                  JsonData.Add(PropName, JsonArr);
                 end
                 else if (NestedObj as TDeltaField).IsNull then
                 begin
@@ -599,7 +632,8 @@ procedure CopyObject(AFrom, ATo: TObject);
 var
   ClassInfoFrom, ClassInfoTo: TRTTIClassInfo;
   PropItemFrom, PropItemTo: PDeltaPropItem;
-  I: Integer;
+  I, K: Integer;
+  ChildObj: TObject;
   PropInfoFrom, PropInfoTo: PPropInfo;
   ObjFrom, ObjTo: TObject;
 begin
@@ -655,6 +689,19 @@ begin
                 end
                 else
                   (ObjTo as TDFHasOne).Clear;
+              end
+              else if (ObjFrom is TDFHasMany) and (ObjTo is TDFHasMany) then
+              begin
+                (ObjTo as TDFHasMany).Clear;
+                if (ObjTo as TDFHasMany).RelationClass <> nil then
+                begin
+                  for K := 0 to (ObjFrom as TDFHasMany).Count - 1 do
+                  begin
+                    ChildObj := CreateModelInstance((ObjTo as TDFHasMany).RelationClass);
+                    CopyObject((ObjFrom as TDFHasMany)[K], ChildObj);
+                    (ObjTo as TDFHasMany).Add(ChildObj);
+                  end;
+                end;
               end
               else
                 (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;
@@ -719,6 +766,19 @@ begin
                 end
                 else
                   (ObjTo as TDFHasOne).Clear;
+              end
+              else if (ObjFrom is TDFHasMany) and (ObjTo is TDFHasMany) then
+              begin
+                (ObjTo as TDFHasMany).Clear;
+                if (ObjTo as TDFHasMany).RelationClass <> nil then
+                begin
+                  for K := 0 to (ObjFrom as TDFHasMany).Count - 1 do
+                  begin
+                    ChildObj := CreateModelInstance((ObjTo as TDFHasMany).RelationClass);
+                    CopyObject((ObjFrom as TDFHasMany)[K], ChildObj);
+                    (ObjTo as TDFHasMany).Add(ChildObj);
+                  end;
+                end;
               end
               else
                 (ObjTo as TDeltaField).Value := (ObjFrom as TDeltaField).Value;

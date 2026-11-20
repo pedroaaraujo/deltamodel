@@ -5,7 +5,7 @@ unit DeltaModel.Fields;
 interface
 
 uses
-  Classes, SysUtils, DateUtils, Variants, DeltaModelMessages;
+  Classes, SysUtils, DateUtils, Variants, fgl, DeltaModelMessages;
 
 type
   TDBOption = (dboPrimaryKey, dboUpdate, dboAutoInc, dboInsert, dboUnique, dboIndex);
@@ -401,22 +401,36 @@ type
       AOnDelete: TForeignKeyEvent = fkRestrict; AOnUpdate: TForeignKeyEvent = fkCascade);
   end;
 
+  TDFHasManyList = specialize TFPGObjectList<TObject>;
+
   { TDFHasMany }
 
   TDFHasMany = class(TDeltaField)
   private
     FRelationClass: TClass;
+    FForeignKeyField: string;
+    FReferencesField: string;
+    FItems: TDFHasManyList;
+    function GetCount: Integer;
+    function GetItem(AIndex: Integer): TObject;
   protected
     function GetValue: Variant; override;
     procedure SetValue(AValue: Variant); override;
   public
     constructor Create; override;
-    procedure References(ARelationClass: TClass);
+    destructor Destroy; override;
+    procedure References(ARelationClass: TClass; const AForeignKey: string = ''; const AReferencesField: string = 'id');
+    procedure Add(AItem: TObject);
+    procedure Clear; override;
     function IsNull: Boolean; override;
     function IsValid: Boolean; override;
     function SwaggerDataType: string; override;
-    procedure Clear; override;
+    property Count: Integer read GetCount;
+    property Items[AIndex: Integer]: TObject read GetItem; default;
+    property List: TDFHasManyList read FItems;
     property RelationClass: TClass read FRelationClass;
+    property ForeignKeyField: string read FForeignKeyField;
+    property ReferencesField: string read FReferencesField;
   end;
 
   { TDFHasOne }
@@ -451,7 +465,411 @@ type
 procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 function IsValidUUID(const S: string): Boolean;
 
+type
+  { TDeltaSchemaField: Metadados fluentes para propriedades primitivas }
+  TDeltaSchemaField = class
+  private
+    FPropName: string;
+    FFieldName: string;
+    FDBOptions: TDBOptionsSet;
+    FIsRequired: Boolean;
+    FFieldSize: Integer;
+    FFieldKind: TDeltaFieldKind;
+    FDefaultValue: Variant;
+    // Validações declarativas
+    FHasMin: Boolean;
+    FHasMax: Boolean;
+    FMin: Double;
+    FMax: Double;
+    FHasMinLength: Boolean;
+    FHasMaxLength: Boolean;
+    FMinLength: Integer;
+    FMaxLength: Integer;
+    FIsPositive: Boolean;
+    FIsNotEmpty: Boolean;
+    FIsEmail: Boolean;
+    FIsCPF: Boolean;
+    FIsCNPJ: Boolean;
+    FIsCPF_CNPJ: Boolean;
+    FIsURL: Boolean;
+  public
+    constructor Create(const APropName: string);
+    function Column(const AName: string): TDeltaSchemaField;
+    function AsPK: TDeltaSchemaField;
+    function AutoInc: TDeltaSchemaField;
+    function Required: TDeltaSchemaField;
+    function Nullable: TDeltaSchemaField;
+    function Size(ASize: Integer): TDeltaSchemaField;
+    function Default(AValue: Variant): TDeltaSchemaField;
+    function ReadOnly: TDeltaSchemaField;
+
+    // Métodos fluentes de validação declarativa
+    function Min(AVal: Double): TDeltaSchemaField;
+    function Max(AVal: Double): TDeltaSchemaField;
+    function Range(AMin, AMax: Double): TDeltaSchemaField;
+    function MinLength(ALen: Integer): TDeltaSchemaField;
+    function MaxLength(ALen: Integer): TDeltaSchemaField;
+    function LengthRange(AMin, AMax: Integer): TDeltaSchemaField;
+    function Positive: TDeltaSchemaField;
+    function NotEmpty: TDeltaSchemaField;
+    function Email: TDeltaSchemaField;
+    function CPF: TDeltaSchemaField;
+    function CNPJ: TDeltaSchemaField;
+    function CPF_CNPJ: TDeltaSchemaField;
+    function URL: TDeltaSchemaField;
+
+    property PropName: string read FPropName;
+    property FieldName: string read FFieldName;
+    property DBOptions: TDBOptionsSet read FDBOptions;
+    property IsRequired: Boolean read FIsRequired;
+    property FieldSize: Integer read FFieldSize;
+    property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
+
+    property HasMin: Boolean read FHasMin;
+    property MinValue: Double read FMin;
+    property HasMax: Boolean read FHasMax;
+    property MaxValue: Double read FMax;
+    property HasMinLength: Boolean read FHasMinLength;
+    property MinLengthValue: Integer read FMinLength;
+    property HasMaxLength: Boolean read FHasMaxLength;
+    property MaxLengthValue: Integer read FMaxLength;
+    property IsPositive: Boolean read FIsPositive;
+    property IsNotEmpty: Boolean read FIsNotEmpty;
+    property IsEmail: Boolean read FIsEmail;
+    property IsCPF: Boolean read FIsCPF;
+    property IsCNPJ: Boolean read FIsCNPJ;
+    property IsCPF_CNPJ: Boolean read FIsCPF_CNPJ;
+    property IsURL: Boolean read FIsURL;
+  end;
+
+  TDeltaSchemaFieldList = specialize TFPGObjectList<TDeltaSchemaField>;
+
+  { TDeltaModelRelation: Metadados de relacionamentos entre modelos }
+  TDeltaRelationKind = (drkHasMany, drkBelongsTo, drkHasOne);
+
+  TDeltaModelRelation = class
+  private
+    FPropName: string;
+    FRelationKind: TDeltaRelationKind;
+    FRelatedClass: TClass;
+    FForeignKeyField: string;
+  public
+    constructor Create(const APropName: string; AKind: TDeltaRelationKind; ARelatedClass: TClass; const AFKField: string = '');
+    function ForeignKey(const AFK: string): TDeltaModelRelation;
+    property PropName: string read FPropName;
+    property RelationKind: TDeltaRelationKind read FRelationKind;
+    property RelatedClass: TClass read FRelatedClass;
+    property ForeignKeyField: string read FForeignKeyField;
+  end;
+
+  TDeltaModelRelationList = specialize TFPGObjectList<TDeltaModelRelation>;
+
+  { TDeltaModelSchema: Construtor fluente do esquema de dados da classe }
+  TDeltaModelSchema = class
+  private
+    FTableName: string;
+    FFields: TDeltaSchemaFieldList;
+    FRelations: TDeltaModelRelationList;
+    function GetField(Index: Integer): TDeltaSchemaField;
+    function GetFieldCount: Integer;
+    function GetRelation(Index: Integer): TDeltaModelRelation;
+    function GetRelationCount: Integer;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function Table(const AName: string): TDeltaModelSchema;
+    function Field(const APropName: string): TDeltaSchemaField;
+    function FindField(const APropName: string): TDeltaSchemaField;
+
+    function HasMany(const APropName: string; AChildClass: TClass; const AFKField: string = ''): TDeltaModelRelation;
+    function BelongsTo(const APropName: string; AParentClass: TClass; const AFKField: string = ''): TDeltaModelRelation;
+    function FindRelation(const APropName: string): TDeltaModelRelation;
+
+    property TableName: string read FTableName;
+    property Fields[Index: Integer]: TDeltaSchemaField read GetField; default;
+    property FieldCount: Integer read GetFieldCount;
+    property Relations[Index: Integer]: TDeltaModelRelation read GetRelation;
+    property RelationCount: Integer read GetRelationCount;
+  end;
+
 implementation
+
+{ TDeltaSchemaField }
+
+constructor TDeltaSchemaField.Create(const APropName: string);
+begin
+  inherited Create;
+  FPropName := APropName;
+  FFieldName := LowerCase(APropName);
+  FDBOptions := [dboInsert, dboUpdate];
+  FIsRequired := False;
+  FFieldSize := 0;
+  FFieldKind := dfkString;
+  FDefaultValue := Null;
+  FHasMin := False;
+  FHasMax := False;
+  FMin := 0;
+  FMax := 0;
+  FHasMinLength := False;
+  FHasMaxLength := False;
+  FMinLength := 0;
+  FMaxLength := 0;
+  FIsPositive := False;
+  FIsNotEmpty := False;
+  FIsEmail := False;
+  FIsCPF := False;
+  FIsCNPJ := False;
+  FIsCPF_CNPJ := False;
+  FIsURL := False;
+end;
+
+function TDeltaSchemaField.Column(const AName: string): TDeltaSchemaField;
+begin
+  FFieldName := AName;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.AsPK: TDeltaSchemaField;
+begin
+  Include(FDBOptions, dboPrimaryKey);
+  FIsRequired := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.AutoInc: TDeltaSchemaField;
+begin
+  Include(FDBOptions, dboAutoInc);
+  Include(FDBOptions, dboPrimaryKey);
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Required: TDeltaSchemaField;
+begin
+  FIsRequired := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Nullable: TDeltaSchemaField;
+begin
+  FIsRequired := False;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Size(ASize: Integer): TDeltaSchemaField;
+begin
+  FFieldSize := ASize;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Default(AValue: Variant): TDeltaSchemaField;
+begin
+  FDefaultValue := AValue;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.ReadOnly: TDeltaSchemaField;
+begin
+  Exclude(FDBOptions, dboInsert);
+  Exclude(FDBOptions, dboUpdate);
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Min(AVal: Double): TDeltaSchemaField;
+begin
+  FHasMin := True;
+  FMin := AVal;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Max(AVal: Double): TDeltaSchemaField;
+begin
+  FHasMax := True;
+  FMax := AVal;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Range(AMin, AMax: Double): TDeltaSchemaField;
+begin
+  FHasMin := True;
+  FMin := AMin;
+  FHasMax := True;
+  FMax := AMax;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.MinLength(ALen: Integer): TDeltaSchemaField;
+begin
+  FHasMinLength := True;
+  FMinLength := ALen;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.MaxLength(ALen: Integer): TDeltaSchemaField;
+begin
+  FHasMaxLength := True;
+  FMaxLength := ALen;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.LengthRange(AMin, AMax: Integer): TDeltaSchemaField;
+begin
+  FHasMinLength := True;
+  FMinLength := AMin;
+  FHasMaxLength := True;
+  FMaxLength := AMax;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Positive: TDeltaSchemaField;
+begin
+  FIsPositive := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.NotEmpty: TDeltaSchemaField;
+begin
+  FIsNotEmpty := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Email: TDeltaSchemaField;
+begin
+  FIsEmail := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.CPF: TDeltaSchemaField;
+begin
+  FIsCPF := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.CNPJ: TDeltaSchemaField;
+begin
+  FIsCNPJ := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.CPF_CNPJ: TDeltaSchemaField;
+begin
+  FIsCPF_CNPJ := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.URL: TDeltaSchemaField;
+begin
+  FIsURL := True;
+  Result := Self;
+end;
+
+{ TDeltaModelRelation }
+
+constructor TDeltaModelRelation.Create(const APropName: string; AKind: TDeltaRelationKind; ARelatedClass: TClass; const AFKField: string);
+begin
+  inherited Create;
+  FPropName := APropName;
+  FRelationKind := AKind;
+  FRelatedClass := ARelatedClass;
+  FForeignKeyField := AFKField;
+end;
+
+function TDeltaModelRelation.ForeignKey(const AFK: string): TDeltaModelRelation;
+begin
+  FForeignKeyField := AFK;
+  Result := Self;
+end;
+
+{ TDeltaModelSchema }
+
+constructor TDeltaModelSchema.Create;
+begin
+  inherited Create;
+  FFields := TDeltaSchemaFieldList.Create(True);
+  FRelations := TDeltaModelRelationList.Create(True);
+end;
+
+destructor TDeltaModelSchema.Destroy;
+begin
+  FRelations.Free;
+  FFields.Free;
+  inherited Destroy;
+end;
+
+function TDeltaModelSchema.GetField(Index: Integer): TDeltaSchemaField;
+begin
+  Result := FFields[Index];
+end;
+
+function TDeltaModelSchema.GetFieldCount: Integer;
+begin
+  Result := FFields.Count;
+end;
+
+function TDeltaModelSchema.GetRelation(Index: Integer): TDeltaModelRelation;
+begin
+  Result := FRelations[Index];
+end;
+
+function TDeltaModelSchema.GetRelationCount: Integer;
+begin
+  Result := FRelations.Count;
+end;
+
+function TDeltaModelSchema.Table(const AName: string): TDeltaModelSchema;
+begin
+  FTableName := AName;
+  Result := Self;
+end;
+
+function TDeltaModelSchema.Field(const APropName: string): TDeltaSchemaField;
+begin
+  Result := FindField(APropName);
+  if Result = nil then
+  begin
+    Result := TDeltaSchemaField.Create(APropName);
+    FFields.Add(Result);
+  end;
+end;
+
+function TDeltaModelSchema.FindField(const APropName: string): TDeltaSchemaField;
+var
+  I: Integer;
+begin
+  for I := 0 to FFields.Count - 1 do
+    if SameText(FFields[I].PropName, APropName) then
+      Exit(FFields[I]);
+  Result := nil;
+end;
+
+function TDeltaModelSchema.HasMany(const APropName: string; AChildClass: TClass; const AFKField: string): TDeltaModelRelation;
+begin
+  Result := FindRelation(APropName);
+  if Result = nil then
+  begin
+    Result := TDeltaModelRelation.Create(APropName, drkHasMany, AChildClass, AFKField);
+    FRelations.Add(Result);
+  end;
+end;
+
+function TDeltaModelSchema.BelongsTo(const APropName: string; AParentClass: TClass; const AFKField: string): TDeltaModelRelation;
+begin
+  Result := FindRelation(APropName);
+  if Result = nil then
+  begin
+    Result := TDeltaModelRelation.Create(APropName, drkBelongsTo, AParentClass, AFKField);
+    FRelations.Add(Result);
+  end;
+end;
+
+function TDeltaModelSchema.FindRelation(const APropName: string): TDeltaModelRelation;
+var
+  I: Integer;
+begin
+  for I := 0 to FRelations.Count - 1 do
+    if SameText(FRelations[I].PropName, APropName) then
+      Exit(FRelations[I]);
+  Result := nil;
+end;
 
 const
   DEFAULT_STR_SIZE = 255;
@@ -1371,11 +1789,38 @@ begin
   inherited Create;
   FFieldKind := dfkVirtual;
   FIsVirtual := True;
+  FItems := TDFHasManyList.Create(True);
+  FReferencesField := 'id';
+  FForeignKeyField := '';
 end;
 
-procedure TDFHasMany.References(ARelationClass: TClass);
+destructor TDFHasMany.Destroy;
+begin
+  FItems.Free;
+  inherited Destroy;
+end;
+
+procedure TDFHasMany.References(ARelationClass: TClass; const AForeignKey: string; const AReferencesField: string);
 begin
   FRelationClass := ARelationClass;
+  FForeignKeyField := AForeignKey;
+  if not AReferencesField.IsEmpty then
+    FReferencesField := AReferencesField;
+end;
+
+procedure TDFHasMany.Add(AItem: TObject);
+begin
+  FItems.Add(AItem);
+end;
+
+function TDFHasMany.GetCount: Integer;
+begin
+  Result := FItems.Count;
+end;
+
+function TDFHasMany.GetItem(AIndex: Integer): TObject;
+begin
+  Result := FItems[AIndex];
 end;
 
 function TDFHasMany.GetValue: Variant;
@@ -1390,7 +1835,7 @@ end;
 
 function TDFHasMany.IsNull: Boolean;
 begin
-  Result := True;
+  Result := (FItems.Count = 0);
 end;
 
 function TDFHasMany.IsValid: Boolean;
@@ -1405,6 +1850,7 @@ end;
 
 procedure TDFHasMany.Clear;
 begin
+  FItems.Clear;
 end;
 
 { TDFHasOne }

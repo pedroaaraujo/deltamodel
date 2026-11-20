@@ -5,7 +5,7 @@ unit DeltaModel.SQLBuilder;
 interface
 
 uses
-  Classes, SysUtils, TypInfo, Variants, DeltaModel, DeltaModel.Fields, StrUtils,
+  Classes, SysUtils, TypInfo, Variants, DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, StrUtils,
   DeltaModel.ORM.Types;
 
 type
@@ -146,8 +146,18 @@ begin
 end;
 
 function TDMSQLBuilder.GetTableName: string;
+var
+  Meta: TModelMetadata;
 begin
-  Result := QuoteIdentifier(FModel.TableName);
+  if FModel <> nil then
+  begin
+    Meta := TRTTICache.GetModelMetadata(FModel.ClassType);
+    if (Meta <> nil) and (not Meta.TableName.IsEmpty) then
+      Exit(QuoteIdentifier(Meta.TableName));
+    Result := QuoteIdentifier(FModel.TableName);
+  end
+  else
+    Result := '';
 end;
 
 function TDMSQLBuilder.GetTableNameWithAlias: string;
@@ -166,17 +176,98 @@ end;
 
 function TDMSQLBuilder.ExtractFieldsAndValues(UseNamedParams: Boolean): Boolean;
 var
+  Meta: TModelMetadata;
   PropList: PPropList;
   PropInfo: PPropInfo;
   PropCount, I: Integer;
   PropValue: Variant;
   Obj: TDeltaField;
   NestedObj: TObject;
+  FieldMeta: PDeltaFieldMeta;
   FS: TFormatSettings;
+  IsPK, IsAuto: Boolean;
 begin
   Result := False;
   FS.DecimalSeparator := '.';
   FS.ThousandSeparator := ',';
+  if FModel = nil then Exit;
+
+  Meta := TRTTICache.GetModelMetadata(FModel.ClassType);
+  if Meta.FieldCount > 0 then
+  begin
+    for I := 0 to Meta.FieldCount - 1 do
+    begin
+      FieldMeta := @Meta.Fields[I];
+      if FieldMeta^.IsVirtual then Continue;
+
+      IsPK := FieldMeta^.IsPrimaryKey or (dboPrimaryKey in FieldMeta^.DBOptions);
+      IsAuto := FieldMeta^.IsAutoInc or (dboAutoInc in FieldMeta^.DBOptions);
+
+      if FCommand = 'INSERT INTO' then
+      begin
+        if IsAuto or
+           (not (dboInsert in FieldMeta^.DBOptions) and not (dboUpdate in FieldMeta^.DBOptions)) then Continue;
+      end
+      else
+      begin
+        if not (dboUpdate in FieldMeta^.DBOptions) or IsPK then Continue;
+      end;
+
+      if FieldMeta^.IsDeltaField then
+      begin
+        NestedObj := GetObjectProp(FModel, FieldMeta^.PropInfo);
+        if (NestedObj = nil) or not (NestedObj is TDeltaField) then Continue;
+        Obj := TDeltaField(NestedObj);
+
+        if Obj.IsNull then Continue;
+
+        FFields.Add(QuoteIdentifier(FieldMeta^.FieldName));
+
+        if UseNamedParams then
+          FValues.Add(':' + FieldMeta^.FieldName)
+        else
+        if Obj.IsNull then
+          FValues.Add('NULL')
+        else
+        if VarIsNumeric(Obj.Value) then
+          FValues.Add(Obj.AsString.Replace(',', '', [rfReplaceAll]))
+        else
+          FValues.Add(Obj.AsString.QuotedString);
+      end
+      else
+      begin
+        // Propriedade Primitiva (Abordagem B)
+        if FModel.IsNull(FieldMeta^.PropIndex) and (FCommand <> 'INSERT INTO') then
+          Continue;
+
+        FFields.Add(QuoteIdentifier(FieldMeta^.FieldName));
+
+        if UseNamedParams then
+          FValues.Add(':' + FieldMeta^.FieldName)
+        else
+        if FModel.IsNull(FieldMeta^.PropIndex) then
+          FValues.Add('NULL')
+        else
+        begin
+          case FieldMeta^.FieldKind of
+            dfkInteger:
+              FValues.Add(IntToStr(GetOrdProp(FModel, FieldMeta^.PropInfo)));
+            dfkFloat:
+              FValues.Add(FloatToStr(GetFloatProp(FModel, FieldMeta^.PropInfo), FS));
+            dfkBoolean:
+              FValues.Add(IntToStr(GetOrdProp(FModel, FieldMeta^.PropInfo)));
+            dfkDateTime:
+              FValues.Add(QuotedStr(FormatDateTime('yyyy-mm-dd hh:nn:ss', GetFloatProp(FModel, FieldMeta^.PropInfo))));
+          else
+            FValues.Add(QuotedStr(GetStrProp(FModel, FieldMeta^.PropInfo)));
+          end;
+        end;
+      end;
+    end;
+    Result := FFields.Count > 0;
+    Exit;
+  end;
+
   PropCount := GetPropList(FModel.ClassInfo, tkProperties, nil);
   if PropCount = 0 then Exit;
 
@@ -332,13 +423,32 @@ end;
 
 class function TDMSQLBuilder.WhereClausePK(AModel: TDeltaModel): string;
 var
+  Meta: TModelMetadata;
+  FieldMeta: PDeltaFieldMeta;
   PropList: PPropList;
   PropInfo: PPropInfo;
   PropCount, I: Integer;
   Obj: TDeltaField;
   NestedObj: TObject;
   SL: TStringList;
+  PKVal: Variant;
 begin
+  if AModel = nil then Exit('');
+
+  Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
+  if (Meta <> nil) and (Meta.PKPropInfo <> nil) then
+  begin
+    FieldMeta := Meta.FindFieldByProp(Meta.PKPropName);
+    if (FieldMeta <> nil) and (not FieldMeta^.IsDeltaField) then
+    begin
+      PKVal := GetPropValue(AModel, Meta.PKPropName);
+      if VarIsStr(PKVal) then
+        Exit('(' + Meta.PKFieldName + ' = ' + QuotedStr(VarToStr(PKVal)) + ')')
+      else
+        Exit('(' + Meta.PKFieldName + ' = ' + VarToStr(PKVal) + ')');
+    end;
+  end;
+
   PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
   if PropCount = 0 then Exit('');
 
@@ -827,6 +937,9 @@ end;
 
 class function TDMSQLBuilder.ExtractFieldNames(AModel: TDeltaModel; ADialect: TDatabaseDialect): TStringList;
 var
+  Meta: TModelMetadata;
+  FieldMeta: PDeltaFieldMeta;
+  Val: Variant;
   PropList: PPropList;
   PropInfo: PPropInfo;
   PropCount, I: Integer;
@@ -834,6 +947,50 @@ var
   NestedObj: TObject;
 begin
   Result := TStringList.Create;
+  if AModel = nil then Exit;
+
+  Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
+  if Meta.FieldCount > 0 then
+  begin
+    for I := 0 to Meta.FieldCount - 1 do
+    begin
+      FieldMeta := @Meta.Fields[I];
+      if FieldMeta^.IsVirtual then Continue;
+
+      if not ((dboInsert in FieldMeta^.DBOptions) or (dboUpdate in FieldMeta^.DBOptions)) then
+        Continue;
+
+      if FieldMeta^.IsDeltaField then
+      begin
+        NestedObj := GetObjectProp(AModel, FieldMeta^.PropInfo);
+        if NestedObj is TDeltaField then
+        begin
+          Obj := TDeltaField(NestedObj);
+          if (dboAutoInc in Obj.DBOptions) and (Obj.IsNull or (VarIsNumeric(Obj.Value) and (Double(Obj.Value) = 0))) then
+            Continue;
+
+          if not Obj.FieldName.IsEmpty then
+            Result.Add(Obj.FieldName)
+          else
+            Result.Add(FieldMeta^.PropName);
+        end;
+      end
+      else
+      begin
+        // Primitivo
+        if (dboAutoInc in FieldMeta^.DBOptions) then
+        begin
+          Val := GetPropValue(AModel, FieldMeta^.PropName);
+          if AModel.IsNull(FieldMeta^.PropIndex) or (VarIsNumeric(Val) and (Double(Val) = 0)) then
+            Continue;
+        end;
+
+        Result.Add(FieldMeta^.FieldName);
+      end;
+    end;
+    Exit;
+  end;
+
   PropCount := GetPropList(AModel.ClassInfo, tkProperties, nil);
   if PropCount = 0 then Exit;
 
