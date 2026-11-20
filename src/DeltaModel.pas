@@ -74,7 +74,9 @@ type
     function GetTableName: string;
     procedure SetTableName(AValue: string);
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); virtual;
+    class function Schema: TDeltaModelSchema;
+    class function GetSchema: TDeltaModelSchema; inline;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); virtual;
 
     function IsNull(const APropName: string): Boolean; overload;
     function IsNull(APropIndex: Integer): Boolean; overload; inline;
@@ -133,7 +135,13 @@ type
 
   TDeltaModelClass = class of TDeltaModel;
 
-  TDeltaModelRecords = specialize TFPGObjectList<TDeltaModel>;
+  { TDeltaModelRecords }
+
+  TDeltaModelRecords = class(specialize TFPGObjectList<TDeltaModel>)
+  public
+    function Add(const AItem: TDeltaModel): Integer; deprecated 'Use TDeltaQuery.Cursor or StreamJsonTo instead';
+    function AddInternal(const AItem: TDeltaModel): Integer; inline;
+  end;
 
   { TDeltaModelList }
 
@@ -346,6 +354,18 @@ begin
   end;
 end;
 
+{ TDeltaModelRecords }
+
+function TDeltaModelRecords.Add(const AItem: TDeltaModel): Integer;
+begin
+  Result := inherited Add(AItem);
+end;
+
+function TDeltaModelRecords.AddInternal(const AItem: TDeltaModel): Integer;
+begin
+  Result := inherited Add(AItem);
+end;
+
 { TDeltaModel }
 
 procedure TDeltaModel.CreateFields;
@@ -357,10 +377,13 @@ var
   PropObj: TObject;
   PropClass: TClass;
   DeltaField: TDeltaField;
+  ASchema: TDeltaModelSchema;
 begin
   PropCount := GetPropList(Self.ClassInfo, tkProperties, nil);
 
   if PropCount = 0 then Exit;
+
+  ASchema := Self.GetSchema;
 
   GetMem(PropList, PropCount * SizeOf(Pointer));
   try
@@ -387,6 +410,9 @@ begin
 
             DeltaField := TDeltaField(PropObj);
 
+            if ASchema <> nil then
+              DeltaField.SchemaField := ASchema.FindField(PropInfo^.Name);
+
             DeltaField.FieldName := PropInfo^.Name;
             DeltaField.Visible   := True;
 
@@ -396,6 +422,8 @@ begin
           else
           begin
             DeltaField := TDeltaField(PropObj);
+            if ASchema <> nil then
+              DeltaField.SchemaField := ASchema.FindField(PropInfo^.Name);
             if FFieldList.IndexOf(DeltaField) < 0 then
               FFieldList.Add(DeltaField);
           end;
@@ -421,7 +449,17 @@ begin
 
 end;
 
-class procedure TDeltaModel.ConfigureSchema(Schema: TDeltaModelSchema);
+class function TDeltaModel.Schema: TDeltaModelSchema;
+begin
+  Result := TRTTICache.GetModelMetadata(Self).Schema;
+end;
+
+class function TDeltaModel.GetSchema: TDeltaModelSchema;
+begin
+  Result := Schema;
+end;
+
+class procedure TDeltaModel.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
 
 end;
@@ -1030,7 +1068,7 @@ begin
         for I := 0 to Pred(Arr.Count) do
         begin
           Obj := FDeltaModelClass.Create;
-          Self.Records.Add(Obj);
+          Self.Add(Obj);
           Element := Arr.Items[I] as TJSONObject;
           DeserializeObj(Obj, Element);
         end;
@@ -1050,7 +1088,7 @@ begin
       for I := 0 to Pred(Arr.Count) do
       begin
         Obj := FDeltaModelClass.Create;
-        Self.Records.Add(Obj);
+        Self.Add(Obj);
         Element := Arr.Items[I] as TJSONObject;
         DeserializeObj(Obj, Element);
       end;
@@ -1184,7 +1222,7 @@ end;
 
 function TDeltaModelList.Add(AModel: TDeltaModel): Integer;
 begin
-  Result := FRecords.Add(AModel);
+  Result := FRecords.AddInternal(AModel);
 end;
 
 function TDeltaModelList.Count: Integer;
@@ -1222,7 +1260,7 @@ end;
 
 procedure TDeltaModelList.AddObj(AObj: TObject);
 begin
-  FRecords.Add(AObj as TDeltaModel);
+  FRecords.AddInternal(AObj as TDeltaModel);
 end;
 
 function TDeltaModelList.GetModelClass: TClass;
@@ -1271,7 +1309,7 @@ end;
 
 function TGDeltaModelList.Add(AModel: T): Integer;
 begin
-  Result := FRecords.Add(AModel);
+  Result := FRecords.AddInternal(AModel);
 end;
 
 function TGDeltaModelList.GetTypedItem(AIndex: Integer): T;
@@ -1322,7 +1360,7 @@ end;
 
 function TGDeltaModelPaginatedList.Add(AModel: T): Integer;
 begin
-  Result := FRecords.Add(AModel);
+  Result := FRecords.AddInternal(AModel);
 end;
 
 function TGDeltaModelPaginatedList.GetTypedItem(AIndex: Integer): T;

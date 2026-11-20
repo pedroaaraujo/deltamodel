@@ -8,14 +8,14 @@ unit deltamodel_pkg;
 interface
 
 uses
-  DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaSerialization,
-  DeltaValidator, DeltaAPISchema, DeltaModelMessages, DeltaModel.DataSetConverter,
-  DatabaseURLParser, DeltaModel.SQLBuilder, DeltaModel.ORM.Types,
-  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Connection, DeltaModel.ORM.DDL,
-  DeltaModel.ORM.DML, DeltaModel.ORM.Schema, DeltaModel.ORM.Pool,
-  DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor,
-  DeltaModel.Codec.Xml, DeltaModel.Codec.Csv,
-  LazarusPackageIntf;
+  DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaSerialization, 
+  DeltaValidator, DeltaAPISchema, DeltaModelMessages, 
+  DeltaModel.DataSetConverter, DatabaseURLParser, DeltaModel.SQLBuilder, 
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Connection, 
+  DeltaModel.ORM.DDL, DeltaModel.ORM.DML, DeltaModel.ORM.Schema, 
+  DeltaModel.ORM.Pool, DeltaModel.Codec, DeltaModel.Codec.Bson, 
+  DeltaModel.Codec.Cbor, DeltaModel.Codec.Xml, DeltaModel.Codec.Csv, 
+  DeltaModel.Constants, LazarusPackageIntf;
 
 implementation
 

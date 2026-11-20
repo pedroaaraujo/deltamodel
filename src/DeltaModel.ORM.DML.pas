@@ -26,12 +26,21 @@ type
     FLimit: Integer;
     FOffset: Integer;
     FParams: TParams;
+    FCursorDS: TSQLQuery;
+    FCursorBindingMap: TColumnBindingMap;
+    FCursorSQLBuilder: TDMSQLBuilder;
+    FCursorModel: TDeltaModel;
+    FCursorOwnsModel: Boolean;
+    FIsOpen: Boolean;
+    FBOF: Boolean;
+    FEOF: Boolean;
     procedure BindParams(AQuery: TSQLQuery);
   public
     constructor Create(AConn: IDeltaORMEngine);
     destructor Destroy; override;
 
-    function OrderBy(const AField: string): TQuery;
+    function OrderBy(const AField: string): TQuery; overload;
+    function OrderBy(AField: TDeltaField; ADirection: TDeltaOrderDirection = odAsc): TQuery; overload;
     function Filter(const Value: string): TQuery;
     function TableAlias(const AAlias: string): TQuery;
     function Join(AJoinType: TJoinType; const ATable, AOnCondition: string; const AAlias: string = ''): TQuery; overload;
@@ -44,14 +53,17 @@ type
     function Where(const AField: string; const AValue: Variant): TQuery; overload;
     function Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery; overload;
     function Where(const AField: string; const AOpStr: string; const AValue: Variant): TQuery; overload;
+    function Where(const ACondition: TDeltaCondition): TQuery; overload;
     function AndWhere(const Value: string): TQuery; overload;
     function AndWhere(const AField: string; const AValue: Variant): TQuery; overload;
     function AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery; overload;
     function AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TQuery; overload;
+    function AndWhere(const ACondition: TDeltaCondition): TQuery; overload;
     function OrWhere(const Value: string): TQuery; overload;
     function OrWhere(const AField: string; const AValue: Variant): TQuery; overload;
     function OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery; overload;
     function OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TQuery; overload;
+    function OrWhere(const ACondition: TDeltaCondition): TQuery; overload;
     function WhereBetween(const AField: string; const AVal1, AVal2: Variant): TQuery;
     function WhereIn(const AField: string; const AValues: array of Variant): TQuery;
     function WhereNotIn(const AField: string; const AValues: array of Variant): TQuery;
@@ -65,6 +77,11 @@ type
     function Param(const AName: string; const AValue: Variant): TQuery;
     function SetModel(AModel: TDeltaModelClass): TQuery;
 
+    function ToSQL: string;
+    property WhereClause: string read FFilter;
+    property FilterText: string read FFilter;
+    property OrderByClause: string read FOrderBy;
+
     function First: TDeltaModel;
     function All(ALimit: Integer = -1; AOffset: Integer = -1): TDeltaModelPaginatedList;
     function FindById(const AId: Variant): TDeltaModel;
@@ -73,6 +90,16 @@ type
     function Delete: Boolean;
 
     function AsJsonString: RawByteString;
+
+    // Cursor reusável
+    function Open: TQuery;
+    function Next: Boolean;
+    function EOF: Boolean;
+    function Current: TDeltaModel;
+    procedure Close;
+    procedure SetCursorModel(AModel: TDeltaModel; AOwnsModel: Boolean = False);
+    property IsOpen: Boolean read FIsOpen;
+    property CurrentModel: TDeltaModel read FCursorModel;
 
     procedure Clear;
   end;
@@ -127,10 +154,19 @@ begin
   FLimit := -1;
   FOffset := -1;
   FParams := TParams.Create(nil);
+  FCursorDS := nil;
+  FCursorBindingMap := nil;
+  FCursorSQLBuilder := nil;
+  FCursorModel := nil;
+  FCursorOwnsModel := False;
+  FIsOpen := False;
+  FBOF := False;
+  FEOF := True;
 end;
 
 destructor TQuery.Destroy;
 begin
+  Close;
   FJoins.Free;
   FParams.Free;
   inherited Destroy;
@@ -184,6 +220,22 @@ function TQuery.OrderBy(const AField: string): TQuery;
 begin
   FOrderBy := AField;
   Result := Self;
+end;
+
+function TQuery.OrderBy(AField: TDeltaField; ADirection: TDeltaOrderDirection): TQuery;
+var
+  S: string;
+begin
+  if AField = nil then
+    raise Exception.Create('TQuery.OrderBy: AField cannot be nil');
+  S := AField.FieldName;
+  if S.IsEmpty then
+    raise Exception.Create('TQuery.OrderBy: AField has no FieldName configured');
+  if ADirection = odDesc then
+    S := S + ' DESC'
+  else
+    S := S + ' ASC';
+  Result := OrderBy(S);
 end;
 
 function TQuery.Filter(const Value: string): TQuery;
@@ -269,6 +321,17 @@ begin
     Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
 end;
 
+function TQuery.Where(const ACondition: TDeltaCondition): TQuery;
+var
+  Dialect: TDatabaseDialect;
+begin
+  if FConn <> nil then
+    Dialect := FConn.Dialect
+  else
+    Dialect := ddPostgreSQL;
+  Result := Where(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
+end;
+
 function TQuery.AndWhere(const Value: string): TQuery;
 begin
   if Value.IsEmpty then Exit(Self);
@@ -294,6 +357,17 @@ begin
   Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
 end;
 
+function TQuery.AndWhere(const ACondition: TDeltaCondition): TQuery;
+var
+  Dialect: TDatabaseDialect;
+begin
+  if FConn <> nil then
+    Dialect := FConn.Dialect
+  else
+    Dialect := ddPostgreSQL;
+  Result := AndWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
+end;
+
 function TQuery.OrWhere(const Value: string): TQuery;
 begin
   if Value.IsEmpty then Exit(Self);
@@ -317,6 +391,17 @@ end;
 function TQuery.OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TQuery;
 begin
   Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
+end;
+
+function TQuery.OrWhere(const ACondition: TDeltaCondition): TQuery;
+var
+  Dialect: TDatabaseDialect;
+begin
+  if FConn <> nil then
+    Dialect := FConn.Dialect
+  else
+    Dialect := ddPostgreSQL;
+  Result := OrWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
 end;
 
 function TQuery.WhereBetween(const AField: string; const AVal1, AVal2: Variant): TQuery;
@@ -494,7 +579,7 @@ begin
       begin
         Obj := FModelClass.Create;
         BindingMap.BindRecord(Obj);
-        Result.Records.Add(Obj);
+        Result.Add(Obj);
         DS.Next;
       end;
     finally
@@ -773,8 +858,173 @@ begin
   end;
 end;
 
+function TQuery.ToSQL: string;
+var
+  SQLBuilder: TDMSQLBuilder;
+  ObjTemp: TDeltaModel;
+  I: Integer;
+  Dialect: TDatabaseDialect;
+begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
+
+  if FConn <> nil then
+    Dialect := FConn.Dialect
+  else
+    Dialect := ddPostgreSQL;
+
+  ObjTemp := FModelClass.Create;
+  try
+    SQLBuilder := TDMSQLBuilder.Create(ObjTemp, Dialect);
+    try
+      SQLBuilder.TableAlias(FTableAlias);
+      for I := 0 to FJoins.Count - 1 do
+        SQLBuilder.Join(FJoins[I]);
+
+      if not FSelectFields.IsEmpty then
+        SQLBuilder.Select(FSelectFields)
+      else
+        SQLBuilder.Select;
+
+      if FLimit > -1 then SQLBuilder.Limit(FLimit);
+      if FOffset > -1 then SQLBuilder.Offset(FOffset);
+      if not FOrderBy.IsEmpty then SQLBuilder.OrderBy(FOrderBy);
+      if not FFilter.IsEmpty then SQLBuilder.Where(FFilter);
+
+      Result := SQLBuilder.Build;
+    finally
+      SQLBuilder.Free;
+    end;
+  finally
+    ObjTemp.Free;
+  end;
+end;
+
+procedure TQuery.SetCursorModel(AModel: TDeltaModel; AOwnsModel: Boolean);
+begin
+  if FCursorOwnsModel and (FCursorModel <> nil) and (FCursorModel <> AModel) then
+    FreeAndNil(FCursorModel);
+  FCursorModel := AModel;
+  FCursorOwnsModel := AOwnsModel;
+end;
+
+function TQuery.Open: TQuery;
+var
+  Dialect: TDatabaseDialect;
+  I: Integer;
+begin
+  if FModelClass = nil then
+    raise Exception.Create('Model class not defined for TQuery. Call SetModel first.');
+
+  if FIsOpen then
+    Close;
+
+  if FConn <> nil then
+    Dialect := FConn.Dialect
+  else
+    Dialect := ddPostgreSQL;
+
+  if FCursorModel = nil then
+  begin
+    FCursorModel := FModelClass.Create;
+    FCursorOwnsModel := True;
+  end;
+
+  FCursorSQLBuilder := TDMSQLBuilder.Create(FCursorModel, Dialect);
+  FCursorSQLBuilder.TableAlias(FTableAlias);
+  for I := 0 to FJoins.Count - 1 do
+    FCursorSQLBuilder.Join(FJoins[I]);
+
+  if not FSelectFields.IsEmpty then
+    FCursorSQLBuilder.Select(FSelectFields)
+  else
+    FCursorSQLBuilder.Select;
+
+  FCursorDS := FConn.NewDataset;
+  FCursorDS.SQL.Text :=
+    FCursorSQLBuilder
+    .Limit(FLimit)
+    .Offset(FOffset)
+    .Where(FFilter)
+    .OrderBy(FOrderBy)
+    .Build;
+  BindParams(FCursorDS);
+
+  FCursorDS.UniDirectional := False;
+  FCursorDS.PacketRecords := -1;
+  FCursorDS.Open;
+
+  FCursorBindingMap := TColumnBindingMap.Create(FModelClass, FCursorDS);
+  FIsOpen := True;
+  FBOF := True;
+  FEOF := FCursorDS.EOF;
+  Result := Self;
+end;
+
+function TQuery.Next: Boolean;
+begin
+  if not FIsOpen then
+    Open;
+
+  if FCursorDS = nil then
+  begin
+    FEOF := True;
+    Exit(False);
+  end;
+
+  if FBOF then
+  begin
+    FBOF := False;
+    if FCursorDS.EOF then
+    begin
+      FEOF := True;
+      Exit(False);
+    end;
+  end
+  else
+  begin
+    FCursorDS.Next;
+    if FCursorDS.EOF then
+    begin
+      FEOF := True;
+      Exit(False);
+    end;
+  end;
+
+  FCursorBindingMap.BindRecord(FCursorModel);
+  Result := True;
+end;
+
+function TQuery.EOF: Boolean;
+begin
+  Result := FEOF;
+end;
+
+function TQuery.Current: TDeltaModel;
+begin
+  Result := FCursorModel;
+end;
+
+procedure TQuery.Close;
+begin
+  FreeAndNil(FCursorBindingMap);
+  if Assigned(FCursorDS) then
+  begin
+    if FCursorDS.Active then
+      FCursorDS.Close;
+    FreeAndNil(FCursorDS);
+  end;
+  FreeAndNil(FCursorSQLBuilder);
+  if FCursorOwnsModel then
+    FreeAndNil(FCursorModel);
+  FIsOpen := False;
+  FBOF := False;
+  FEOF := True;
+end;
+
 procedure TQuery.Clear;
 begin
+  Close;
   FFilter := '';
   FOrderBy := '';
   FSelectFields := '';

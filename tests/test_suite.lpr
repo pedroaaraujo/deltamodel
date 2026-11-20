@@ -102,7 +102,7 @@ type
     FStock: Integer;
     FActive: Boolean;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property Name: string read FName write FName;
@@ -125,7 +125,7 @@ type
     FCpf: string;
     FScore: Double;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property Name: string read FName write FName;
@@ -144,7 +144,7 @@ type
     FCustomerName: string;
     FItems: TDFHasMany;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property CustomerName: string read FCustomerName write FCustomerName;
@@ -158,7 +158,7 @@ type
     FProductName: string;
     FQuantity: Integer;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property OrderId: Int64 read FOrderId write FOrderId;
@@ -166,46 +166,46 @@ type
     property Quantity: Integer read FQuantity write FQuantity;
   end;
 
-class procedure TValidatedCustomerModel.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TValidatedCustomerModel.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  inherited ConfigureSchema(Schema);
-  Schema.Table('validated_customers');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('Name').Column('name').MinLength(3).MaxLength(50).NotEmpty;
-  Schema.Field('Age').Column('age').Range(18, 120);
-  Schema.Field('Email').Column('email').Email;
-  Schema.Field('Cpf').Column('cpf').CPF;
-  Schema.Field('Score').Column('score').Positive;
+  inherited ConfigureSchema(ASchema);
+  ASchema.Table('validated_customers');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('Name').Column('name').MinLength(3).MaxLength(50).NotEmpty;
+  ASchema.Field('Age').Column('age').Range(18, 120);
+  ASchema.Field('Email').Column('email').Email;
+  ASchema.Field('Cpf').Column('cpf').CPF;
+  ASchema.Field('Score').Column('score').Positive;
 end;
 
-class procedure TTestOrder.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TTestOrder.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  inherited ConfigureSchema(Schema);
-  Schema.Table('test_orders');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('CustomerName').Column('customer_name').Required;
-  Schema.HasMany('Items', TTestOrderItem, 'order_id');
+  inherited ConfigureSchema(ASchema);
+  ASchema.Table('test_orders');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('CustomerName').Column('customer_name').Required;
+  ASchema.HasMany('Items', TTestOrderItem, 'order_id');
 end;
 
-class procedure TTestOrderItem.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TTestOrderItem.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  inherited ConfigureSchema(Schema);
-  Schema.Table('test_order_items');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('OrderId').Column('order_id').Required;
-  Schema.Field('ProductName').Column('product_name').Required;
-  Schema.Field('Quantity').Column('quantity').Required;
+  inherited ConfigureSchema(ASchema);
+  ASchema.Table('test_order_items');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('OrderId').Column('order_id').Required;
+  ASchema.Field('ProductName').Column('product_name').Required;
+  ASchema.Field('Quantity').Column('quantity').Required;
 end;
 
-class procedure TFastProductModel.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TFastProductModel.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  Schema.Table('fast_products');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('Name').Column('name').Required.Size(150);
-  Schema.Field('Price').Column('price').Required;
-  Schema.Field('Cost').Column('cost').Nullable;
-  Schema.Field('Stock').Column('stock').Required;
-  Schema.Field('Active').Column('active').Required;
+  ASchema.Table('fast_products');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('Name').Column('name').Required.Size(150);
+  ASchema.Field('Price').Column('price').Required;
+  ASchema.Field('Cost').Column('cost').Nullable;
+  ASchema.Field('Stock').Column('stock').Required;
+  ASchema.Field('Active').Column('active').Required;
 end;
 
 procedure TProductModel.AfterConstruction;
@@ -3045,6 +3045,104 @@ begin
   end;
 end;
 
+type
+  TCursorCallbackHelper = class
+  public
+    ItemCount: Integer;
+    LastId: Int64;
+    procedure ProcessItem(AModel: TTestOrder);
+  end;
+
+procedure TCursorCallbackHelper.ProcessItem(AModel: TTestOrder);
+begin
+  Inc(ItemCount);
+  LastId := AModel.Id;
+end;
+
+procedure TestReusableCursorAndFlyweightSchema;
+var
+  Schema1, Schema2: TDeltaModelSchema;
+  FieldNome: TDeltaSchemaField;
+  Engine: TDeltaORMEngine;
+  Query: specialize TDeltaQuery<TTestOrder>;
+  FirstPtr, CurrPtr: Pointer;
+  I, LoopCount: Integer;
+  M: TTestOrder;
+  Helper: TCursorCallbackHelper;
+const
+  TEST_DB = '/tmp/test_cursor_flyweight.sqlite';
+begin
+  Suite('26. Schema Flyweight & Reusable Cursor (Zero-Alloc Loop)');
+
+  // 1. Schema Flyweight Singleton por classe
+  Schema1 := TTestOrder.Schema;
+  Schema2 := TTestOrder.Schema;
+  AssertTrue(Schema1 <> nil, 'TTestOrder.Schema retorna schema válido');
+  AssertTrue(Pointer(Schema1) = Pointer(Schema2), 'TTestOrder.Schema é singleton Flyweight único na memória');
+  AssertEquals('test_orders', Schema1.TableName, 'Schema TableName confere');
+
+  FieldNome := Schema1.FindField('CustomerName');
+  AssertTrue(FieldNome <> nil, 'Schema.FindField encontra campo CustomerName');
+  AssertEquals('customer_name', FieldNome.FieldName, 'FieldName do schema confere');
+
+  // 2. Cursor Reusável
+  if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  try
+    Engine.Connection.Open;
+    Engine.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
+
+    for I := 1 to 25 do
+      Engine.ExecuteDirect(Format('INSERT INTO test_orders (id, customer_name) VALUES (%d, ''Cliente %d'');', [I, I]));
+
+    Query := specialize TDeltaQuery<TTestOrder>.Create(Engine);
+    try
+      // Teste com while Query.Next do
+      Query.OrderBy('id ASC');
+      Query.Open;
+      FirstPtr := Pointer(Query.Current);
+      AssertTrue(FirstPtr <> nil, 'Query.Current não é nulo após Open');
+
+      LoopCount := 0;
+      while Query.Next do
+      begin
+        Inc(LoopCount);
+        CurrPtr := Pointer(Query.Current);
+        AssertTrue(CurrPtr = FirstPtr, 'Query.Current reutiliza exatamente a mesma instância em cada linha');
+        AssertEqualsInt(LoopCount, Query.Current.Id, 'Id atualizado no mesmo objeto da linha');
+        AssertEquals(Format('Cliente %d', [LoopCount]), Query.Current.CustomerName, 'CustomerName atualizado');
+      end;
+      AssertEqualsInt(25, LoopCount, 'Cursor while processou todos os 25 registros com 1 único objeto no heap');
+
+      // Teste com for M in Query.Cursor do
+      LoopCount := 0;
+      for M in Query.Cursor do
+      begin
+        Inc(LoopCount);
+        AssertTrue(Pointer(M) = FirstPtr, 'for M in Query.Cursor reaproveita a mesma instância de modelo');
+        AssertEqualsInt(LoopCount, M.Id, 'Id confere no for-in');
+      end;
+      AssertEqualsInt(25, LoopCount, 'for M in Query.Cursor processou 25 registros com 1 objeto');
+
+      // Teste com Query.Each(Callback)
+      Helper := TCursorCallbackHelper.Create;
+      try
+        Helper.ItemCount := 0;
+        Query.Each(@Helper.ProcessItem);
+        AssertEqualsInt(25, Helper.ItemCount, 'Query.Each processou 25 registros via callback');
+        AssertEqualsInt(25, Helper.LastId, 'Último Id processado confere');
+      finally
+        Helper.Free;
+      end;
+    finally
+      Query.Free;
+    end;
+  finally
+    Engine.Free;
+    if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  end;
+end;
+
 {==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
@@ -3080,6 +3178,7 @@ begin
     TestCborCodec;
     TestXmlCodec;
     TestCsvCodec;
+    TestReusableCursorAndFlyweightSchema;
   except
     on E: Exception do
     begin

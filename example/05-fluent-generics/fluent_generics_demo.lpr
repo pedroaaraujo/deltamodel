@@ -24,7 +24,7 @@ type
     FStock: Integer;
     FActive: Boolean;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property Name: string read FName write FName;
@@ -39,15 +39,15 @@ type
 { Executada apenas 1 vez por classe via RTTI Cache, com alocação zero em cada  }
 { nova instância do modelo!                                                    }
 {==============================================================================}
-class procedure TProduct.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TProduct.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  Schema.Table('products');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('Name').Column('name').Required.Size(150);
-  Schema.Field('Price').Column('price').Required;
-  Schema.Field('Cost').Column('cost').Nullable;
-  Schema.Field('Stock').Column('stock').Required;
-  Schema.Field('Active').Column('active').Required;
+  ASchema.Table('products');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('Name').Column('name').Required.Size(150);
+  ASchema.Field('Price').Column('price').Required;
+  ASchema.Field('Cost').Column('cost').Nullable;
+  ASchema.Field('Stock').Column('stock').Required;
+  ASchema.Field('Active').Column('active').Required;
 end;
 
 const

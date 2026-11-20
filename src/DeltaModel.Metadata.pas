@@ -334,7 +334,25 @@ begin
               Meta.IsDeltaField := True;
               Meta.DBOptions := DField.DBOptions;
               Meta.FieldSize := 0;
-              Meta.SchemaField := nil;
+              if DField is TDFStringNull then
+                Meta.FieldSize := TDFStringNull(DField).Size
+              else if DField is TDFStringRequired then
+                Meta.FieldSize := TDFStringRequired(DField).Size;
+
+              SchemaField := FSchema.FindField(PropItem^.Name);
+              if SchemaField = nil then
+                SchemaField := FSchema.Field(PropItem^.Name);
+
+              if SchemaField.FieldName.IsEmpty or (SchemaField.FieldName = LowerCase(PropItem^.Name)) then
+                SchemaField.Column(Meta.FieldName);
+              SchemaField.DBOptions := Meta.DBOptions;
+              if Meta.IsRequired then
+                SchemaField.Required;
+              SchemaField.FieldKind := Meta.FieldKind;
+              if Meta.FieldSize > 0 then
+                SchemaField.Size(Meta.FieldSize);
+              Meta.SchemaField := SchemaField;
+              DField.SchemaField := SchemaField;
 
               SetLength(FFields, FFieldCount + 1);
               FFields[FFieldCount] := Meta;

@@ -5,7 +5,7 @@ unit DeltaModel.ORM.Types;
 interface
 
 uses
-  Classes, SysUtils, Variants, StrUtils;
+  Classes, SysUtils, Variants, StrUtils, DeltaModel.Fields;
 
 type
   TDatabaseDialect = (
@@ -65,6 +65,7 @@ type
     class function BuildBetween(const AField: string; const AVal1, AVal2: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
     class function BuildIn(const AField: string; const AValues: array of Variant; ADialect: TDatabaseDialect = ddPostgreSQL; ANotIn: Boolean = False): string; static;
     class function BuildNullCondition(const AField: string; AIsNull: Boolean = True): string; static;
+    class function ConditionToSQL(const ACond: TDeltaCondition; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
   end;
 
 implementation
@@ -330,7 +331,6 @@ class function TSQLCriteriaHelper.BuildIn(const AField: string;
   ANotIn: Boolean): string;
 var
   I: Integer;
-  SL: TStringList;
   OpStr: string;
 begin
   if Length(AValues) = 0 then
@@ -341,20 +341,19 @@ begin
       Exit('1 = 0');
   end;
 
-  SL := TStringList.Create;
-  try
-    for I := Low(AValues) to High(AValues) do
-      SL.Add(FormatValue(AValues[I], ADialect));
+  if ANotIn then
+    OpStr := 'NOT IN'
+  else
+    OpStr := 'IN';
 
-    if ANotIn then
-      OpStr := 'NOT IN'
-    else
-      OpStr := 'IN';
-
-    Result := Format('%s %s (%s)', [AField, OpStr, string.Join(', ', SL.ToStringArray)]);
-  finally
-    SL.Free;
+  Result := AField + ' ' + OpStr + ' (';
+  for I := Low(AValues) to High(AValues) do
+  begin
+    if I > Low(AValues) then
+      Result := Result + ', ';
+    Result := Result + FormatValue(AValues[I], ADialect);
   end;
+  Result := Result + ')';
 end;
 
 class function TSQLCriteriaHelper.BuildNullCondition(const AField: string;
@@ -364,6 +363,46 @@ begin
     Result := Format('%s IS NULL', [AField])
   else
     Result := Format('%s IS NOT NULL', [AField]);
+end;
+
+class function TSQLCriteriaHelper.ConditionToSQL(const ACond: TDeltaCondition;
+  ADialect: TDatabaseDialect): string;
+var
+  FName: string;
+begin
+  if ACond.Field = nil then
+    raise Exception.Create('TDeltaCondition: Field cannot be nil');
+
+  FName := ACond.Field.FieldName;
+  if FName.IsEmpty then
+    raise Exception.Create('TDeltaCondition: Field has no FieldName configured');
+
+  case ACond.&Operator of
+    doEq:
+      Result := BuildCondition(FName, opEqual, ACond.Value, ADialect);
+    doNotEq:
+      Result := BuildCondition(FName, opNotEqual, ACond.Value, ADialect);
+    doGt:
+      Result := BuildCondition(FName, opGreaterThan, ACond.Value, ADialect);
+    doGte:
+      Result := BuildCondition(FName, opGreaterThanOrEqual, ACond.Value, ADialect);
+    doLt:
+      Result := BuildCondition(FName, opLessThan, ACond.Value, ADialect);
+    doLte:
+      Result := BuildCondition(FName, opLessThanOrEqual, ACond.Value, ADialect);
+    doLike:
+      Result := BuildCondition(FName, opLike, ACond.Value, ADialect);
+    doBetween:
+      Result := BuildBetween(FName, ACond.Value, ACond.SecondaryValue, ADialect);
+    doIn:
+      Result := BuildIn(FName, ACond.Values, ADialect, False);
+    doIsNull:
+      Result := BuildNullCondition(FName, True);
+    doIsNotNull:
+      Result := BuildNullCondition(FName, False);
+  else
+    Result := BuildCondition(FName, opEqual, ACond.Value, ADialect);
+  end;
 end;
 
 end.

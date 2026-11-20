@@ -17,6 +17,37 @@ type
 
   TDeltaFieldKind = (dfkInteger, dfkFloat, dfkString, dfkBoolean, dfkDateTime, dfkVirtual);
 
+  TDeltaField = class;
+  TDeltaSchemaField = class;
+
+  TDeltaOperator = (
+    doEq,
+    doNotEq,
+    doGt,
+    doGte,
+    doLt,
+    doLte,
+    doLike,
+    doBetween,
+    doIn,
+    doIsNull,
+    doIsNotNull
+  );
+
+  TDeltaOrderDirection = (
+    odAsc,
+    odDesc
+  );
+
+  { TDeltaCondition - Record alocado exclusivamente na stack para Zero Heap Churn }
+  TDeltaCondition = record
+    Field: TDeltaField;
+    &Operator: TDeltaOperator;
+    Value: Variant;
+    SecondaryValue: Variant;
+    Values: array of Variant;
+  end;
+
   { TForeignKey }
 
   TForeignKey = class
@@ -40,6 +71,7 @@ type
 
   TDeltaField = class
   private
+    FSchemaField: TDeltaSchemaField;
     FDBOptions: TDBOptionsSet;
     FFieldName: string;
     FForeignKey: TForeignKey;
@@ -47,7 +79,12 @@ type
     FIsVirtual: Boolean;
     FIsRequired: Boolean;
     FFieldKind: TDeltaFieldKind;
+    function GetFieldName: string;
     procedure SetFieldName(AValue: string);
+    function GetIsRequired: Boolean;
+    procedure SetIsRequired(AValue: Boolean);
+    function GetDBOptions: TDBOptionsSet;
+    procedure SetDBOptions(AValue: TDBOptionsSet);
     function GetForeignKey: TForeignKey;
     function GetIsUnique: Boolean;
     procedure SetIsUnique(AValue: Boolean);
@@ -75,11 +112,12 @@ type
     property Visible: Boolean read FVisible write FVisible;
 
     ///to be used with ORM
-    property FieldName: string read FFieldName write SetFieldName;
-    property DBOptions: TDBOptionsSet read FDBOptions write FDBOptions;
+    property SchemaField: TDeltaSchemaField read FSchemaField write FSchemaField;
+    property FieldName: string read GetFieldName write SetFieldName;
+    property DBOptions: TDBOptionsSet read GetDBOptions write SetDBOptions;
     property ForeignKey: TForeignKey read GetForeignKey;
     property IsVirtual: Boolean read FIsVirtual write FIsVirtual;
-    property IsRequired: Boolean read FIsRequired write FIsRequired;
+    property IsRequired: Boolean read GetIsRequired write SetIsRequired;
     property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
     property IsUnique: Boolean read GetIsUnique write SetIsUnique;
     property IsIndexed: Boolean read GetIsIndexed write SetIsIndexed;
@@ -102,6 +140,22 @@ type
     property AsBoolean: Boolean read GetAsBoolean write SetAsBoolean;
     property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
     property AsText: string read AsString write SetAsString;
+
+    // Métodos de expressão fluentes e type-safe (Zero Heap Churn)
+    function Eq(const AValue: Variant): TDeltaCondition;
+    function NotEq(const AValue: Variant): TDeltaCondition;
+    function Gt(const AValue: Variant): TDeltaCondition;
+    function Gte(const AValue: Variant): TDeltaCondition;
+    function Lt(const AValue: Variant): TDeltaCondition;
+    function Lte(const AValue: Variant): TDeltaCondition;
+    function Like(const AValue: Variant): TDeltaCondition;
+    function Between(const AVal1, AVal2: Variant): TDeltaCondition;
+    function InList(const AValues: array of Variant): TDeltaCondition; overload;
+    function InList(const AValues: array of string): TDeltaCondition; overload;
+    function InList(const AValues: array of Int64): TDeltaCondition; overload;
+    function IsDbNull: TDeltaCondition;
+    function IsNotDbNull: TDeltaCondition;
+
     constructor Create; virtual;
     destructor Destroy; override;
   end;
@@ -190,12 +244,13 @@ type
   TDFStringNull = class(TDeltaFieldNullable)
   private
     FSize: Integer;
+    function GetSize: Integer;
   protected
     procedure SetValue(AValue: Variant); override;
   public
     procedure SetAsString(const AValue: string); override;
     constructor Create; override;
-    property Size: Integer read FSize write FSize;
+    property Size: Integer read GetSize write FSize;
     procedure AfterConstruction; override;
   end;
 
@@ -260,12 +315,13 @@ type
   TDFStringRequired = class(TDeltaFieldRequired)
   private
     FSize: Integer;
+    function GetSize: Integer;
   protected
     procedure SetValue(AValue: Variant); override;
   public
     procedure SetAsString(const AValue: string); override;
     constructor Create; override;
-    property Size: Integer read FSize write FSize;
+    property Size: Integer read GetSize write FSize;
     procedure AfterConstruction; override;
   end;
 
@@ -497,7 +553,8 @@ type
     function Column(const AName: string): TDeltaSchemaField;
     function AsPK: TDeltaSchemaField;
     function AutoInc: TDeltaSchemaField;
-    function Required: TDeltaSchemaField;
+    function Required: TDeltaSchemaField; overload;
+    function Required(ARequired: Boolean): TDeltaSchemaField; overload;
     function Nullable: TDeltaSchemaField;
     function Size(ASize: Integer): TDeltaSchemaField;
     function Default(AValue: Variant): TDeltaSchemaField;
@@ -518,11 +575,11 @@ type
     function CPF_CNPJ: TDeltaSchemaField;
     function URL: TDeltaSchemaField;
 
-    property PropName: string read FPropName;
-    property FieldName: string read FFieldName;
-    property DBOptions: TDBOptionsSet read FDBOptions;
-    property IsRequired: Boolean read FIsRequired;
-    property FieldSize: Integer read FFieldSize;
+    property PropName: string read FPropName write FPropName;
+    property FieldName: string read FFieldName write FFieldName;
+    property DBOptions: TDBOptionsSet read FDBOptions write FDBOptions;
+    property IsRequired: Boolean read FIsRequired write FIsRequired;
+    property FieldSize: Integer read FFieldSize write FFieldSize;
     property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
 
     property HasMin: Boolean read FHasMin;
@@ -646,6 +703,12 @@ end;
 function TDeltaSchemaField.Required: TDeltaSchemaField;
 begin
   FIsRequired := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Required(ARequired: Boolean): TDeltaSchemaField;
+begin
+  FIsRequired := ARequired;
   Result := Self;
 end;
 
@@ -836,7 +899,7 @@ var
   I: Integer;
 begin
   for I := 0 to FFields.Count - 1 do
-    if SameText(FFields[I].PropName, APropName) then
+    if SameText(FFields[I].PropName, APropName) or SameText(FFields[I].FieldName, APropName) then
       Exit(FFields[I]);
   Result := nil;
 end;
@@ -916,10 +979,50 @@ end;
 
 { TDeltaField }
 
+function TDeltaField.GetFieldName: string;
+begin
+  if (FFieldName = '') and (FSchemaField <> nil) then
+    Result := FSchemaField.FieldName
+  else
+    Result := FFieldName;
+end;
+
 procedure TDeltaField.SetFieldName(AValue: string);
 begin
   if FFieldName = AValue then Exit;
   FFieldName := AValue;
+  if FSchemaField <> nil then
+    FSchemaField.Column(AValue);
+end;
+
+function TDeltaField.GetIsRequired: Boolean;
+begin
+  if FSchemaField <> nil then
+    Result := FSchemaField.IsRequired
+  else
+    Result := FIsRequired;
+end;
+
+procedure TDeltaField.SetIsRequired(AValue: Boolean);
+begin
+  FIsRequired := AValue;
+  if FSchemaField <> nil then
+    FSchemaField.Required(AValue);
+end;
+
+function TDeltaField.GetDBOptions: TDBOptionsSet;
+begin
+  if (FDBOptions = []) and (FSchemaField <> nil) then
+    Result := FSchemaField.DBOptions
+  else
+    Result := FDBOptions;
+end;
+
+procedure TDeltaField.SetDBOptions(AValue: TDBOptionsSet);
+begin
+  FDBOptions := AValue;
+  if FSchemaField <> nil then
+    FSchemaField.DBOptions := AValue;
 end;
 
 function TDeltaField.GetForeignKey: TForeignKey;
@@ -1057,6 +1160,135 @@ end;
 procedure TDeltaField.SetAsString(const AValue: string);
 begin
   SetValue(AValue);
+end;
+
+function TDeltaField.Eq(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doEq;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.NotEq(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doNotEq;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Gt(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doGt;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Gte(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doGte;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Lt(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doLt;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Lte(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doLte;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Like(const AValue: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doLike;
+  Result.Value := AValue;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.Between(const AVal1, AVal2: Variant): TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doBetween;
+  Result.Value := AVal1;
+  Result.SecondaryValue := AVal2;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.InList(const AValues: array of Variant): TDeltaCondition;
+var
+  I: Integer;
+begin
+  Result.Field := Self;
+  Result.&Operator := doIn;
+  Result.Value := Null;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, Length(AValues));
+  for I := Low(AValues) to High(AValues) do
+    Result.Values[I - Low(AValues)] := AValues[I];
+end;
+
+function TDeltaField.InList(const AValues: array of string): TDeltaCondition;
+var
+  I: Integer;
+begin
+  Result.Field := Self;
+  Result.&Operator := doIn;
+  Result.Value := Null;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, Length(AValues));
+  for I := Low(AValues) to High(AValues) do
+    Result.Values[I - Low(AValues)] := AValues[I];
+end;
+
+function TDeltaField.InList(const AValues: array of Int64): TDeltaCondition;
+var
+  I: Integer;
+begin
+  Result.Field := Self;
+  Result.&Operator := doIn;
+  Result.Value := Null;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, Length(AValues));
+  for I := Low(AValues) to High(AValues) do
+    Result.Values[I - Low(AValues)] := AValues[I];
+end;
+
+function TDeltaField.IsDbNull: TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doIsNull;
+  Result.Value := Null;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
+end;
+
+function TDeltaField.IsNotDbNull: TDeltaCondition;
+begin
+  Result.Field := Self;
+  Result.&Operator := doIsNotNull;
+  Result.Value := Null;
+  Result.SecondaryValue := Null;
+  SetLength(Result.Values, 0);
 end;
 
 { TDeltaFieldNullable }
@@ -1266,6 +1498,16 @@ end;
 
 { TDFStringNull }
 
+function TDFStringNull.GetSize: Integer;
+begin
+  if (FSize = 0) or (FSize = DEFAULT_STR_SIZE) then
+  begin
+    if (FSchemaField <> nil) and (FSchemaField.FieldSize > 0) then
+      Exit(FSchemaField.FieldSize);
+  end;
+  Result := FSize;
+end;
+
 constructor TDFStringNull.Create;
 begin
   inherited Create;
@@ -1433,6 +1675,16 @@ begin
 end;
 
 { TDFStringRequired }
+
+function TDFStringRequired.GetSize: Integer;
+begin
+  if (FSize = 0) or (FSize = DEFAULT_STR_SIZE) then
+  begin
+    if (FSchemaField <> nil) and (FSchemaField.FieldSize > 0) then
+      Exit(FSchemaField.FieldSize);
+  end;
+  Result := FSize;
+end;
 
 constructor TDFStringRequired.Create;
 begin

@@ -282,7 +282,7 @@ begin
     Emp.registeredAt.Value     := Now;
     Emp.notes.Value            := 'Engenheiro full-stack sênior.';
     Emp.badgeUuid.Value        := 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
-    Co.employees.Records.Add(Emp);
+    Co.employees.Add(Emp);
 
     try
       Co.Validate;
@@ -313,7 +313,7 @@ begin
     Emp.cpf.Value    := '52998224725';
     Emp.salary.Value := 8500;
     Emp.active.Value := True;
-    Co.employees.Records.Add(Emp);
+    Co.employees.Add(Emp);
 
     Emp := TEmployee.Create;
     Emp.name.Value   := 'Carlos Souza';
@@ -321,7 +321,7 @@ begin
     Emp.cpf.Value    := '52998224725';
     Emp.salary.Value := 12000;
     Emp.active.Value := True;
-    Co.employees.Records.Add(Emp);
+    Co.employees.Add(Emp);
 
     pgcBase.ActivePageIndex := 2;
     mmoJson.Lines.Text := Co.ToJson;

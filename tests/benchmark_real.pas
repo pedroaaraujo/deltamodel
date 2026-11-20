@@ -42,7 +42,7 @@ type
     FStock: Integer;
     FActive: Boolean;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property Name: string read FName write FName;
@@ -71,15 +71,15 @@ begin
   Active.DBOptions := [dboInsert, dboUpdate];
 end;
 
-class procedure TModernProduct.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TModernProduct.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  Schema.Table('modern_products');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('Name').Column('name').Required.Size(150);
-  Schema.Field('Price').Column('price').Required;
-  Schema.Field('Cost').Column('cost').Nullable;
-  Schema.Field('Stock').Column('stock').Required;
-  Schema.Field('Active').Column('active').Required;
+  ASchema.Table('modern_products');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('Name').Column('name').Required.Size(150);
+  ASchema.Field('Price').Column('price').Required;
+  ASchema.Field('Cost').Column('cost').Nullable;
+  ASchema.Field('Stock').Column('stock').Required;
+  ASchema.Field('Active').Column('active').Required;
 end;
 
 function GetAllocatedMemKB: Int64;

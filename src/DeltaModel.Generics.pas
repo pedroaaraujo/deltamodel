@@ -11,31 +11,100 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.JsonStreamer,
   DeltaModel.ORM.Interfaces, DeltaModel.ORM.DML;
 
+procedure RegisterSchemaFlyweight(AModel: TDeltaModel);
+procedure UnregisterSchemaFlyweight(AModel: TDeltaModel);
+procedure ClearSchemaFlyweights;
+function GetOrRegisterFlyweight(AClass: TClass): TDeltaModel;
+procedure RemoveFlyweight(AClass: TClass);
+
 type
+  TDeltaModelProc<T: TDeltaModel> = procedure(AModel: T) of object;
+
+  { TDeltaQueryEnumerator<T> }
+  TDeltaQueryEnumerator<T: TDeltaModel> = class
+  private
+    FQuery: TQuery;
+    FCurrent: T;
+  public
+    constructor Create(AQuery: TQuery; ACurrent: T);
+    destructor Destroy; override;
+    function MoveNext: Boolean;
+    function GetCurrent: T;
+    property Current: T read GetCurrent;
+  end;
+
+  { TDeltaQueryCursor<T> }
+  TDeltaQueryCursor<T: TDeltaModel> = class
+  private
+    FQuery: TQuery;
+    FCurrent: T;
+  public
+    type
+      TCursorEnumerator = TDeltaQueryEnumerator<T>;
+    constructor Create(AQuery: TQuery; ACurrent: T);
+    function GetEnumerator: TCursorEnumerator;
+  end;
+
   { High-performance Typed ORM Query with Generics, Eager Loading and Streaming }
   TDeltaQuery<T: TDeltaModel> = class
   private
     FQuery: TQuery;
     FEngine: IDeltaORMEngine;
     FIncludes: TStringList;
+    FCurrent: T;
+    FCursor: TDeltaQueryCursor<T>;
+    class function GetSchemaSingleton: T; static;
+    function GetSchema: T; inline;
+    function GetIsOpen: Boolean;
+    function GetEOF: Boolean;
     class function GetModelPropertyValue(AModel: TObject; const APropName: string): Variant; static;
   public
-    constructor Create(AEngine: IDeltaORMEngine);
+    type
+      TEnumerator = TDeltaQueryEnumerator<T>;
+      TCursor = TDeltaQueryCursor<T>;
+    constructor Create(AEngine: IDeltaORMEngine = nil);
     destructor Destroy; override;
 
+    // Cursor Reusável (Zero-Alloc Loop)
+    function Open: TDeltaQuery<T>;
+    function Next: Boolean;
+    function EOF: Boolean;
+    procedure Close;
+    property Current: T read FCurrent;
+    property IsOpen: Boolean read GetIsOpen;
+    function Cursor: TCursor;
+    function GetEnumerator: TEnumerator;
+    procedure Each(AProc: TDeltaModelProc<T>);
+
+    // Schema Flyweight Singleton (Zero Heap Churn na montagem de queries)
+    property Schema: T read GetSchema;
+    property M: T read GetSchema;
+    class property SchemaModel: T read GetSchemaSingleton;
+    class function ModelSchema: T; static;
+    class procedure FreeSchema; static;
+
     function Include(const ARelationName: string): TDeltaQuery<T>;
-    function Where(const ACondition: string): TDeltaQuery<T>;
+    function Where(const ACondition: string): TDeltaQuery<T>; overload;
+    function Where(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
     function AndWhere(const ACondition: string): TDeltaQuery<T>; overload;
     function AndWhere(const AField: string; const AValue: Variant): TDeltaQuery<T>; overload;
+    function AndWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
     function OrWhere(const ACondition: string): TDeltaQuery<T>; overload;
     function OrWhere(const AField: string; const AValue: Variant): TDeltaQuery<T>; overload;
-    function OrderBy(const AOrderBy: string): TDeltaQuery<T>;
+    function OrWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
+    function OrderBy(const AOrderBy: string): TDeltaQuery<T>; overload;
+    function OrderBy(AField: TDeltaField; ADirection: TDeltaOrderDirection = odAsc): TDeltaQuery<T>; overload;
     function Limit(ALimit: Integer): TDeltaQuery<T>;
     function Offset(AOffset: Integer): TDeltaQuery<T>;
     function Page(APageNumber, APageSize: Integer): TDeltaQuery<T>;
     function Select(const AColumns: string): TDeltaQuery<T>;
     function Param(const AName: string; const AValue: Variant): TDeltaQuery<T>;
     function Clear: TDeltaQuery<T>;
+
+    function ToSQL: string;
+    function WhereClause: string;
+    function FilterText: string;
+    function OrderByClause: string;
 
     function First: T;
     function FindById(const AId: Variant): T;
@@ -57,7 +126,96 @@ type
 
 implementation
 
+var
+  GSchemaSingletons: TFPList = nil;
+
+procedure RegisterSchemaFlyweight(AModel: TDeltaModel);
+begin
+  if GSchemaSingletons = nil then
+    GSchemaSingletons := TFPList.Create;
+  if GSchemaSingletons.IndexOf(AModel) < 0 then
+    GSchemaSingletons.Add(AModel);
+end;
+
+procedure UnregisterSchemaFlyweight(AModel: TDeltaModel);
+begin
+  if GSchemaSingletons <> nil then
+    GSchemaSingletons.Remove(Pointer(AModel));
+end;
+
+procedure ClearSchemaFlyweights;
+var
+  I: Integer;
+  Obj: TObject;
+begin
+  if GSchemaSingletons <> nil then
+  begin
+    for I := GSchemaSingletons.Count - 1 downto 0 do
+    begin
+      Obj := TObject(GSchemaSingletons[I]);
+      Obj.Free;
+    end;
+    FreeAndNil(GSchemaSingletons);
+  end;
+end;
+
+function GetOrRegisterFlyweight(AClass: TClass): TDeltaModel;
+var
+  I: Integer;
+  M: TDeltaModel;
+begin
+  if GSchemaSingletons = nil then
+    GSchemaSingletons := TFPList.Create;
+  for I := 0 to GSchemaSingletons.Count - 1 do
+  begin
+    M := TDeltaModel(GSchemaSingletons[I]);
+    if M.ClassType = AClass then
+      Exit(M);
+  end;
+  M := TDeltaModelClass(AClass).Create;
+  GSchemaSingletons.Add(M);
+  Result := M;
+end;
+
+procedure RemoveFlyweight(AClass: TClass);
+var
+  I: Integer;
+  M: TDeltaModel;
+begin
+  if GSchemaSingletons = nil then Exit;
+  for I := GSchemaSingletons.Count - 1 downto 0 do
+  begin
+    M := TDeltaModel(GSchemaSingletons[I]);
+    if M.ClassType = AClass then
+    begin
+      GSchemaSingletons.Delete(I);
+      M.Free;
+      Break;
+    end;
+  end;
+end;
+
 { TDeltaQuery<T> }
+
+class function TDeltaQuery<T>.GetSchemaSingleton: T;
+begin
+  Result := T(GetOrRegisterFlyweight(T));
+end;
+
+function TDeltaQuery<T>.GetSchema: T;
+begin
+  Result := GetSchemaSingleton;
+end;
+
+class function TDeltaQuery<T>.ModelSchema: T;
+begin
+  Result := GetSchemaSingleton;
+end;
+
+class procedure TDeltaQuery<T>.FreeSchema;
+begin
+  RemoveFlyweight(T);
+end;
 
 class function TDeltaQuery<T>.GetModelPropertyValue(AModel: TObject; const APropName: string): Variant;
 var
@@ -79,12 +237,66 @@ begin
     Result := GetPropValue(AModel, APropName);
 end;
 
+{ TDeltaQueryEnumerator<T> }
+
+constructor TDeltaQueryEnumerator<T>.Create(AQuery: TQuery; ACurrent: T);
+begin
+  inherited Create;
+  FQuery := AQuery;
+  FCurrent := ACurrent;
+  if FQuery <> nil then
+  begin
+    if FQuery.IsOpen then
+      FQuery.Close;
+    FQuery.Open;
+  end;
+end;
+
+destructor TDeltaQueryEnumerator<T>.Destroy;
+begin
+  if FQuery <> nil then
+    FQuery.Close;
+  inherited Destroy;
+end;
+
+function TDeltaQueryEnumerator<T>.MoveNext: Boolean;
+begin
+  if FQuery <> nil then
+    Result := FQuery.Next
+  else
+    Result := False;
+end;
+
+function TDeltaQueryEnumerator<T>.GetCurrent: T;
+begin
+  Result := FCurrent;
+end;
+
+{ TDeltaQueryCursor<T> }
+
+constructor TDeltaQueryCursor<T>.Create(AQuery: TQuery; ACurrent: T);
+begin
+  inherited Create;
+  FQuery := AQuery;
+  FCurrent := ACurrent;
+end;
+
+function TDeltaQueryCursor<T>.GetEnumerator: TCursorEnumerator;
+begin
+  Result := TCursorEnumerator.Create(FQuery, FCurrent);
+end;
+
+{ TDeltaQuery<T> }
+
 constructor TDeltaQuery<T>.Create(AEngine: IDeltaORMEngine);
 begin
   inherited Create;
   FEngine := AEngine;
   FQuery := TQuery.Create(AEngine);
   FQuery.SetModel(T);
+  FCurrent := T.Create;
+  FQuery.SetCursorModel(FCurrent, False);
+  FCursor := TCursor.Create(FQuery, FCurrent);
   FIncludes := TStringList.Create;
   FIncludes.Duplicates := dupIgnore;
   FIncludes.Sorted := True;
@@ -92,9 +304,66 @@ end;
 
 destructor TDeltaQuery<T>.Destroy;
 begin
+  FQuery.Close;
+  FCursor.Free;
+  FCurrent.Free;
   FIncludes.Free;
   FQuery.Free;
   inherited Destroy;
+end;
+
+function TDeltaQuery<T>.Open: TDeltaQuery<T>;
+begin
+  FQuery.SetCursorModel(FCurrent, False);
+  FQuery.Open;
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.Next: Boolean;
+begin
+  Result := FQuery.Next;
+end;
+
+function TDeltaQuery<T>.EOF: Boolean;
+begin
+  Result := FQuery.EOF;
+end;
+
+procedure TDeltaQuery<T>.Close;
+begin
+  FQuery.Close;
+end;
+
+function TDeltaQuery<T>.GetIsOpen: Boolean;
+begin
+  Result := FQuery.IsOpen;
+end;
+
+function TDeltaQuery<T>.GetEOF: Boolean;
+begin
+  Result := FQuery.EOF;
+end;
+
+function TDeltaQuery<T>.Cursor: TCursor;
+begin
+  Result := FCursor;
+end;
+
+function TDeltaQuery<T>.GetEnumerator: TEnumerator;
+begin
+  Result := TEnumerator.Create(FQuery, FCurrent);
+end;
+
+procedure TDeltaQuery<T>.Each(AProc: TDeltaModelProc<T>);
+begin
+  if not Assigned(AProc) then Exit;
+  Open;
+  try
+    while Next do
+      AProc(FCurrent);
+  finally
+    Close;
+  end;
 end;
 
 function TDeltaQuery<T>.Include(const ARelationName: string): TDeltaQuery<T>;
@@ -105,6 +374,12 @@ begin
 end;
 
 function TDeltaQuery<T>.Where(const ACondition: string): TDeltaQuery<T>;
+begin
+  FQuery.Where(ACondition);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.Where(const ACondition: TDeltaCondition): TDeltaQuery<T>;
 begin
   FQuery.Where(ACondition);
   Result := Self;
@@ -122,6 +397,12 @@ begin
   Result := Self;
 end;
 
+function TDeltaQuery<T>.AndWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>;
+begin
+  FQuery.AndWhere(ACondition);
+  Result := Self;
+end;
+
 function TDeltaQuery<T>.OrWhere(const ACondition: string): TDeltaQuery<T>;
 begin
   FQuery.OrWhere(ACondition);
@@ -134,10 +415,42 @@ begin
   Result := Self;
 end;
 
+function TDeltaQuery<T>.OrWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>;
+begin
+  FQuery.OrWhere(ACondition);
+  Result := Self;
+end;
+
 function TDeltaQuery<T>.OrderBy(const AOrderBy: string): TDeltaQuery<T>;
 begin
   FQuery.OrderBy(AOrderBy);
   Result := Self;
+end;
+
+function TDeltaQuery<T>.OrderBy(AField: TDeltaField; ADirection: TDeltaOrderDirection): TDeltaQuery<T>;
+begin
+  FQuery.OrderBy(AField, ADirection);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.ToSQL: string;
+begin
+  Result := FQuery.ToSQL;
+end;
+
+function TDeltaQuery<T>.WhereClause: string;
+begin
+  Result := FQuery.WhereClause;
+end;
+
+function TDeltaQuery<T>.FilterText: string;
+begin
+  Result := FQuery.FilterText;
+end;
+
+function TDeltaQuery<T>.OrderByClause: string;
+begin
+  Result := FQuery.OrderByClause;
 end;
 
 function TDeltaQuery<T>.Limit(ALimit: Integer): TDeltaQuery<T>;
@@ -250,7 +563,7 @@ begin
   try
     Result := TGDeltaModelList<T>.Create;
     for I := 0 to PaginatedList.Count - 1 do
-      Result.Records.Add(T(PaginatedList.Records[I]));
+      Result.Add(T(PaginatedList.Records[I]));
     PaginatedList.Records.FreeObjects := False;
     PaginatedList.Records.Clear;
   finally
@@ -373,57 +686,42 @@ end;
 
 function TDeltaQuery<T>.StreamJsonTo(AStream: TStream; ABatchSize: Integer): Int64;
 var
-  CurrentOffset: Integer;
-  BatchList: TGDeltaModelList<T>;
   Streamer: TDeltaFastJsonStreamer;
-  I: Integer;
   IsFirstRecord: Boolean;
   ChunkBuf: RawByteString;
   Sep: RawByteString;
 begin
   Result := 0;
   if AStream = nil then Exit;
-  if ABatchSize <= 0 then ABatchSize := 500;
 
   Streamer := TDeltaFastJsonStreamer.Create;
   try
     ChunkBuf := '[';
     AStream.WriteBuffer(ChunkBuf[1], Length(ChunkBuf));
 
-    CurrentOffset := 0;
     IsFirstRecord := True;
-
-    repeat
-      BatchList := All(ABatchSize, CurrentOffset);
-      try
-        if (BatchList = nil) or (BatchList.Count = 0) then
-          Break;
-
-        for I := 0 to BatchList.Count - 1 do
+    Open;
+    try
+      while Next do
+      begin
+        if not IsFirstRecord then
         begin
-          if not IsFirstRecord then
-          begin
-            Sep := ',';
-            AStream.WriteBuffer(Sep[1], 1);
-          end;
-          IsFirstRecord := False;
-
-          Streamer.Clear;
-          Streamer.WriteModel(BatchList[I]);
-          ChunkBuf := Streamer.AsJSON;
-          if Length(ChunkBuf) > 0 then
-            AStream.WriteBuffer(ChunkBuf[1], Length(ChunkBuf));
-
-          Inc(Result);
+          Sep := ',';
+          AStream.WriteBuffer(Sep[1], 1);
         end;
+        IsFirstRecord := False;
 
-        Inc(CurrentOffset, BatchList.Count);
-        if BatchList.Count < ABatchSize then
-          Break;
-      finally
-        BatchList.Free;
+        Streamer.Clear;
+        Streamer.WriteModel(FCurrent);
+        ChunkBuf := Streamer.AsJSON;
+        if Length(ChunkBuf) > 0 then
+          AStream.WriteBuffer(ChunkBuf[1], Length(ChunkBuf));
+
+        Inc(Result);
       end;
-    until False;
+    finally
+      Close;
+    end;
 
     ChunkBuf := ']';
     AStream.WriteBuffer(ChunkBuf[1], Length(ChunkBuf));
@@ -451,5 +749,8 @@ function TDeltaQuery<T>.BulkInsert(AList: TGDeltaModelList<T>; ABatchSize: Integ
 begin
   Result := TInsert.BulkInsertObjects(FEngine, AList, ABatchSize);
 end;
+
+finalization
+  ClearSchemaFlyweights;
 
 end.

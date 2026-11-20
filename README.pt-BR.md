@@ -70,7 +70,7 @@ type
     FPrice: Double;
     FActive: Boolean;
   public
-    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
   published
     property Id: Int64 read FId write FId;
     property Name: string read FName write FName;
@@ -78,13 +78,13 @@ type
     property Active: Boolean read FActive write FActive;
   end;
 
-class procedure TProduct.ConfigureSchema(Schema: TDeltaModelSchema);
+class procedure TProduct.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
-  Schema.Table('products');
-  Schema.Field('Id').Column('id').AsPK.AutoInc;
-  Schema.Field('Name').Column('name').Required.Size(120);
-  Schema.Field('Price').Column('price').Required;
-  Schema.Field('Active').Column('active').Required;
+  ASchema.Table('products');
+  ASchema.Field('Id').Column('id').AsPK.AutoInc;
+  ASchema.Field('Name').Column('name').Required.Size(120);
+  ASchema.Field('Price').Column('price').Required;
+  ASchema.Field('Active').Column('active').Required;
 end;
 
 var
@@ -311,6 +311,54 @@ Para eliminar problemas de $N+1$ consultas, o `Include` carrega coleções filha
 // Carrega pedidos e popula Order.Items em apenas 2 queries no total
 Orders := OrderQuery.Include('Items').Where('status = :s').Param('s', 'ABERTO').All;
 ```
+
+### Consultas Massivas: Schema Flyweight & Cursor Reusável (Zero-Alloc Loop)
+
+Ao processar grandes volumes de dados (ex.: mais de 5.000 registros), o padrão tradicional de ORMs (`Query.All`) aloca uma instância de objeto individual para cada linha, despejando dezenas de milhares de objetos no Heap do Free Pascal. O DeltaModel soluciona esse gargalo através do **Schema Flyweight** e do **Cursor Reusável** canônico do Pascal:
+
+1. **Schema Flyweight (`TModel.Schema`)**:
+   Os metadados (`FieldName`, `Size`, `IsRequired`, `DBOptions`) são desacoplados das instâncias de linha do modelo. São configurados uma única vez por classe (`TModel.ConfigureSchema(ASchema)`) e acessados estaticamente (`TMunicipio.Schema`), existindo **exatamente 1 vez na memória** independentemente do número de registros consultados.
+
+2. **Cursor Reusável (`while Query.Next do`)**:
+   Uma única instância do modelo (`Query.Current`) é reaproveitada ao longo de todas as linhas percorridas pelo cursor. Para 5.000 linhas, é alocado **EXATAMENTE 1 OBJETO** no Heap (>99% de redução de memória e 2.4x mais rápido):
+
+```pascal
+Query := TDeltaQuery<TMunicipio>.Create(Engine);
+try
+  Query.OrderBy('id ASC').Open;
+  while Query.Next do
+  begin
+    // Query.Current aponta SEMPRE para a mesma instância atualizada
+    ProcessarMunicipio(Query.Current);
+  end;
+  Query.Close;
+finally
+  Query.Free;
+end;
+```
+
+3. **Suporte a Enumerador Pascal Nativo (`for M in Query.Cursor do`)**:
+```pascal
+for M in Query.Cursor do
+begin
+  // M reutiliza a mesma instância do modelo sem alocações no loop
+  WriteLn(M.Nome, ' - ', M.Uf);
+end;
+```
+
+4. **Callback Funcional (`Query.Each`)**:
+```pascal
+Query.Each(@ProcessarItem);
+```
+
+5. **Streaming Direto para HTTP/Socket (`Query.StreamJsonTo`)**:
+Transmite o JSON formatado diretamente para um `TStream` (como o stream de resposta HTTP do Zenith Framework) sem criar lotes ou listas intermediárias no Heap:
+```pascal
+LinhasEnviadas := Query.StreamJsonTo(Context.Response.OutputStream);
+```
+
+> [!NOTE]
+> Métodos legados como `TDeltaModelRecords.Add` foram marcados como depreciados (`deprecated 'Use TDeltaQuery.Cursor or StreamJsonTo instead'`).
 
 ---
 
