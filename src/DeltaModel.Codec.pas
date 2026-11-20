@@ -15,7 +15,7 @@ uses
   DeltaModel.JsonStreamer;
 
 type
-  { Exceções da Arquitetura de Codecs }
+  { Codec Architecture Exceptions }
   EDeltaCodecException = class(Exception)
   public
     constructor CreateFmt(const AFormat: string; const AArgs: array of const);
@@ -24,7 +24,7 @@ type
   EDeltaSerializationException = class(EDeltaCodecException);
   EDeltaDeserializationException = class(EDeltaCodecException);
 
-  { Contrato Universal de Codecs de Serialização / Desserialização }
+  { Universal Serialization / Deserialization Codec Contract }
   IDeltaCodec = interface
     ['{A5F8E2D1-B73C-4D90-8E14-6F39A1C54E20}']
     function GetFormatName: string;
@@ -36,7 +36,7 @@ type
     procedure DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
   end;
 
-  { Registro Central Thread-Safe de Codecs do DeltaModel }
+  { Thread-Safe Central Codec Registry for DeltaModel }
   TDeltaCodecRegistry = class
   private
     class var FLock: TCriticalSection;
@@ -55,14 +55,14 @@ type
     class function GetSupportedFormats: TStringArray;
     class procedure Clear;
 
-    { Helpers de Conveniência Diretos para String }
+    { Direct String Convenience Helpers }
     class function EncodeModelToString(AModel: TDeltaModel; const AMimeTypeOrFormat: string = 'json'): string;
     class procedure DecodeModelFromString(const AContent: string; AModel: TDeltaModel; const AMimeTypeOrFormat: string = 'json');
     class function EncodeListToString(AList: TObject; const AMimeTypeOrFormat: string = 'json'): string;
     class procedure DecodeListFromString(const AContent: string; AList: TObject; AModelClass: TClass; const AMimeTypeOrFormat: string = 'json');
   end;
 
-  { Codec JSON Padrão de Alta Performance (Zero-DOM Streamer) }
+  { Default High-Performance JSON Codec (Zero-DOM Streamer) }
   TDeltaJsonCodec = class(TInterfacedObject, IDeltaCodec)
   public
     function GetFormatName: string;
@@ -83,7 +83,7 @@ begin
   inherited Create(Format(AFormat, AArgs));
 end;
 
-{ Funções Utilitárias Locais }
+{ Local Utility Functions }
 
 function StreamToRawBytes(AStream: TStream): RawByteString;
 var
@@ -144,7 +144,7 @@ begin
   EnsureInitialized;
   FLock.Enter;
   try
-    // Substitui se já houver um codec com o mesmo FormatName
+    // Replace if a codec with the same FormatName is already registered
     for I := FCodecs.Count - 1 downto 0 do
     begin
       Existing := FCodecs[I] as IDeltaCodec;
@@ -196,7 +196,7 @@ begin
 
   FLock.Enter;
   try
-    // 1. Busca por FormatName exato (ex: 'json', 'cbor', 'xml')
+    // 1. Lookup by exact FormatName (e.g., 'json', 'cbor', 'xml')
     for I := 0 to FCodecs.Count - 1 do
     begin
       Codec := FCodecs[I] as IDeltaCodec;
@@ -204,7 +204,7 @@ begin
         Exit(Codec);
     end;
 
-    // 2. Busca por MimeType exato (ex: 'application/json')
+    // 2. Lookup by exact MimeType (e.g., 'application/json')
     for I := 0 to FCodecs.Count - 1 do
     begin
       Codec := FCodecs[I] as IDeltaCodec;
@@ -212,7 +212,7 @@ begin
         Exit(Codec);
     end;
 
-    // 3. Busca por CanHandleMimeType
+    // 3. Lookup via CanHandleMimeType
     for I := 0 to FCodecs.Count - 1 do
     begin
       Codec := FCodecs[I] as IDeltaCodec;

@@ -21,7 +21,7 @@ procedure CopyObject(AFrom, ATo: TObject);
 implementation
 
 uses
-  DeltaModel, DeltaModel.Metadata, DeltaModel.JsonParser;
+  DeltaModel, DeltaModel.Metadata, DeltaModel.JsonParser, DeltaModel.JsonStreamer;
 
 type
   { TDeltaJSONFloat }
@@ -32,24 +32,8 @@ type
   end;
 
 function TDeltaJSONFloat.GetAsJSON: TJSONStringType;
-var
-  FS: TFormatSettings;
-  S: string;
-  I: Integer;
 begin
-  FS := DefaultFormatSettings;
-  FS.DecimalSeparator := '.';
-
-  S := FloatToStrF(AsFloat, ffFixed, 18, 8, FS);
-
-  I := Length(S);
-  while (I > 0) and (S[I] = '0') do
-    Dec(I);
-
-  if S[I] = '.' then
-    Inc(I);
-
-  Result := Copy(S, 1, I);
+  Result := TDeltaFastJsonStreamer.FormatFloatFixed(AsFloat, 8);
 end;
 
 function CreateModelInstance(AClass: TClass): TObject;
@@ -244,6 +228,12 @@ var
 begin
   if Obj = nil then
     Exit('{}');
+
+  if Obj is TDeltaModel then
+    Exit(TDeltaFastJsonStreamer.ModelToJson(TDeltaModel(Obj)));
+
+  if Obj is TCustomDeltaModelList then
+    Exit(TDeltaFastJsonStreamer.ListToJson(TCustomDeltaModelList(Obj)));
 
   JsonData := SerializeToJsonObj(Obj);
   try

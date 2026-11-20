@@ -147,7 +147,7 @@ end;
 
 class function TDatabaseDialectHelper.SupportsReturning(ADialect: TDatabaseDialect): Boolean;
 begin
-  // Dialetos com suporte nativo a cláusula RETURNING no INSERT/UPDATE
+  // Dialects with native RETURNING clause support on INSERT/UPDATE
   Result := ADialect in [ddPostgreSQL, ddSQLite, ddFirebird];
 end;
 
@@ -241,7 +241,7 @@ begin
 
   VType := VarType(AValue);
 
-  // Booleano
+  // Boolean
   if (VType = varBoolean) then
   begin
     case ADialect of
@@ -266,7 +266,7 @@ begin
     Exit(FloatToStr(Double(AValue), InvFS));
   end;
 
-  // Data / Hora
+  // Date / Time
   if (VType = varDate) then
   begin
     DT := VarToDateTime(AValue);
@@ -276,7 +276,7 @@ begin
       Exit(QuotedStr(FormatDateTime('yyyy-mm-dd hh:nn:ss', DT)));
   end;
 
-  // Default: string com aspas escapadas
+  // Default: string with escaped quotes
   Result := QuotedStr(VarToStr(AValue));
 end;
 

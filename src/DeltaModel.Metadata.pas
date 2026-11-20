@@ -8,7 +8,7 @@ uses
   Classes, SysUtils, TypInfo, SyncObjs, DeltaModel.Fields;
 
 type
-  { Representa os metadados de uma propriedade RTTI em cache }
+  { Represents cached metadata for a single RTTI property }
   PDeltaPropItem = ^TDeltaPropItem;
   TDeltaPropItem = record
     Index: Integer;
@@ -24,7 +24,7 @@ type
   end;
   TDeltaPropItemArray = array of TDeltaPropItem;
 
-  { Cache de propriedades RTTI de uma classe }
+  { RTTI property cache for a class }
   TRTTIClassInfo = class
   private
     FClassType: TClass;
@@ -40,7 +40,7 @@ type
     property PropCount: Integer read FPropCount;
   end;
 
-  { Metadados específicos de um campo TDeltaField ou propriedade primitiva dentro de TDeltaModel }
+  { Field metadata for a TDeltaField or primitive property inside TDeltaModel }
   PDeltaFieldMeta = ^TDeltaFieldMeta;
   TDeltaFieldMeta = record
     PropInfo: PPropInfo;
@@ -60,7 +60,7 @@ type
   end;
   TDeltaFieldMetaArray = array of TDeltaFieldMeta;
 
-  { Metadados de persistência de um TDeltaModel }
+  { Persistence metadata for a TDeltaModel }
   TModelMetadata = class
   private
     FModelClass: TClass;
@@ -212,7 +212,7 @@ begin
     FTableName := AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt))
   else
     FTableName := '';
-  // ExtractMetadata é invocado por TRTTICache.GetModelMetadata após registrar no cache para proteção contra recursão
+  // ExtractMetadata is invoked by TRTTICache.GetModelMetadata after caching to guard against recursion
 end;
 
 destructor TModelMetadata.Destroy;
@@ -241,12 +241,12 @@ begin
   if not Assigned(FModelClass) then
     Exit;
 
-  // Extrai nome padrão da tabela por convenção
+  // Derive default table name by convention
   FTableName := AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt));
 
   if FModelClass.InheritsFrom(TDeltaModel) then
   begin
-    // 1. Processa Schema fluente da classe (Abordagem B: Propriedades Primitivas)
+    // 1. Process class fluent Schema (Approach B: Primitive Properties)
     FSchema := TDeltaModelSchema.Create;
     TDeltaModelClass(FModelClass).ConfigureSchema(FSchema);
     if not FSchema.TableName.IsEmpty then
@@ -300,7 +300,7 @@ begin
       end;
     end;
 
-    // 2. Processa campos adicionais ou TDeltaField (incluindo TDFHasOne, TDFHasMany)
+    // 2. Process additional fields or TDeltaField (including TDFHasOne, TDFHasMany)
     try
       TempInstance := TDeltaModelClass(FModelClass).Create;
       try

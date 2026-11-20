@@ -11,9 +11,9 @@ uses
 
 type
 
-  { TAddress - Modelo aninhado de endereço }
+  { TAddress - Nested address model }
 
-  { TUserProfile - Modelo 1:1 HasOne }
+  { TUserProfile - 1:1 HasOne model }
 
   TUserProfile = class(TDeltaModel)
   private
@@ -24,7 +24,7 @@ type
     property department: TDFStringNull read Fdepartment write Fdepartment;
   end;
 
-  { TAddress - Modelo aninhado de endereço }
+  { TAddress - Nested address model }
 
   TAddress = class(TDeltaModel)
   private
@@ -37,7 +37,7 @@ type
     property zipcode: TDFStringNull     read Fzipcode write Fzipcode;
   end;
 
-  { TUser - Modelo com suporte a todos os tipos de dados do DeltaModel }
+  { TUser - Model supporting all DeltaModel data types }
 
   TUser = class(TDeltaModel)
   private
@@ -130,14 +130,14 @@ implementation
 
 procedure TUser.Configure;
 begin
-  // Define o tamanho máximo do campo email
+  // Set maximum length for email field
   Self.email.Size := 200;
   Self.name.Size  := 120;
 
   Faddress := TAddress.Create;
   Profile.References(TUserProfile);
 
-  // Define campos invisíveis na serialização (ex: campo interno)
+  // Mark fields hidden from serialization (e.g., internal field)
   // Self.someInternalField.Visible := False;
 end;
 
@@ -145,30 +145,30 @@ procedure TUser.Validate;
 var
   VResult: TValid;
 begin
-  // Chama validação de campos Required (IsNull check)
+  // Invoke Required fields validation (IsNull check)
   inherited Validate;
 
   Self.Validator.Clear;
 
-  // Validações do nome
+  // Name validations
   Self.Validator
     .AddField('name', Self.name.Value)
     .AddValidator(TValidatorItemNotEmpty.Create)
     .AddValidator(TValidatorItemMinLength.Create(2))
     .AddValidator(TValidatorItemMaxLength.Create(120));
 
-  // Validação de email
+  // Email validation
   Self.Validator
     .AddField('email', Self.email.Value)
     .AddValidator(TValidatorItemNotEmpty.Create)
     .AddValidator(TValidatorEmail.Create);
 
-  // Validação de salário
+  // Salary validation
   Self.Validator
     .AddField('salary', Self.salary.Value)
     .AddValidator(TValidatorItemMinValue.Create(0));
 
-  // Validação de idade (campo opcional, só valida se preenchido)
+  // Age validation (optional field, only validated if populated)
   if not Self.age.IsNull then
   begin
     Self.Validator
@@ -177,7 +177,7 @@ begin
       .AddValidator(TValidatorItemMaxValue.Create(150));
   end;
 
-  // Validação de score (campo opcional)
+  // Score validation (optional field)
   if not Self.score.IsNull then
   begin
     Self.Validator
@@ -203,7 +203,7 @@ begin
   pgcBase.ActivePageIndex := 0;
 end;
 
-// Serialização: preenche um TUser com dados de todos os tipos e exibe o JSON resultante
+// Serialization: populate a TUser with all data types and display the resulting JSON
 procedure TForm1.Button1Click(Sender: TObject);
 var
   User: TUser;
@@ -224,12 +224,12 @@ begin
     User.created.Value   := Now;
     User.bio.Value       := 'Compositor e entusiasta de sistemas distribuídos de alta performance.';
 
-    // Endereço aninhado
+    // Nested address
     User.address.city.Value    := 'São Paulo';
     User.address.state.Value   := 'SP';
     User.address.zipcode.Value := '01310-100';
 
-    // Relação 1:1 HasOne
+    // 1:1 HasOne relationship
     Prof := TUserProfile.Create;
     Prof.title.Value := 'Tech Lead';
     Prof.department.Value := 'Engenharia de Software';
@@ -241,7 +241,7 @@ begin
   end;
 end;
 
-// Desserialização: lê JSON do memo e preenche os campos
+// Deserialization: read JSON from memo and populate fields
 procedure TForm1.Button2Click(Sender: TObject);
 var
   User: TUser;
@@ -259,7 +259,7 @@ begin
   end;
 end;
 
-// Validação: valida os dados e exibe resultado
+// Validation: validate data and display result
 procedure TForm1.Button3Click(Sender: TObject);
 var
   User: TUser;
@@ -272,7 +272,7 @@ begin
     User.salary.Value := 5000.00;
     User.active.Value := True;
 
-    // Endereço obrigatório para o exemplo
+    // Required address for this example
     User.address.city.Value  := 'Campinas';
     User.address.state.Value := 'SP';
 
@@ -288,7 +288,7 @@ begin
   end;
 end;
 
-// Schema: gera o Swagger/OpenAPI schema do modelo com todos os tipos
+// Schema: generate Swagger/OpenAPI schema for the model with all types
 procedure TForm1.Button4Click(Sender: TObject);
 begin
   mmoSchema.Lines.Text := TUser.SwaggerSchema(False);

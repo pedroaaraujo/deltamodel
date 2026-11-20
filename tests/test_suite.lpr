@@ -68,7 +68,7 @@ end;
 {==============================================================================}
 
 type
-  { Modelo completo com tipos variados para CRUD, DDL, Swagger e Serialização }
+  { Complete model with diverse types for CRUD, DDL, Swagger, and Serialization }
   TProductModel = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -92,7 +92,7 @@ type
   TProductGenericList = specialize TGDeltaModelList<TProductModel>;
   TProductPaginatedGenericList = specialize TGDeltaModelPaginatedList<TProductModel>;
 
-  { Modelo Abordagem B: Fluent Class Schema + Propriedades Primitivas Nativas }
+  { Approach B Model: Fluent Class Schema + Native Primitive Properties }
   TFastProductModel = class(TDeltaModel)
   private
     FId: Int64;
@@ -241,7 +241,7 @@ begin
 end;
 
 type
-  { Modelo com rastreamento completo de ciclo de vida }
+  { Model with full lifecycle tracking }
   THookModel = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -337,7 +337,7 @@ begin
 end;
 
 type
-  { Modelo com Unique constraints e Índices }
+  { Model with Unique constraints and Indexes }
   TConstraintItem = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -388,7 +388,7 @@ begin
 end;
 
 type
-  { Modelo 1:1 Dependente }
+  { Dependent 1:1 Model }
   TProfileModel = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -415,7 +415,7 @@ begin
 end;
 
 type
-  { Modelo Principal com TDFHasOne }
+  { Primary Model with TDFHasOne }
   TUserWithProfileModel = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -490,7 +490,7 @@ begin
   AssertTrue(Assigned(Cfg.Params) and (Cfg.Params.Values['sslmode'] = 'require'), 'PostgreSQL params parsed');
   Cfg.Params.Free;
 
-  // MySQL com parâmetros
+  // MySQL with parameters
   Cfg := ParseDatabaseURL('mysql://admin:123456@127.0.0.1:3306/shop');
   AssertEquals('MySQL 5.7', Cfg.Protocol, 'MySQL protocolo normalizado');
   AssertEquals('admin', Cfg.Username, 'MySQL usuario');
@@ -530,14 +530,14 @@ begin
   // CPF
   ValCPF := TValidatorItemCPF.Create;
   try
-    // CPFs válidos conhecidos (sem e com máscara)
+    // Known valid CPFs (unmasked and masked)
     Res := ValCPF.Validate('52998224725');
     AssertTrue(Res.OK, 'CPF válido sem formatação deve passar');
 
     Res := ValCPF.Validate('529.982.247-25');
     AssertTrue(Res.OK, 'CPF válido com máscara deve passar');
 
-    // CPFs inválidos
+    // Invalid CPFs
     Res := ValCPF.Validate('52998224726');
     AssertFalse(Res.OK, 'CPF com dígito verificador errado deve falhar');
 
@@ -550,24 +550,24 @@ begin
     ValCPF.Free;
   end;
 
-  // CNPJ (Numérico e Alfanumérico)
+  // CNPJ (Numeric and Alphanumeric)
   ValCNPJ := TValidatorItemCNPJ.Create;
   try
-    // CNPJ numérico válido conhecido (sem e com máscara)
+    // Known valid numeric CNPJ (unmasked and masked)
     Res := ValCNPJ.Validate('11222333000181');
     AssertTrue(Res.OK, 'CNPJ numérico válido sem formatação deve passar');
 
     Res := ValCNPJ.Validate('11.222.333/0001-81');
     AssertTrue(Res.OK, 'CNPJ numérico válido com formatação deve passar');
 
-    // CNPJ numérico inválido
+    // Invalid numeric CNPJ
     Res := ValCNPJ.Validate('11222333000182');
     AssertFalse(Res.OK, 'CNPJ numérico com dígito verificador errado deve falhar');
 
     Res := ValCNPJ.Validate('00000000000000');
     AssertFalse(Res.OK, 'CNPJ com dígitos todos zeros deve falhar');
 
-    // CNPJ alfanumérico válido (novo padrão Receita Federal)
+    // Valid alphanumeric CNPJ (new RFB standard)
     Res := ValCNPJ.Validate('12ABC34501DE35');
     AssertTrue(Res.OK, 'CNPJ alfanumérico válido sem formatação deve passar');
 
@@ -577,7 +577,7 @@ begin
     Res := ValCNPJ.Validate('12.abc.345/01de-35');
     AssertTrue(Res.OK, 'CNPJ alfanumérico minúsculo deve passar');
 
-    // CNPJ alfanumérico inválido
+    // Invalid alphanumeric CNPJ
     Res := ValCNPJ.Validate('12ABC34501DE36');
     AssertFalse(Res.OK, 'CNPJ alfanumérico com DV errado deve falhar');
 
@@ -619,11 +619,11 @@ begin
     Res := ValMinLen.Validate('1234');
     AssertFalse(Res.OK, 'MinLength 5 com string ASCII 4 chars deve falhar');
 
-    // 'Ações' possui 5 caracteres visuais, mas 7 bytes em UTF-8 (ç e õ = 2 bytes cada)
+    // 'Ações' has 5 visual characters but 7 UTF-8 bytes (ç and õ = 2 bytes each)
     Res := ValMinLen.Validate('Ações');
     AssertTrue(Res.OK, 'MinLength 5 com UTF-8 multibyte "Ações" (5 caracteres) deve passar');
 
-    // 'Ação' possui 4 caracteres visuais
+    // 'Ação' has 4 visual characters
     Res := ValMinLen.Validate('Ação');
     AssertFalse(Res.OK, 'MinLength 5 com UTF-8 "Ação" (4 caracteres) deve falhar');
   finally
@@ -680,7 +680,7 @@ begin
   // Model validation integration
   Prod := TProductModel.Create;
   try
-    // Sem dados preenchidos: deve falhar levantando EDeltaValidation devido aos campos Required
+    // Empty fields: must fail raising EDeltaValidation for Required fields
     FailedValidation := False;
     try
       Prod.Validate;
@@ -690,7 +690,7 @@ begin
     end;
     AssertTrue(FailedValidation, 'Produto sem campos obrigatórios deve levantar EDeltaValidation');
 
-    // Preenchendo dados válidos
+    // Populating valid data
     Prod.Name.Value := 'Notebook Dell';
     Prod.Price.Value := 4500.50;
     Prod.Active.Value := True;
@@ -698,7 +698,7 @@ begin
     Res := Prod.Validator.Validate;
     AssertTrue(Res.OK, 'Produto com nome e preço válidos deve passar na validação');
 
-    // Preço zero ou negativo: deve falhar no validador de regra de negócio
+    // Zero or negative price: must fail business-rule validator
     Prod.Price.Value := 0;
     Prod.Validate;
     Res := Prod.Validator.Validate;
@@ -746,7 +746,7 @@ begin
     AssertTrue(P2.Active.AsBoolean, 'Booleano true desserializado');
     AssertTrue(Pos('ação, coração', P2.Description.AsString) > 0, 'UTF-8 multibyte preservado na desserialização');
 
-    // Teste de Clonagem
+    // Clone test
     P2.Free;
     P2 := TProductModel(P1.Clone);
     AssertEquals(P1.Name.AsString, P2.Name.AsString, 'Clone copiou nome com precisão');
@@ -756,7 +756,7 @@ begin
     P2.Free;
   end;
 
-  // Teste de lista com ToCSV / FromCSV
+  // List ToCSV / FromCSV test
   PList := TDeltaModelList.Create;
   PList2 := TDeltaModelList.Create;
   try
@@ -779,7 +779,7 @@ begin
 
     AssertEqualsInt(2, PList.Count, 'Lista contém 2 itens');
 
-    // Lista ToJson / FromJson
+    // List ToJson / FromJson
     JsonStr := PList.ToJson;
     AssertTrue(Pos('Teclado Mecânico', JsonStr) > 0, 'Lista ToJson contém itens');
 
@@ -852,7 +852,7 @@ begin
       Doc.Free;
     end;
 
-    // Teste de SwaggerSchemaObject (Novo método explícito)
+    // SwaggerSchemaObject test (explicit method)
     SchemaJson := TProductModel.SwaggerSchemaObject(False);
     Doc := TJSONObject(GetJSON(SchemaJson));
     try
@@ -862,7 +862,7 @@ begin
       Doc.Free;
     end;
 
-    // Teste de SwaggerSchemaArray (Novo método explícito)
+    // SwaggerSchemaArray test (explicit method)
     SchemaJson := TProductModel.SwaggerSchemaArray(False);
     Doc := TJSONObject(GetJSON(SchemaJson));
     try
@@ -874,7 +874,7 @@ begin
       Doc.Free;
     end;
 
-    // Teste do OpenAPI Schema Paginado
+    // Paginated OpenAPI Schema test
     SchemaJson := TProductModel.SwaggerSchemaPaginated(False);
     Doc := TJSONObject(GetJSON(SchemaJson));
     try
@@ -896,7 +896,7 @@ begin
       Doc.Free;
     end;
 
-    // Testes TASK-1214: SchemaName, RegisterSwaggerSchema e SwaggerSchemaRef*
+    // TASK-1214 tests: SchemaName, RegisterSwaggerSchema, and SwaggerSchemaRef*
     AssertEquals('ProductModel', TProductModel.SchemaName, 'SchemaName remove prefixo T');
 
     GCapturedModelName := '';
@@ -1025,7 +1025,7 @@ begin
     try
       Item.Name.Value := 'Item Teste Hooks';
 
-      // 1. Teste de Insert
+      // 1. Insert test
       Item.HookLog.Clear;
       Engine.Insert(Item);
       AssertEqualsInt(2, Item.HookLog.Count, 'Insert deve disparar exatamente 2 hooks');
@@ -1033,7 +1033,7 @@ begin
       AssertEquals('AfterInsert', Item.HookLog[1], 'Segundo hook deve ser AfterInsert');
       AssertTrue(Item.Id.AsLargeInt > 0, 'Id foi gerado após Insert');
 
-      // 2. Teste de Update
+      // 2. Update test
       Item.HookLog.Clear;
       Item.Name.Value := 'Item Modificado';
       Engine.Merge(Item);
@@ -1041,7 +1041,7 @@ begin
       AssertEquals('BeforeUpdate', Item.HookLog[0], 'Primeiro hook deve ser BeforeUpdate');
       AssertEquals('AfterUpdate', Item.HookLog[1], 'Segundo hook deve ser AfterUpdate');
 
-      // 3. Teste de Save com PK existente (executa Update internamente)
+      // 3. Save with existing PK (performs Update internally)
       Item.HookLog.Clear;
       Item.Name.Value := 'Item Salvo Novamente';
       Engine.Save(Item);
@@ -1051,7 +1051,7 @@ begin
       AssertEquals('AfterUpdate', Item.HookLog[2], 'Hook 2 deve ser AfterUpdate');
       AssertEquals('AfterSave', Item.HookLog[3], 'Hook 3 deve ser AfterSave');
 
-      // 4. Teste de Delete
+      // 4. Delete test
       Item.HookLog.Clear;
       Engine.Delete(Item);
       AssertEqualsInt(2, Item.HookLog.Count, 'Delete deve disparar exatamente 2 hooks');
@@ -1109,7 +1109,7 @@ begin
 
   Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
   try
-    // Prepara tabela
+    // Prepare table
     Engine.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
@@ -1123,7 +1123,7 @@ begin
     if Engine.TransactionActive then
       Engine.Commit;
 
-    // Inserções individuais
+    // Individual inserts
     P := TProductModel.Create;
     try
       P.Name.Value := 'Notebook Pro';
@@ -1159,7 +1159,7 @@ begin
       P.Free;
     end;
 
-    // Count total e com filtro
+    // Total and filtered Count
     TotalCount := Engine.Count(TProductModel);
     AssertEqualsInt(4, TotalCount, 'Total de registros inseridos deve ser 4');
 
@@ -1176,7 +1176,7 @@ begin
       FoundP.Free;
     end;
 
-    // Teste de Where encadeado com AND (correção de sobrescrita de FFilter)
+    // Chained Where with AND test (FFilter overwrite fix)
     Q := Engine.Query(TProductModel);
     try
       Q.Where('active = 1').Where('price > 1000');
@@ -1190,7 +1190,7 @@ begin
       Q.Free;
     end;
 
-    // Teste de WhereBetween
+    // WhereBetween test
     Q := Engine.Query(TProductModel);
     try
       Q.WhereBetween('price', 100, 2000);
@@ -1204,7 +1204,7 @@ begin
       Q.Free;
     end;
 
-    // Teste de WhereIn
+    // WhereIn test
     Q := Engine.Query(TProductModel);
     try
       Q.WhereIn('name', ['Notebook Pro', 'Mouse Gamer']);
@@ -1218,14 +1218,14 @@ begin
       Q.Free;
     end;
 
-    // Teste de OrderBy, Limit e Offset
+    // OrderBy, Limit, and Offset test
     Q := Engine.Query(TProductModel);
     try
       Q.OrderBy('price DESC').Limit(2).Offset(1);
       List := Q.All;
       try
         AssertEqualsInt(2, List.Count, 'Limit 2 Offset 1 deve retornar 2 registros');
-        // Preços em ordem desc: 8500 (offset pula), 1600 (Monitor), 150 (Mouse)
+        // Prices descending: 8500 (skipped by offset), 1600 (Monitor), 150 (Mouse)
         AssertEquals('Monitor 27 Polegadas', TProductModel(List[0]).Name.AsString, 'Primeiro item retornado com Offset 1 deve ser o Monitor');
         AssertEquals('Mouse Gamer', TProductModel(List[1]).Name.AsString, 'Segundo item retornado deve ser o Mouse Gamer');
       finally
@@ -1235,7 +1235,7 @@ begin
       Q.Free;
     end;
 
-    // Teste de AsJsonString
+    // AsJsonString test
     Q := Engine.Query(TProductModel);
     try
       Q.Where('price < 50');
@@ -1245,11 +1245,11 @@ begin
       Q.Free;
     end;
 
-    // Teste de Transações: Commit e Rollback
+    // Transaction tests: Commit and Rollback
     if Engine.TransactionActive then
       Engine.Commit;
 
-    // Rollback deve desfazer inserção
+    // Rollback must undo insert
     Engine.StartTransaction;
     Engine.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Cancelado'', 10, 1)');
     Engine.Rollback;
@@ -1257,14 +1257,14 @@ begin
     TotalCount := Engine.Count(TProductModel, 'name = ''Produto Cancelado''');
     AssertEqualsInt(0, TotalCount, 'Registro inserido em transação cancelada não deve persistir');
 
-    // InTransaction estático com commit automático
+    // Static InTransaction with automatic commit
     GTxEngine := Engine;
     Engine.InTransaction(@TxSuccessProc);
 
     TotalCount := Engine.Count(TProductModel, 'name = ''Produto Confirmado''');
     AssertEqualsInt(1, TotalCount, 'InTransaction com sucesso deve persistir registro');
 
-    // InTransaction com erro deve realizar Rollback automático
+    // InTransaction on error must automatically Rollback
     InTxFailed := False;
     try
       Engine.InTransaction(@TxFailProc);
@@ -1312,7 +1312,7 @@ begin
     AssertTrue(Pos('CONSTRAINT chk_score_pos CHECK (score >= 0)', DDL) > 0,
       'SQLite deve conter constraint inline CHECK');
 
-    // 2. Índices SQLite
+    // 2. SQLite indexes
     IdxList.Clear;
     TDDLBuilder.GetIndexes(Item, ddSQLite, IdxList);
     AssertTrue(Pos('CREATE INDEX IF NOT EXISTS IX_constraint_items_created_at ON constraint_items (created_at);', IdxList.Text) > 0,
@@ -1330,7 +1330,7 @@ begin
     AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT chk_score_pos CHECK (score >= 0);', ConstraintsList.Text) > 0,
       'PostgreSQL deve gerar ADD CONSTRAINT CHECK');
 
-    // 4. Sanitização de identificador longo para Oracle (limite de 30 chars)
+    // 4. Long identifier sanitization for Oracle (30-char limit)
     LongIdx := TDeltaIndex.Create('IX_nome_muito_longo_que_ultrapassa_trinta_caracteres', ['score']);
     try
       LongIdxDDL := TDDLBuilder.IndexDDL('constraint_items', LongIdx, ddOracle);
@@ -1346,7 +1346,7 @@ begin
     IdxList.Free;
   end;
 
-  // 5. Teste em Runtime com SQLite in-memory via TDeltaORMSchema
+  // 5. Runtime test with in-memory SQLite via TDeltaORMSchema
   Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
   try
     Schema := TDeltaORMSchema.Create(Engine);
@@ -1356,7 +1356,7 @@ begin
 
       AssertTrue(Schema.SQL.Count > 0, 'PrepareDB gerou comandos DDL');
 
-      // Inserção 1: Registro válido
+      // Insert 1: Valid record
       Item1 := TConstraintItem.Create;
       try
         Item1.Email.Value := 'usuario1@empresa.com';
@@ -1369,7 +1369,7 @@ begin
         Item1.Free;
       end;
 
-      // Inserção 2: Mesmo e-mail (deve ser rejeitado pela constraint UNIQUE de email)
+      // Insert 2: Duplicate email (must be rejected by UNIQUE email constraint)
       Item2 := TConstraintItem.Create;
       try
         Item2.Email.Value := 'usuario1@empresa.com'; // Duplicado!
@@ -1387,12 +1387,12 @@ begin
         Item2.Free;
       end;
 
-      // Inserção 3: E-mail diferente, mas mesmo par (tenant_id, code) (deve falhar pelo UNIQUE composto)
+      // Insert 3: Different email, same (tenant_id, code) pair (must fail composite UNIQUE)
       Item3 := TConstraintItem.Create;
       try
         Item3.Email.Value := 'outro@empresa.com';
-        Item3.TenantId.Value := 10; // Mesmo tenant
-        Item3.Code.Value := 'USR_A'; // Mesmo code
+        Item3.TenantId.Value := 10; // Same tenant
+        Item3.Code.Value := 'USR_A'; // Same code
         Item3.Score.Value := 300;
         Failed := False;
         try
@@ -1405,12 +1405,12 @@ begin
         Item3.Free;
       end;
 
-      // Inserção 4: Mesmo code, mas em outro tenant (deve passar!)
+      // Insert 4: Same code in another tenant (must succeed!)
       Item4 := TConstraintItem.Create;
       try
         Item4.Email.Value := 'usuario2@empresa.com';
-        Item4.TenantId.Value := 20; // Tenant diferente
-        Item4.Code.Value := 'USR_A'; // Mesmo code
+        Item4.TenantId.Value := 20; // Different tenant
+        Item4.Code.Value := 'USR_A'; // Same code
         Item4.Score.Value := 400;
         AssertTrue(Engine.Insert(Item4), 'Mesmo code em tenant diferente deve ser aceito');
       finally
@@ -1438,24 +1438,24 @@ begin
 
   User1 := TUserWithProfileModel.Create;
   try
-    // 1. Verificação de Metadados
+    // 1. Metadata verification
     AssertTrue(User1.Profile.IsVirtual, 'TDFHasOne deve ser campo virtual');
     AssertEquals('object', User1.Profile.SwaggerDataType, 'SwaggerDataType de TDFHasOne deve ser object');
     AssertTrue(User1.Profile.RelationClass = TProfileModel, 'RelationClass de Profile deve ser TProfileModel');
     AssertTrue(User1.Profile.IsNull, 'Profile recém-criado deve ser IsNull');
 
-    // 2. DDL não deve conter coluna para TDFHasOne
+    // 2. DDL must not emit a column for TDFHasOne
     DDL := TDDLBuilder.CreateTableAndFields(User1, nil, ddSQLite);
     AssertTrue(Pos('username TEXT', DDL) > 0, 'DDL deve conter campo normal');
     AssertFalse(Pos('Profile', DDL) > 0, 'DDL NÃO deve criar coluna física para TDFHasOne');
 
-    // 3. Serialização com HasOne vazio (null)
+    // 3. Serialization with empty HasOne (null)
     User1.Id.Value := 1;
     User1.Username.Value := 'pedro';
     JsonStr := User1.ToJson;
     AssertTrue((Pos('"Profile" : null', JsonStr) > 0) or (Pos('"Profile": null', JsonStr) > 0) or (Pos('"Profile":null', JsonStr) > 0), 'HasOne não instanciado deve serializar como null');
 
-    // 4. Serialização com HasOne preenchido
+    // 4. Serialization with populated HasOne
     Prof := TProfileModel.Create;
     Prof.Id.Value := 99;
     Prof.Bio.Value := 'Engenheiro de Software';
@@ -1468,7 +1468,7 @@ begin
     AssertTrue(Pos('Engenheiro de Software', JsonStr) > 0, 'ToJson deve conter bio do modelo relacionado');
     AssertTrue(Pos('@pedro_dev', JsonStr) > 0, 'ToJson deve conter twitter do modelo relacionado');
 
-    // 5. Desserialização JSON reconstruindo o objeto 1:1
+    // 5. JSON deserialization reconstructing the 1:1 object
     User2 := TUserWithProfileModel.Create;
     try
       User2.FromJson(JsonStr);
@@ -1481,14 +1481,14 @@ begin
         AssertEqualsInt(99, TProfileModel(User2.Profile.Model).Id.AsInteger, 'Id do Profile recuperado');
       end;
 
-      // 6. Teste de Clone (cópia profunda de HasOne)
+      // 6. Clone test (deep copy of HasOne)
       User3 := TUserWithProfileModel(User2.Clone);
       try
         AssertTrue(Assigned(User3.Profile.Model), 'Clone deve copiar Profile.Model');
         if Assigned(User3.Profile.Model) then
         begin
           AssertEquals('Engenheiro de Software', TProfileModel(User3.Profile.Model).Bio.AsString, 'Bio copiada no Clone');
-          // Alteração na cópia não afeta o original
+          // Mutating the copy does not affect the original
           TProfileModel(User3.Profile.Model).Bio.Value := 'Bio Modificada';
           AssertEquals('Engenheiro de Software', TProfileModel(User2.Profile.Model).Bio.AsString, 'Original não deve ser alterado');
         end;
@@ -1499,7 +1499,7 @@ begin
       User2.Free;
     end;
 
-    // 7. OpenAPI / Swagger Schema para TDFHasOne
+    // 7. OpenAPI / Swagger Schema for TDFHasOne
     SchemaJson := TUserWithProfileModel.SwaggerSchema(False);
     Doc := TJSONObject(GetJSON(SchemaJson));
     try
@@ -1577,7 +1577,7 @@ begin
       Doc.Free;
     end;
 
-    // Teste de FromJson do TDeltaModelPaginatedList
+    // TDeltaModelPaginatedList.FromJson test
     PagList.ClearList;
     PagList.FromJson(JsonOut);
     AssertEqualsInt(50, PagList.total_records, 'PagList.total_records recuperado do JSON');
@@ -1588,7 +1588,7 @@ begin
     AssertEquals('Produto Pag 1', TProductModel(PagList[0]).Name.AsString, 'Item 0 recuperado');
     AssertEquals('Produto Pag 2', TProductModel(PagList[1]).Name.AsString, 'Item 1 recuperado');
 
-    // Teste canônico: TDeltaModelList tradicional recebendo payload paginado { items: [...], page: ..., page_size: ..., total_records: ..., total_pages: ... }
+    // Canonical test: traditional TDeltaModelList receiving paginated payload { items: [...], page: ..., page_size: ..., total_records: ..., total_pages: ... }
     RegList := TDeltaModelList.Create;
     try
       RegList.SetDeltaModelClass(TProductModel);
@@ -1601,7 +1601,7 @@ begin
       RegList.Free;
     end;
 
-    // Teste: TDeltaModelList.ToJson gera apenas um JSON Array de objetos
+    // Test: TDeltaModelList.ToJson emits only a JSON array of objects
     RegList := TDeltaModelList.Create;
     try
       RegList.SetDeltaModelClass(TProductModel);
@@ -1625,7 +1625,7 @@ begin
       RegList.Free;
     end;
 
-    // Teste: TGDeltaModelList<TProductModel> ToJson gera somente JSON Array de objetos
+    // Test: TGDeltaModelList<TProductModel>.ToJson emits only a JSON array of objects
     GenList := TProductGenericList.Create;
     try
       Prod1 := TProductModel.Create;
@@ -1644,7 +1644,7 @@ begin
         ParsedJson.Free;
       end;
 
-      // Desserialização na lista genérica
+      // Deserialization into generic list
       GenList.ClearList;
       GenList.FromJson(JsonOut);
       AssertEqualsInt(1, GenList.Count, 'TGDeltaModelList desserializou do JSON Array');
@@ -1653,7 +1653,7 @@ begin
       GenList.Free;
     end;
 
-    // Teste: TGDeltaModelPaginatedList<TProductModel> serializa envelope paginado
+    // Test: TGDeltaModelPaginatedList<TProductModel> serializes paginated envelope
     GenPagList := TProductPaginatedGenericList.Create;
     try
       Prod1 := TProductModel.Create;
@@ -1676,7 +1676,7 @@ begin
         Doc.Free;
       end;
 
-      // Desserialização
+      // Deserialization
       GenPagList.ClearList;
       GenPagList.FromJson(JsonOut);
       AssertEqualsInt(1, GenPagList.Count, 'TGDeltaModelPaginatedList desserializou items');
@@ -1699,16 +1699,16 @@ var
 begin
   Suite('11. TRTTICache & TModelMetadata');
 
-  // Teste 1: Obtenção de Propriedades RTTI em Cache
+  // Test 1: Fetch cached RTTI properties
   ClassProps1 := TRTTICache.GetClassProps(TProductModel);
   AssertTrue(Assigned(ClassProps1), 'TRTTICache.GetClassProps retornou objeto');
   AssertTrue(ClassProps1.PropCount >= 6, Format('ClassProps possui propriedades (%d)', [ClassProps1.PropCount]));
 
-  // Teste 2: Cache Hit (retorna mesma instância sem re-alocação)
+  // Test 2: Cache hit (returns same instance without reallocation)
   ClassProps2 := TRTTICache.GetClassProps(TProductModel);
   AssertTrue(ClassProps1 = ClassProps2, 'TRTTICache.GetClassProps retorna mesma instância de cache (hit)');
 
-  // Teste 3: FindProp rápido
+  // Test 3: Fast FindProp
   PropItem := ClassProps1.FindProp('Name');
   AssertTrue(PropItem <> nil, 'FindProp localizou Name');
   if PropItem <> nil then
@@ -1720,7 +1720,7 @@ begin
   PropItem := ClassProps1.FindProp('PropriedadeInexistente');
   AssertTrue(PropItem = nil, 'FindProp para propriedade inexistente retorna nil');
 
-  // Teste 4: TModelMetadata
+  // Test 4: TModelMetadata
   Meta1 := TRTTICache.GetModelMetadata(TProductModel);
   AssertTrue(Assigned(Meta1), 'TRTTICache.GetModelMetadata retornou objeto');
   AssertEquals('products', Meta1.TableName, 'TableName em metadata confere');
@@ -1728,11 +1728,11 @@ begin
   AssertEquals('id', Meta1.PKFieldName, 'PKFieldName em metadata confere');
   AssertTrue(Meta1.FieldCount >= 6, Format('Metadata possui campos (%d)', [Meta1.FieldCount]));
 
-  // Teste 5: Cache Hit em ModelMetadata
+  // Test 5: ModelMetadata cache hit
   Meta2 := TRTTICache.GetModelMetadata(TProductModel);
   AssertTrue(Meta1 = Meta2, 'TRTTICache.GetModelMetadata retorna mesma instância de cache (hit)');
 
-  // Teste 6: FindField
+  // Test 6: FindField
   FieldItem := Meta1.FindField('price');
   AssertTrue(FieldItem <> nil, 'FindField localizou price');
   if FieldItem <> nil then
@@ -1763,20 +1763,20 @@ begin
     );
     if Engine.TransactionActive then Engine.Commit;
 
-    // Insere registro de teste
+    // Insert test record
     P := TProductModel.Create;
     try
       P.Name.AsText := 'Monitor Ultrawide';
       P.Price.AsFloat := 2499.90;
       P.BigCode.AsLargeInt := 9876543210;
       P.Active.Value := True;
-      // Description deixado nulo
+      // Description left null
       AssertTrue(Engine.Insert(P), 'Insert para teste de binding retornou True');
     finally
       P.Free;
     end;
 
-    // Teste 1: TColumnBindingMap direto em TDataSet
+    // Test 1: Direct TColumnBindingMap on TDataSet
     DS := Engine.NewDataset;
     try
       DS.SQL.Text := 'SELECT id, name, price, description, big_code, active FROM products WHERE id = 1';
@@ -1800,7 +1800,7 @@ begin
           P.Free;
         end;
 
-        // Teste 2: FromDataSet com TColumnBindingMap
+        // Test 2: FromDataSet with TColumnBindingMap
         P2 := TProductModel.Create;
         try
           FromDataSet(P2, BindingMap);
@@ -1817,7 +1817,7 @@ begin
       DS.Free;
     end;
 
-    // Teste 3: TQuery.All utilizando TColumnBindingMap
+    // Test 3: TQuery.All using TColumnBindingMap
     List := Engine.Query(TProductModel).All;
     try
       AssertTrue(Assigned(List), 'TQuery.All retornou lista paginada');
@@ -1848,7 +1848,7 @@ var
 begin
   Suite('13. TDeltaFastJsonStreamer & Fixed-Point Floats Without Scientific Notation');
 
-  // Teste 1: Formatação de float em ponto fixo - zero e inteiros
+  // Test 1: Fixed-point float formatting - zero and integers
   S := TDeltaFastJsonStreamer.FormatFloatFixed(0.0);
   AssertEquals('0', S, 'Float zero formata como "0"');
 
@@ -1858,24 +1858,24 @@ begin
   S := TDeltaFastJsonStreamer.FormatFloatFixed(1234.56);
   AssertEquals('1234.56', S, 'Float 1234.56 formata como "1234.56"');
 
-  // Teste 2: Float muito grande (sem E+ / notação científica)
+  // Test 2: Very large float (no E+ / scientific notation)
   S := TDeltaFastJsonStreamer.FormatFloatFixed(123456789.9876);
   AssertTrue(Pos('E+', S) = 0, 'Float grande não contém E+');
   AssertTrue(Pos('E-', S) = 0, 'Float grande não contém E-');
   AssertEquals('123456789.9876', S, 'Float grande 123456789.9876 formatado em ponto fixo');
 
-  // Teste 3: Float muito pequeno (sem E- / notação científica)
+  // Test 3: Very small float (no E- / scientific notation)
   S := TDeltaFastJsonStreamer.FormatFloatFixed(0.0001234);
   AssertTrue(Pos('E+', S) = 0, 'Float pequeno não contém E+');
   AssertTrue(Pos('E-', S) = 0, 'Float pequeno não contém E-');
   AssertEquals('0.0001234', S, 'Float pequeno 0.0001234 formatado em ponto fixo');
 
-  // Teste 4: Float na casa dos bilhões (sem E+)
+  // Test 4: Float in billions range (no E+)
   S := TDeltaFastJsonStreamer.FormatFloatFixed(9999999999.5);
   AssertTrue(Pos('E+', S) = 0, 'Float na casa de bilhões não contém E+');
   AssertEquals('9999999999.5', S, 'Float bilhões formatado em ponto fixo');
 
-  // Teste 5: Serialização de Modelo com Float grande via ToJson
+  // Test 5: Model serialization with large float via ToJson
   P := TProductModel.Create;
   try
     P.Id.AsLargeInt := 42;
@@ -1883,7 +1883,7 @@ begin
     P.Price.AsFloat := 98765.43;
     P.BigCode.AsLargeInt := 1234567890123;
     P.Active.Value := True;
-    // Description nulo
+    // Null description
 
     JsonOut := P.ToJson;
     AssertTrue(Pos('98765.43', JsonOut) > 0, 'JSON do modelo contém preço em ponto fixo');
@@ -1892,7 +1892,7 @@ begin
     AssertTrue(Pos('"Description":null', JsonOut) > 0, 'JSON do modelo contém Description como null');
     AssertTrue(Pos('Servidor Enterprise \"Rack\"', JsonOut) > 0, 'JSON do modelo realizou escape correto de aspas');
 
-    // Valida que o JSON emitido é estritamente parseável
+    // Validate that emitted JSON is strictly parseable
     Parser := TJSONParser.Create(JsonOut, True);
     try
       Data := Parser.Parse;
@@ -1906,7 +1906,7 @@ begin
     P.Free;
   end;
 
-  // Teste 6: Serialização de Lista com múltiplos registros
+  // Test 6: List serialization with multiple records
   List := TProductGenericList.Create;
   try
     P := TProductModel.Create;
@@ -1957,7 +1957,7 @@ begin
   WriteLn('=== 14. Direct Typed Field Properties (No Variant Boxing) ===');
   P := TProductModel.Create;
   try
-    // Testes de escrita e leitura de inteiros
+    // Integer read/write tests
     P.Id.AsInt64 := 987654321;
     AssertTrue(P.Id.AsInt64 = 987654321, 'P.Id.AsInt64 atribuição e leitura direta');
     P.Id.AsLargeInt := 123456789;
@@ -1965,29 +1965,29 @@ begin
     P.Id.AsInteger := 42;
     AssertEqualsInt(42, P.Id.AsInteger, 'P.Id.AsInteger atribuição e leitura direta');
 
-    // Testes de escrita e leitura de strings
+    // String read/write tests
     P.Name.AsText := 'Teclado Mecanico';
     AssertEquals('Teclado Mecanico', P.Name.AsString, 'P.Name.AsString conferido apos AsText');
     P.Name.SetAsString('Teclado RGB');
     AssertEquals('Teclado RGB', P.Name.AsText, 'P.Name.AsText conferido apos SetAsString');
 
-    // Testes de escrita e leitura de ponto flutuante
+    // Floating-point read/write tests
     P.Price.AsFloat := 499.90;
     AssertTrue(Abs(P.Price.AsFloat - 499.90) < 0.001, 'P.Price.AsFloat atribuição direta');
 
-    // Testes de escrita e leitura de booleanos
+    // Boolean read/write tests
     P.Active.AsBoolean := True;
     AssertTrue(P.Active.AsBoolean, 'P.Active.AsBoolean := True');
     P.Active.AsBoolean := False;
     AssertFalse(P.Active.AsBoolean, 'P.Active.AsBoolean := False');
 
-    // Testes em campo nulo
+    // Null field tests
     AssertTrue(P.Description.IsNull, 'P.Description inicialmente nulo');
     P.Description.AsText := 'Descricao de teste';
     AssertFalse(P.Description.IsNull, 'P.Description não é mais nulo após AsText := ...');
     AssertEquals('Descricao de teste', P.Description.AsString, 'P.Description.AsString conferido');
 
-    // Teste em campo Int64Nullable
+    // Int64Nullable field test
     AssertTrue(P.BigCode.IsNull, 'P.BigCode inicialmente nulo');
     P.BigCode.AsInt64 := 998877665544;
     AssertFalse(P.BigCode.IsNull, 'P.BigCode não é mais nulo após AsInt64 := ...');
@@ -2032,7 +2032,7 @@ begin
     );
     if Engine.TransactionActive then Engine.Commit;
 
-    // 1. Validação de Metadados de Classe
+    // 1. Class metadata validation
     Meta := TRTTICache.GetModelMetadata(TFastProductModel);
     AssertTrue(Meta <> nil, 'Metadados da classe TFastProductModel extraídos com sucesso');
     AssertEquals('fast_products', Meta.TableName, 'Nome da tabela correto via ConfigureSchema');
@@ -2043,7 +2043,7 @@ begin
     AssertTrue(Meta.FindField('price') <> nil, 'Campo price encontrado');
     AssertTrue(Meta.FindField('cost') <> nil, 'Campo cost encontrado');
 
-    // 2. Validação de Nulidade (Bitmask Ultraleve)
+    // 2. Nullability validation (ultra-light bitmask)
     P := TFastProductModel.Create;
     try
       P.Name := 'Teclado Mecanico';
@@ -2061,7 +2061,7 @@ begin
       P.Free;
     end;
 
-    // 3. Inserção e Consulta Tipada via TDeltaQuery<T>
+    // 3. Typed insert and query via TDeltaQuery<T>
     Query := TFastProductQuery.Create(Engine);
     try
       P := TFastProductModel.Create;
@@ -2076,7 +2076,7 @@ begin
       P := TFastProductModel.Create;
       P.Name := 'Mouse Sem Fio RGB';
       P.Price := 149.50;
-      P.SetNull('Cost'); // Testa nulidade no banco
+      P.SetNull('Cost'); // Test nullability in database
       P.Stock := 50;
       P.Active := True;
       AssertTrue(Query.Insert(P), 'Query.Insert(P) com Cost nulo retornou True');
@@ -2091,11 +2091,11 @@ begin
       AssertTrue(Query.Insert(P), 'Query.Insert(P) inativo retornou True');
       P.Free;
 
-      // Contagem e Exists
+      // Count and Exists
       AssertEqualsInt(3, Query.Count, 'Query.Count retornou 3 produtos');
       AssertTrue(Query.Where('price > 1000').Exists, 'Query.Exists com preco > 1000 retornou True');
 
-      // Busca por ID tipada
+      // Typed lookup by ID
       Found := Query.FindById(1);
       AssertTrue(Found <> nil, 'Query.FindById(1) retornou objeto');
       if Found <> nil then
@@ -2110,7 +2110,7 @@ begin
         Found.Free;
       end;
 
-      // Busca por ID com campo nulo
+      // Lookup by ID with null field
       Found := Query.FindById(2);
       AssertTrue(Found <> nil, 'Query.FindById(2) retornou objeto');
       if Found <> nil then
@@ -2121,13 +2121,13 @@ begin
         Found.Free;
       end;
 
-      // 4. Consulta de Coleção Tipada e Iteração com "for P in List do"
+      // 4. Typed collection query and "for P in List do" iteration
       Query.Clear;
       List := Query.Where('price > 200').OrderBy('price DESC').All;
       try
         AssertEqualsInt(2, List.Count, 'List.Count retornou 2 produtos com preco > 200');
 
-        // Loop idiomático tipado sem typecast!
+        // Typed idiomatic loop without typecasting!
         I := 0;
         for P in List do
         begin
@@ -2136,7 +2136,7 @@ begin
         end;
         AssertEqualsInt(2, I, 'Iterador MoveNext percorreu exatamente 2 itens tipados');
 
-        // 5. Serialização e Desserialização JSON
+        // 5. JSON Serialization and Deserialization
         JsonStr := List.ToJson;
         AssertTrue(Length(JsonStr) > 0, 'Json gerado com sucesso via ToJson');
         AssertTrue(Pos('Monitor Gamer 240Hz', JsonStr) > 0, 'JSON contém nome do monitor');
@@ -2150,7 +2150,7 @@ begin
           ParsedData.Free;
         end;
 
-        // Desserialização com FromJson
+        // Deserialization with FromJson
         List2 := TFastProductList.Create;
         try
           List2.FromJson(JsonStr);
@@ -2164,7 +2164,7 @@ begin
         List.Free;
       end;
 
-      // 6. Atualização (Update) e BulkInsert Tipado
+      // 6. Typed Update and BulkInsert
       Found := Query.FindById(1);
       if Found <> nil then
       try
@@ -2512,11 +2512,11 @@ begin
 end;
 
 {==============================================================================}
-{ Test 21: Arquitetura Plugável de Codecs (IDeltaCodec & TDeltaCodecRegistry)  }
+{ Test 21: Pluggable Codec Architecture (IDeltaCodec & TDeltaCodecRegistry)    }
 {==============================================================================}
 
 type
-  { Dummy Codec para validar plugabilidade e extensibilidade }
+  { Dummy Codec to validate pluggability and extensibility }
   TDummyYAMLCodec = class(TInterfacedObject, IDeltaCodec)
   public
     function GetFormatName: string;
@@ -2563,12 +2563,12 @@ end;
 
 procedure TDummyYAMLCodec.DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
 begin
-  // No-op para testes
+  // No-op for testing
 end;
 
 procedure TDummyYAMLCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
 begin
-  // No-op para testes
+  // No-op for testing
 end;
 
 procedure TestCodecArchitecture;
@@ -2583,7 +2583,7 @@ var
 begin
   Suite('Arquitetura Plugável de Codecs (IDeltaCodec & TDeltaCodecRegistry)');
 
-  // 1. Validação de Codecs registrados automaticamente
+  // 1. Auto-registered codecs validation
   AssertTrue(TDeltaCodecRegistry.HasCodec('json'), 'Codec "json" está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/json'), 'Codec "application/json" está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" está registrado');
@@ -2592,14 +2592,14 @@ begin
   AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" está registrado');
   AssertFalse(TDeltaCodecRegistry.HasCodec('yaml'), 'Codec "yaml" não está registrado inicialmente');
 
-  // 2. Resolução do Codec JSON
+  // 2. JSON Codec resolution
   Codec := TDeltaCodecRegistry.GetCodec('json');
   AssertTrue(Codec <> nil, 'GetCodec("json") retornou instância válida');
   AssertEquals('json', Codec.GetFormatName, 'GetFormatName é "json"');
   AssertEquals('application/json', Codec.GetMimeType, 'GetMimeType é "application/json"');
   AssertTrue(Codec.CanHandleMimeType('application/problem+json'), 'CanHandleMimeType aceita problem+json');
 
-  // 3. Serialização e Desserialização de Model via Registry Helpers
+  // 3. Model Serialization and Deserialization via Registry Helpers
   P := TProductModel.Create;
   try
     P.Id.Value := 101;
@@ -2624,7 +2624,7 @@ begin
     P.Free;
   end;
 
-  // 4. Registro Dinâmico de Codec Customizado (YAML)
+  // 4. Dynamic Custom Codec Registration (YAML)
   CustomCodec := TDummyYAMLCodec.Create;
   TDeltaCodecRegistry.RegisterCodec(CustomCodec);
   AssertTrue(TDeltaCodecRegistry.HasCodec('yaml'), 'Novo codec "yaml" foi registrado com sucesso');
@@ -2640,7 +2640,7 @@ begin
   TDeltaCodecRegistry.UnregisterCodec('yaml');
   AssertFalse(TDeltaCodecRegistry.HasCodec('yaml'), 'Codec "yaml" foi desregistrado');
 
-  // 6. Tratamento de Erro ao buscar codec inexistente
+  // 6. Error handling when looking up missing codec
   CaughtException := False;
   try
     TDeltaCodecRegistry.GetCodec('inexistente_formato_xyz');
@@ -2652,7 +2652,7 @@ begin
 end;
 
 {==============================================================================}
-{ Test 22: Codec BSON v1.1 Binário (Zero-DOM)                                  }
+{ Test 22: Binary BSON v1.1 Codec (Zero-DOM)                                   }
 {==============================================================================}
 
 procedure TestBsonCodec;
@@ -2666,7 +2666,7 @@ var
 begin
   Suite('Codec BSON v1.1 Binário (Zero-DOM)');
 
-  // 1. Resolução do Codec BSON
+  // 1. BSON Codec resolution
   AssertTrue(TDeltaCodecRegistry.HasCodec('bson'), 'Codec "bson" registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/bson'), 'Codec "application/bson" registrado');
   Codec := TDeltaCodecRegistry.GetCodec('bson');
@@ -2674,7 +2674,7 @@ begin
   AssertEquals('bson', Codec.GetFormatName, 'GetFormatName é "bson"');
   AssertEquals('application/bson', Codec.GetMimeType, 'GetMimeType é "application/bson"');
 
-  // 2. Round-trip de modelo simples e UTF-8
+  // 2. Simple model and UTF-8 round-trip
   P := TProductModel.Create;
   try
     P.Id.Value := 202;
@@ -2713,7 +2713,7 @@ begin
     P.Free;
   end;
 
-  // 3. Round-trip de List de modelos
+  // 3. Model List round-trip
   List := TProductGenericList.Create;
   try
     for I := 1 to 5 do
@@ -2754,7 +2754,7 @@ begin
 end;
 
 {==============================================================================}
-{ Test 23: Codec CBOR (RFC 8949) Binário (Zero-DOM)                            }
+{ Test 23: Binary CBOR (RFC 8949) Codec (Zero-DOM)                             }
 {==============================================================================}
 
 procedure TestCborCodec;
@@ -2767,7 +2767,7 @@ var
 begin
   Suite('Codec CBOR (RFC 8949) Binário (Zero-DOM)');
 
-  // 1. Resolução do Codec CBOR
+  // 1. CBOR Codec resolution
   AssertTrue(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/cbor'), 'Codec "application/cbor" registrado');
   Codec := TDeltaCodecRegistry.GetCodec('cbor');
@@ -2775,7 +2775,7 @@ begin
   AssertEquals('cbor', Codec.GetFormatName, 'GetFormatName é "cbor"');
   AssertEquals('application/cbor', Codec.GetMimeType, 'GetMimeType é "application/cbor"');
 
-  // 2. Round-trip de modelo simples e UTF-8
+  // 2. Simple model and UTF-8 round-trip
   P := TProductModel.Create;
   try
     P.Id.Value := 303;
@@ -2810,7 +2810,7 @@ begin
     P.Free;
   end;
 
-  // 3. Round-trip de List de modelos
+  // 3. Model List round-trip
   List := TProductGenericList.Create;
   try
     for I := 1 to 4 do
@@ -2851,7 +2851,7 @@ begin
 end;
 
 {==============================================================================}
-{ Test 24: Codec XML de Alta Performance (Zero-DOM)                            }
+{ Test 24: High-Performance XML Codec (Zero-DOM)                               }
 {==============================================================================}
 
 procedure TestXmlCodec;
@@ -2864,7 +2864,7 @@ var
 begin
   Suite('Codec XML de Alta Performance (Zero-DOM)');
 
-  // 1. Resolução do Codec XML
+  // 1. XML Codec resolution
   AssertTrue(TDeltaCodecRegistry.HasCodec('xml'), 'Codec "xml" registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/xml'), 'Codec "application/xml" registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('text/xml'), 'Codec "text/xml" registrado');
@@ -2873,7 +2873,7 @@ begin
   AssertEquals('xml', Codec.GetFormatName, 'GetFormatName é "xml"');
   AssertEquals('application/xml', Codec.GetMimeType, 'GetMimeType é "application/xml"');
 
-  // 2. Round-trip de modelo simples com acentos e caracteres especiais XML
+  // 2. Simple model round-trip with accents and XML special characters
   P := TProductModel.Create;
   try
     P.Id.Value := 404;
@@ -2908,7 +2908,7 @@ begin
     P.Free;
   end;
 
-  // 3. Round-trip de List de modelos
+  // 3. Model List round-trip
   List := TProductGenericList.Create;
   try
     for I := 1 to 4 do
@@ -2962,7 +2962,7 @@ var
 begin
   Suite('Codec CSV RFC 4180 (Zero-DOM)');
 
-  // 1. Resolução do Codec CSV
+  // 1. CSV Codec resolution
   AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('text/csv'), 'Codec "text/csv" registrado');
   Codec := TDeltaCodecRegistry.GetCodec('csv');
@@ -2970,7 +2970,7 @@ begin
   AssertEquals('csv', Codec.GetFormatName, 'GetFormatName é "csv"');
   AssertEquals('text/csv', Codec.GetMimeType, 'GetMimeType é "text/csv"');
 
-  // 2. Round-trip de modelo simples com vírgulas e aspas duplas no texto
+  // 2. Simple model round-trip with commas and double quotes in text
   P := TProductModel.Create;
   try
     P.Id.Value := 505;
@@ -3005,7 +3005,7 @@ begin
     P.Free;
   end;
 
-  // 3. Round-trip de List de modelos
+  // 3. Model List round-trip
   List := TProductGenericList.Create;
   try
     for I := 1 to 5 do
@@ -3074,7 +3074,7 @@ const
 begin
   Suite('26. Schema Flyweight & Reusable Cursor (Zero-Alloc Loop)');
 
-  // 1. Schema Flyweight Singleton por classe
+  // 1. Flyweight Schema Singleton per class
   Schema1 := TTestOrder.Schema;
   Schema2 := TTestOrder.Schema;
   AssertTrue(Schema1 <> nil, 'TTestOrder.Schema retorna schema válido');
@@ -3085,7 +3085,7 @@ begin
   AssertTrue(FieldNome <> nil, 'Schema.FindField encontra campo CustomerName');
   AssertEquals('customer_name', FieldNome.FieldName, 'FieldName do schema confere');
 
-  // 2. Cursor Reusável
+  // 2. Reusable Cursor
   if FileExists(TEST_DB) then DeleteFile(TEST_DB);
   Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
   try
@@ -3097,7 +3097,7 @@ begin
 
     Query := specialize TDeltaQuery<TTestOrder>.Create(Engine);
     try
-      // Teste com while Query.Next do
+      // Test with while Query.Next do
       Query.OrderBy('id ASC');
       Query.Open;
       FirstPtr := Pointer(Query.Current);
@@ -3114,7 +3114,7 @@ begin
       end;
       AssertEqualsInt(25, LoopCount, 'Cursor while processou todos os 25 registros com 1 único objeto no heap');
 
-      // Teste com for M in Query.Cursor do
+      // Test with for M in Query.Cursor do
       LoopCount := 0;
       for M in Query.Cursor do
       begin
@@ -3124,7 +3124,7 @@ begin
       end;
       AssertEqualsInt(25, LoopCount, 'for M in Query.Cursor processou 25 registros com 1 objeto');
 
-      // Teste com Query.Each(Callback)
+      // Test with Query.Each(Callback)
       Helper := TCursorCallbackHelper.Create;
       try
         Helper.ItemCount := 0;

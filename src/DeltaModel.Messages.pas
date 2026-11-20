@@ -27,6 +27,8 @@ function MsgFieldInvalidCPF(const AClassName, AFieldName: string): string;
 function MsgFieldInvalidCNPJ(const AClassName, AFieldName: string): string;
 function MsgFieldInvalidCPF_CNPJ(const AClassName, AFieldName: string): string;
 function MsgFieldInvalidUrl(const AClassName, AFieldName: string): string;
+function MsgFieldInvalidPhone(const AClassName, AFieldName: string): string;
+function MsgFieldInvalidCEP(const AClassName, AFieldName: string): string;
 function MsgFieldMustBePositive(const AClassName, AFieldName: string): string;
 function MsgFieldMinValue(const AClassName, AFieldName: string; AVal: Double): string;
 function MsgFieldMaxValue(const AClassName, AFieldName: string; AVal: Double): string;
@@ -117,6 +119,18 @@ const
     'Field %s.%s is not a valid URL (must start with http:// or https://).',
     'O campo %s.%s não é uma URL válida (deve iniciar com http:// ou https://).',
     'El campo %s.%s no es una URL válida (debe comenzar con http:// o https://).'
+  );
+
+  STR_FIELD_INVALID_PHONE: array[TDeltaLocale] of string = (
+    'Field %s.%s is not a valid phone number.',
+    'O campo %s.%s não é um telefone válido.',
+    'El campo %s.%s no es un número de teléfono válido.'
+  );
+
+  STR_FIELD_INVALID_CEP: array[TDeltaLocale] of string = (
+    'Field %s.%s is not a valid CEP.',
+    'O campo %s.%s não é um CEP válido.',
+    'El campo %s.%s no es un CEP válido.'
   );
 
   STR_FIELD_MUST_BE_POSITIVE: array[TDeltaLocale] of string = (
@@ -309,6 +323,16 @@ end;
 function MsgFieldInvalidUrl(const AClassName, AFieldName: string): string;
 begin
   Result := Format(STR_FIELD_INVALID_URL[GCurrentLocale], [AClassName, AFieldName]);
+end;
+
+function MsgFieldInvalidPhone(const AClassName, AFieldName: string): string;
+begin
+  Result := Format(STR_FIELD_INVALID_PHONE[GCurrentLocale], [AClassName, AFieldName]);
+end;
+
+function MsgFieldInvalidCEP(const AClassName, AFieldName: string): string;
+begin
+  Result := Format(STR_FIELD_INVALID_CEP[GCurrentLocale], [AClassName, AFieldName]);
 end;
 
 function MsgFieldMustBePositive(const AClassName, AFieldName: string): string;

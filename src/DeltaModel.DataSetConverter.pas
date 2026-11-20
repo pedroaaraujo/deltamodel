@@ -9,7 +9,7 @@ uses
   DeltaModel.Metadata, DB, SQLDB;
 
 type
-  { Item de vinculação pré-alocado entre uma coluna do TDataSet e um campo do TDeltaModel }
+  { Pre-allocated binding entry between a TDataSet column and a TDeltaModel field }
   PColumnBindingItem = ^TColumnBindingItem;
   TColumnBindingItem = record
     Field: TField;
@@ -21,7 +21,7 @@ type
   end;
   TColumnBindingItemArray = array of TColumnBindingItem;
 
-  { Mapeamento pré-alocado de colunas que elimina DS.FindField e boxing de Variant no loop }
+  { Pre-allocated column mapping eliminating DS.FindField and Variant boxing inside loops }
   TColumnBindingMap = class
   private
     FBindings: TColumnBindingItemArray;
@@ -69,7 +69,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(FModelClass);
   ClassProps := TRTTICache.GetClassProps(FModelClass);
 
-  // 1. Vincula campos via TModelMetadata (TDeltaField e propriedades primitivas do Schema)
+  // 1. Bind fields via TModelMetadata (TDeltaField and Schema primitive properties)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -97,13 +97,13 @@ begin
     end;
   end;
 
-  // 2. Vincula propriedades publicadas regulares não declaradas no Schema
+  // 2. Bind regular published properties not declared in Schema
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
     if PropItem^.IsDeltaField or (not PropItem^.HasSetProc) then Continue;
 
-    // Se já foi vinculada pelo Schema, pula
+    // Skip if already bound by Schema
     if Meta.FindFieldByProp(PropItem^.Name) <> nil then Continue;
 
     F := ADS.FindField(PropItem^.Name);
@@ -132,6 +132,7 @@ var
   PropObj: TObject;
 begin
   if AModel = nil then Exit;
+  AModel.ClearAllDirty;
 
   for I := 0 to FBindingCount - 1 do
   begin
@@ -195,13 +196,13 @@ begin
           SetPropValue(AModel, Item^.PropInfo^.Name, DSField.Value);
         end;
       except
-        // Ignora atribuições incompatíveis com segurança
+        // Safely ignore incompatible assignments
       end;
     end;
   end;
 end;
 
-{ Procedimentos auxiliares }
+{ Helper procedures }
 
 procedure FromDataSet(AModel: TDeltaModel; DS: TDataSet);
 var
@@ -238,7 +239,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos mapeados via TModelMetadata (TDeltaField e primitivos)
+  // 1. Fields mapped via TModelMetadata (TDeltaField and primitives)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -285,7 +286,7 @@ begin
       end
       else
       begin
-        // Propriedade Primitiva
+        // Primitive property
         if AModel.IsNull(FieldMeta^.PropIndex) then
           Param.Clear
         else
@@ -309,7 +310,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas normais (não declaradas no Schema)
+  // 2. Regular published properties (not declared in Schema)
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -333,7 +334,7 @@ begin
           Param.Value := GetPropValue(AModel, PropItem^.Name);
         end;
       except
-        // Ignora propriedades não mapeáveis
+        // Ignore non-mappable properties
       end;
     end;
   end;
@@ -355,7 +356,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos mapeados via TModelMetadata (TDeltaField e primitivos)
+  // 1. Fields mapped via TModelMetadata (TDeltaField and primitives)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -406,7 +407,7 @@ begin
       end
       else
       begin
-        // Propriedade Primitiva
+        // Primitive property
         if AModel.IsNull(FieldMeta^.PropIndex) then
           Param.Clear
         else
@@ -430,7 +431,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas normais
+  // 2. Regular published properties
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -455,7 +456,7 @@ begin
           Param.Value := GetPropValue(AModel, PropItem^.Name);
         end;
       except
-        // Ignora propriedades não mapeáveis
+        // Ignore non-mappable properties
       end;
     end;
   end;

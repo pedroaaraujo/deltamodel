@@ -12,7 +12,7 @@ uses
   DeltaModel.ORM.Pool, DeltaValidator;
 
 type
-  { Modelo de teste para clientes }
+  { Test model for customers }
   TCustomer = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -81,7 +81,7 @@ begin
     Engine.Commit;
 end;
 
-{ Teste 1: SQLBuilder - Geração de SQL por Dialeto }
+{ Test 1: SQLBuilder - SQL Generation per Dialect }
 procedure TestSQLBuilderDialects;
 var
   C1, C2: TCustomer;
@@ -95,7 +95,7 @@ begin
     C1.Name.Value := 'Alice';
     C2.Name.Value := 'Bob';
 
-    // Dialeto SQLite / Postgres / MySQL / MSSQL (padrão)
+    // SQLite / Postgres / MySQL / MSSQL dialect (default)
     SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], ddSQLite);
     AssertTrue(SQL.StartsWith('INSERT INTO customers (name, email, score) VALUES'), 'SQLite deve iniciar com INSERT INTO ... VALUES');
     AssertTrue(SQL.Contains('(:name_0, :email_0, :score_0)'), 'Tupla 0 deve ter sufixo _0');
@@ -123,7 +123,7 @@ begin
   end;
 end;
 
-{ Teste 2: BulkInsert básico com array de TDeltaModel }
+{ Test 2: Basic BulkInsert with TDeltaModel array }
 procedure TestBulkInsertArray(Engine: TDeltaORMEngine);
 var
   Models: array of TDeltaModel;
@@ -157,7 +157,7 @@ begin
   end;
 end;
 
-{ Teste 3: BulkInsert com TDeltaModelList }
+{ Test 3: BulkInsert with TDeltaModelList }
 procedure TestBulkInsertList(Engine: TDeltaORMEngine);
 var
   List: TDeltaModelList;
@@ -191,7 +191,7 @@ begin
   end;
 end;
 
-{ Teste 4: BulkInsert com Chunking / Particionamento em lotes }
+{ Test 4: BulkInsert with batch chunking / partitioning }
 procedure TestBulkInsertChunking(Engine: TDeltaORMEngine);
 var
   Models: array of TDeltaModel;
@@ -210,13 +210,13 @@ begin
     if I mod 2 = 0 then
       Cust.Email.Value := 'lote' + IntToStr(I + 1) + '@mail.com'
     else
-      Cust.Email.Clear; // testa valores nulos intercalados
+      Cust.Email.Clear; // test interleaved null values
     Cust.Score.Value := I;
     Models[I] := Cust;
   end;
 
   try
-    // Batch size pequeno (7) para forçar 4 iterações (7 + 7 + 7 + 4)
+    // Small batch size (7) to force 4 iterations (7 + 7 + 7 + 4)
     Inserted := Engine.BulkInsert(Models, 7);
     AssertTrue(Inserted = 25, 'Total inserido deve ser 25');
 
@@ -229,7 +229,7 @@ begin
   end;
 end;
 
-{ Teste 5: Transacionalidade e Rollback em caso de falha de validação }
+{ Test 5: Transactionality and Rollback on validation failure }
 procedure TestBulkInsertValidationRollback(Engine: TDeltaORMEngine);
 var
   Models: array of TDeltaModel;
@@ -246,7 +246,7 @@ begin
   begin
     Cust := TCustomer.Create;
     if I = 3 then
-      Cust.Name.Value := '' // Inválido! Campo obrigatório não vazio
+      Cust.Name.Value := '' // Invalid! Required non-empty field
     else
       Cust.Name.Value := 'Valido ' + IntToStr(I);
     Models[I] := Cust;
@@ -272,7 +272,7 @@ begin
   end;
 end;
 
-{ Teste 6: BulkInsert através do Connection Pool }
+{ Test 6: BulkInsert through Connection Pool }
 procedure TestBulkInsertWithPool;
 var
   Pool: TDeltaConnectionPool;
@@ -287,13 +287,13 @@ begin
   
   Pool := TDeltaConnectionPool.Create('sqlite://' + TEST_DB + '?pool_min=2&pool_max=5');
   try
-    // Prepara tabela
+    // Prepare table
     Lease := Pool.Acquire;
     Engine := Lease.Engine;
     SetupTestDatabase(Engine);
-    Lease := nil; // Devolve conexão ao pool
+    Lease := nil; // Return connection to pool
 
-    // Inserção via Pool.BulkInsert direto
+    // Insert via direct Pool.BulkInsert
     SetLength(Models, 8);
     for I := 0 to 7 do
     begin
@@ -311,7 +311,7 @@ begin
         Models[I].Free;
     end;
 
-    // Inserção via Lease.BulkInsert
+    // Insert via Lease.BulkInsert
     Lease := Pool.Acquire;
     try
       SetLength(Models, 4);
@@ -349,10 +349,10 @@ begin
   WriteLn('      Iniciando Testes de Bulk Insert DeltaModel    ');
   WriteLn('====================================================');
 
-  // Testes de SQL
+  // SQL tests
   TestSQLBuilderDialects;
 
-  // Inicializa engine para SQLite de teste
+  // Initialize test SQLite engine
   Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
   try
     TestBulkInsertArray(Engine);
@@ -363,10 +363,10 @@ begin
     Engine.Free;
   end;
 
-  // Teste com pool
+  // Pool test
   TestBulkInsertWithPool;
 
-  // Limpa banco de teste
+  // Clean up test database
   if FileExists(TEST_DB) then
     DeleteFile(TEST_DB);
 

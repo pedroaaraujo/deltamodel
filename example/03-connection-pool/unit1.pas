@@ -160,7 +160,7 @@ begin
   try
     for I := 1 to FOperations do
     begin
-      // Cria, conecta, opera, desconecta e destroi toda vez (sem pool)
+      // Create, connect, operate, disconnect, and destroy every time (no pool)
       Engine := TDeltaORMEngine.Create(FDbURL);
       try
         Engine.Connection.Open;

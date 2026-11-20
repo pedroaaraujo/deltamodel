@@ -18,26 +18,26 @@ uses
   DeltaModel.Codec;
 
 const
-  { Blindagem de Segurança BSON (Anti-OOM / DoS) }
+  { BSON Security Guards (Anti-OOM / DoS) }
   MAX_BSON_CSTRING_LENGTH = 1024;
   MAX_BSON_STRING_LENGTH  = 16 * 1024 * 1024; // 16 MB
   MAX_BSON_DOC_LENGTH     = 16 * 1024 * 1024; // 16 MB
   MAX_BSON_NESTING_DEPTH  = 64;
 
 type
-  { TDeltaBsonCodec: Codec BSON v1.1 Binário de Alta Performance (Zero-DOM)
-    Especificação BSON v1.1 (bsonspec.org):
-    - Documento: int32 tamanho total em bytes (little-endian), elementos, 0x00 terminal.
-    - Elemento: [type: 1 byte][cstring name: null-terminated][payload].
-    - Tipos suportados:
+  { TDeltaBsonCodec: High-Performance Binary BSON v1.1 Codec (Zero-DOM)
+    BSON v1.1 Specification (bsonspec.org):
+    - Document: int32 total byte length (little-endian), elements, trailing 0x00.
+    - Element: [type: 1 byte][cstring name: null-terminated][payload].
+    - Supported types:
       * 0x01: Double (IEEE 754 float64, 8 bytes little-endian)
-      * 0x02: UTF-8 String (int32 length incluindo \0 + bytes + \0)
-      * 0x03: Documento Embutido (HasOne / sub-modelo)
-      * 0x04: Array (HasMany / lista indexada "0", "1", ...)
+      * 0x02: UTF-8 String (int32 length including \0 + bytes + \0)
+      * 0x03: Embedded Document (HasOne / sub-model)
+      * 0x04: Array (HasMany / indexed list "0", "1", ...)
       * 0x05: Binary BLOB (int32 len + subtype byte + bytes)
       * 0x08: Boolean (1 byte: 0x00 false, 0x01 true)
-      * 0x09: UTC Datetime (int64 ms desde 1970-01-01 UTC)
-      * 0x0A: Null (sem payload)
+      * 0x09: UTC Datetime (int64 ms since 1970-01-01 UTC)
+      * 0x0A: Null (no payload)
       * 0x10: Int32 (4 bytes little-endian)
       * 0x12: Int64 (8 bytes little-endian) }
   TDeltaBsonCodec = class(TInterfacedObject, IDeltaCodec)
@@ -62,7 +62,7 @@ type
 
 implementation
 
-{ Funções Auxiliares de Conversão Little-Endian }
+{ Little-Endian Conversion Helpers }
 
 function LEToHostDbl(const ABytes: UInt64): Double;
 var
@@ -189,7 +189,7 @@ begin
     Result := UTF8ToString(Raw);
   end;
 
-  // Lê e valida o byte nulo terminal \0
+  // Read and validate trailing null byte \0
   AStream.ReadBuffer(Zero, 1);
   if Zero <> 0 then
     raise EDeltaDeserializationException.Create('BSON string invalid: missing null terminator byte');
@@ -269,7 +269,7 @@ begin
     $13: // Decimal128: 16 bytes
       AStream.Seek(16, soCurrent);
   else
-    // Tipo desconhecido; não avança para evitar corrupção
+    // Unknown type; do not advance to avoid stream corruption
   end;
 end;
 
@@ -307,7 +307,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos gerenciados (TDeltaField e primitivos com mapeamento Schema)
+  // 1. Managed fields (TDeltaField and Schema-mapped primitives)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -324,7 +324,7 @@ begin
       begin
         if Assigned(TDFHasOne(DeltaField).Model) and (TDFHasOne(DeltaField).Model is TDeltaModel) then
         begin
-          ElemType := $03; // Documento embutido
+          ElemType := $03; // Embedded document
           AStream.WriteBuffer(ElemType, 1);
           WriteCString(AStream, Key);
           WriteModelDoc(TDeltaModel(TDFHasOne(DeltaField).Model), AStream);
@@ -447,7 +447,7 @@ begin
     end
     else
     begin
-      // Propriedade Primitiva mapeada
+      // Mapped primitive property
       if AModel.IsNull(FieldMeta^.PropIndex) then
       begin
         ElemType := $0A; // Null
@@ -513,7 +513,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas adicionais (fora do Schema)
+  // 2. Additional published properties (outside Schema)
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -571,11 +571,11 @@ begin
     end;
   end;
 
-  // Terminal de documento \0
+  // Document terminator \0
   Zero := 0;
   AStream.WriteBuffer(Zero, 1);
 
-  // Atualiza tamanho total do documento no cabeçalho
+  // Patch total document size in header
   EndPos := AStream.Position;
   DocLen := NtoLE(Int32(EndPos - StartPos));
   AStream.Position := StartPos;
@@ -593,7 +593,7 @@ var
   FMeta: PDeltaFieldMeta;
   NestedObj, ChildObj: TObject;
 
-  // Valores lidos
+  // Decoded values
   IntVal: Int64;
   DblVal: Double;
   BoolVal: Boolean;
@@ -631,7 +631,7 @@ begin
   while AStream.Position < DocEndPos - 1 do
   begin
     AStream.ReadBuffer(ElemType, 1);
-    if ElemType = 0 then Break; // Terminal do documento
+    if ElemType = 0 then Break; // Document terminator
 
     ElemName := ReadCString(AStream);
 
@@ -688,7 +688,7 @@ begin
         end;
       end;
 
-      $03: // Documento Embutido (HasOne)
+      $03: // Embedded Document (HasOne)
       begin
         if (FMeta <> nil) and FMeta^.IsDeltaField then
         begin
@@ -913,7 +913,7 @@ begin
   Placeholder := 0;
   AOutputStream.WriteBuffer(Placeholder, 4);
 
-  // Metadados de paginação
+  // Pagination metadata
   ElemType := $12; // Int64 total_records
   AOutputStream.WriteBuffer(ElemType, 1);
   WriteCString(AOutputStream, 'total_records');
@@ -946,7 +946,7 @@ begin
     ItemObj := CustomList.GetItemObj(I);
     if ItemObj is TDeltaModel then
     begin
-      ElemType := $03; // Documento embutido
+      ElemType := $03; // Embedded document
       AOutputStream.WriteBuffer(ElemType, 1);
       WriteCString(AOutputStream, IntToStr(I));
       WriteModelDoc(TDeltaModel(ItemObj), AOutputStream);
@@ -961,7 +961,7 @@ begin
   AOutputStream.WriteBuffer(ArrLen, 4);
   AOutputStream.Position := ArrEndPos;
 
-  // Finaliza documento envelope
+  // Finalize envelope document
   AOutputStream.WriteBuffer(Zero, 1);
   EndPos := AOutputStream.Position;
   DocLen := NtoLE(Int32(EndPos - StartPos));
@@ -1021,7 +1021,7 @@ begin
 
     if (SameText(ElemName, 'items') or SameText(ElemName, 'data')) and (ElemType in [$03, $04]) then
     begin
-      // Array ou documento com subdocumentos
+      // Array or document containing subdocuments
       ArrStartPos := AInputStream.Position;
       if ArrStartPos + 4 > DocEndPos then
         raise EDeltaDeserializationException.Create('BSON array truncated: insufficient bytes for array header');
@@ -1068,7 +1068,7 @@ begin
     end
     else if (ElemType = $03) and ((ElemName = '0') or (StrToIntDef(ElemName, -1) >= 0)) then
     begin
-      // Documento com itens diretamente na raiz: {"0": {...}, "1": {...}}
+      // Document with items directly at root: {"0": {...}, "1": {...}}
       NewObj := nil;
       if (AModelClass <> nil) and AModelClass.InheritsFrom(TDeltaModel) then
         NewObj := TDeltaModelClass(AModelClass).Create

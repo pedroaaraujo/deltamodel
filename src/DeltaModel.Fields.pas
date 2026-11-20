@@ -5,7 +5,7 @@ unit DeltaModel.Fields;
 interface
 
 uses
-  Classes, SysUtils, DateUtils, Variants, fgl, DeltaModelMessages;
+  Classes, SysUtils, DateUtils, Variants, Math, fgl, DeltaModelMessages;
 
 type
   TDBOption = (dboPrimaryKey, dboUpdate, dboAutoInc, dboInsert, dboUnique, dboIndex);
@@ -39,7 +39,7 @@ type
     odDesc
   );
 
-  { TDeltaCondition - Record alocado exclusivamente na stack para Zero Heap Churn }
+  { TDeltaCondition - Stack-allocated record for Zero Heap Churn }
   TDeltaCondition = record
     Field: TDeltaField;
     &Operator: TDeltaOperator;
@@ -78,6 +78,7 @@ type
     FVisible: Boolean;
     FIsVirtual: Boolean;
     FIsRequired: Boolean;
+    FDirty: Boolean;
     FFieldKind: TDeltaFieldKind;
     function GetFieldName: string;
     procedure SetFieldName(AValue: string);
@@ -121,6 +122,7 @@ type
     property FieldKind: TDeltaFieldKind read FFieldKind write FFieldKind;
     property IsUnique: Boolean read GetIsUnique write SetIsUnique;
     property IsIndexed: Boolean read GetIsIndexed write SetIsIndexed;
+    property Dirty: Boolean read FDirty write FDirty;
 
     procedure Clear; virtual; abstract;
     procedure AfterConstruction; override;
@@ -131,7 +133,7 @@ type
     function SwaggerDataType: string; virtual; abstract;
     function SwaggerFormat: string; virtual;
 
-    // Acesso tipado direto de alta performance
+    // High-performance direct typed access
     property AsInteger: Integer read GetAsInteger write SetAsInteger;
     property AsLargeInt: Int64 read GetAsLargeInt write SetAsLargeInt;
     property AsInt64: Int64 read GetAsLargeInt write SetAsLargeInt;
@@ -141,7 +143,7 @@ type
     property AsDateTime: TDateTime read GetAsDateTime write SetAsDateTime;
     property AsText: string read AsString write SetAsString;
 
-    // Métodos de expressão fluentes e type-safe (Zero Heap Churn)
+    // Fluent type-safe expression methods (Zero Heap Churn)
     function Eq(const AValue: Variant): TDeltaCondition;
     function NotEq(const AValue: Variant): TDeltaCondition;
     function Gt(const AValue: Variant): TDeltaCondition;
@@ -522,7 +524,7 @@ procedure DateTimeToField(AField: TDeltaField; const DateTime: string);
 function IsValidUUID(const S: string): Boolean;
 
 type
-  { TDeltaSchemaField: Metadados fluentes para propriedades primitivas }
+  { TDeltaSchemaField: Fluent metadata for primitive properties }
   TDeltaSchemaField = class
   private
     FPropName: string;
@@ -532,7 +534,7 @@ type
     FFieldSize: Integer;
     FFieldKind: TDeltaFieldKind;
     FDefaultValue: Variant;
-    // Validações declarativas
+    // Declarative validations
     FHasMin: Boolean;
     FHasMax: Boolean;
     FMin: Double;
@@ -548,6 +550,8 @@ type
     FIsCNPJ: Boolean;
     FIsCPF_CNPJ: Boolean;
     FIsURL: Boolean;
+    FIsPhone: Boolean;
+    FIsCEP: Boolean;
   public
     constructor Create(const APropName: string);
     function Column(const AName: string): TDeltaSchemaField;
@@ -560,7 +564,7 @@ type
     function Default(AValue: Variant): TDeltaSchemaField;
     function ReadOnly: TDeltaSchemaField;
 
-    // Métodos fluentes de validação declarativa
+    // Fluent declarative validation methods
     function Min(AVal: Double): TDeltaSchemaField;
     function Max(AVal: Double): TDeltaSchemaField;
     function Range(AMin, AMax: Double): TDeltaSchemaField;
@@ -574,6 +578,9 @@ type
     function CNPJ: TDeltaSchemaField;
     function CPF_CNPJ: TDeltaSchemaField;
     function URL: TDeltaSchemaField;
+    function Phone: TDeltaSchemaField;
+    function Telefone: TDeltaSchemaField;
+    function CEP: TDeltaSchemaField;
 
     property PropName: string read FPropName write FPropName;
     property FieldName: string read FFieldName write FFieldName;
@@ -597,11 +604,13 @@ type
     property IsCNPJ: Boolean read FIsCNPJ;
     property IsCPF_CNPJ: Boolean read FIsCPF_CNPJ;
     property IsURL: Boolean read FIsURL;
+    property IsPhone: Boolean read FIsPhone;
+    property IsCEP: Boolean read FIsCEP;
   end;
 
   TDeltaSchemaFieldList = specialize TFPGObjectList<TDeltaSchemaField>;
 
-  { TDeltaModelRelation: Metadados de relacionamentos entre modelos }
+  { TDeltaModelRelation: Relationship metadata between models }
   TDeltaRelationKind = (drkHasMany, drkBelongsTo, drkHasOne);
 
   TDeltaModelRelation = class
@@ -621,7 +630,7 @@ type
 
   TDeltaModelRelationList = specialize TFPGObjectList<TDeltaModelRelation>;
 
-  { TDeltaModelSchema: Construtor fluente do esquema de dados da classe }
+  { TDeltaModelSchema: Fluent class data schema builder }
   TDeltaModelSchema = class
   private
     FTableName: string;
@@ -648,6 +657,12 @@ type
     property Relations[Index: Integer]: TDeltaModelRelation read GetRelation;
     property RelationCount: Integer read GetRelationCount;
   end;
+
+{ Formats a Double in pure fixed-point decimal notation without scientific notation }
+function DeltaFormatFloatFixed(const AValue: Double; AMaxDecimals: Integer = 8): string;
+
+{ Formats a Currency using exact 64-bit scaled integer arithmetic without scientific notation }
+function DeltaFormatCurrencyFixed(const AValue: Currency): string;
 
 implementation
 
@@ -678,6 +693,8 @@ begin
   FIsCNPJ := False;
   FIsCPF_CNPJ := False;
   FIsURL := False;
+  FIsPhone := False;
+  FIsCEP := False;
 end;
 
 function TDeltaSchemaField.Column(const AName: string): TDeltaSchemaField;
@@ -825,6 +842,24 @@ begin
   Result := Self;
 end;
 
+function TDeltaSchemaField.Phone: TDeltaSchemaField;
+begin
+  FIsPhone := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.Telefone: TDeltaSchemaField;
+begin
+  FIsPhone := True;
+  Result := Self;
+end;
+
+function TDeltaSchemaField.CEP: TDeltaSchemaField;
+begin
+  FIsCEP := True;
+  Result := Self;
+end;
+
 { TDeltaModelRelation }
 
 constructor TDeltaModelRelation.Create(const APropName: string; AKind: TDeltaRelationKind; ARelatedClass: TClass; const AFKField: string);
@@ -940,6 +975,168 @@ const
 
 var
   GlobalDeltaFS: TFormatSettings;
+
+function ExpandScientificToFixed(const AStr: string): string;
+var
+  EPos, DotPos, ExpVal, Shift, I: Integer;
+  Neg: Boolean;
+  Mantissa, Digits: string;
+begin
+  EPos := Pos('E', AStr);
+  if EPos = 0 then
+    EPos := Pos('e', AStr);
+  if EPos = 0 then
+    Exit(AStr);
+
+  Mantissa := Copy(AStr, 1, EPos - 1);
+  if not TryStrToInt(Copy(AStr, EPos + 1, MaxInt), ExpVal) then
+    Exit(AStr);
+
+  Neg := (Length(Mantissa) > 0) and (Mantissa[1] = '-');
+  if Neg or ((Length(Mantissa) > 0) and (Mantissa[1] = '+')) then
+    Delete(Mantissa, 1, 1);
+
+  DotPos := Pos('.', Mantissa);
+  if DotPos > 0 then
+  begin
+    Digits := Copy(Mantissa, 1, DotPos - 1) + Copy(Mantissa, DotPos + 1, MaxInt);
+    Shift := (DotPos - 1) + ExpVal;
+  end
+  else
+  begin
+    Digits := Mantissa;
+    Shift := Length(Digits) + ExpVal;
+  end;
+
+  if Shift <= 0 then
+  begin
+    Result := '0.' + StringOfChar('0', -Shift) + Digits;
+  end
+  else if Shift >= Length(Digits) then
+  begin
+    Result := Digits + StringOfChar('0', Shift - Length(Digits));
+  end
+  else
+  begin
+    Result := Copy(Digits, 1, Shift) + '.' + Copy(Digits, Shift + 1, MaxInt);
+  end;
+
+  { Strip leading redundant zeros in integer part }
+  while (Length(Result) > 1) and (Result[1] = '0') and (Result[2] <> '.') do
+    Delete(Result, 1, 1);
+
+  { Strip trailing zeros after decimal point }
+  if Pos('.', Result) > 0 then
+  begin
+    I := Length(Result);
+    while (I > 0) and (Result[I] = '0') do
+      Dec(I);
+    if (I > 0) and (Result[I] = '.') then
+      Dec(I);
+    SetLength(Result, I);
+  end;
+
+  if (Result = '') or (Result = '0') then
+    Exit('0');
+
+  if Neg then
+    Result := '-' + Result;
+end;
+
+function DeltaFormatCurrencyFixed(const AValue: Currency): string;
+var
+  Scaled: Int64;
+  AbsVal, IntPart: QWord;
+  FracPart: Word;
+  Neg: Boolean;
+  FracBuf: array[1..4] of Char;
+  FracLen: Integer;
+begin
+  Move(AValue, Scaled, SizeOf(Int64));
+  if Scaled = 0 then
+    Exit('0');
+
+  Neg := Scaled < 0;
+  if Neg then
+    AbsVal := QWord(not Scaled) + 1
+  else
+    AbsVal := QWord(Scaled);
+
+  IntPart := AbsVal div 10000;
+  FracPart := Word(AbsVal mod 10000);
+
+  if FracPart = 0 then
+  begin
+    if Neg then
+      Result := '-' + IntToStr(IntPart)
+    else
+      Result := IntToStr(IntPart);
+    Exit;
+  end;
+
+  FracBuf[1] := Chr(Ord('0') + (FracPart div 1000));
+  FracBuf[2] := Chr(Ord('0') + ((FracPart div 100) mod 10));
+  FracBuf[3] := Chr(Ord('0') + ((FracPart div 10) mod 10));
+  FracBuf[4] := Chr(Ord('0') + (FracPart mod 10));
+
+  FracLen := 4;
+  while (FracLen > 0) and (FracBuf[FracLen] = '0') do
+    Dec(FracLen);
+
+  if Neg then
+    Result := '-' + IntToStr(IntPart) + '.' + Copy(FracBuf, 1, FracLen)
+  else
+    Result := IntToStr(IntPart) + '.' + Copy(FracBuf, 1, FracLen);
+end;
+
+function DeltaFormatFloatFixed(const AValue: Double; AMaxDecimals: Integer = 8): string;
+var
+  S: string;
+  I, EffDecimals, IntDigits: Integer;
+  AbsVal: Double;
+begin
+  if IsNan(AValue) or IsInfinite(AValue) then
+    Exit('0');
+  if AValue = 0.0 then
+    Exit('0');
+
+  if AMaxDecimals < 0 then AMaxDecimals := 2;
+  if AMaxDecimals > 18 then AMaxDecimals := 18;
+
+  EffDecimals := AMaxDecimals;
+  AbsVal := Abs(AValue);
+  if AbsVal >= 1.0 then
+  begin
+    { Clamp fractional digits to IEEE 754 binary64 reliable 15 significant digits }
+    IntDigits := Trunc(Log10(AbsVal)) + 1;
+    if IntDigits >= 15 then
+      EffDecimals := 0
+    else if (15 - IntDigits) < EffDecimals then
+      EffDecimals := 15 - IntDigits;
+  end;
+
+  S := FloatToStrF(AValue, ffFixed, 15, EffDecimals, GlobalDeltaFS);
+
+  { Guarantee pure fixed-point output even if RTL falls back to scientific notation }
+  if (Pos('E', S) > 0) or (Pos('e', S) > 0) then
+    S := ExpandScientificToFixed(S);
+
+  { Strip superfluous trailing zeros after the decimal separator }
+  if Pos('.', S) > 0 then
+  begin
+    I := Length(S);
+    while (I > 0) and (S[I] = '0') do
+      Dec(I);
+    if (I > 0) and (S[I] = '.') then
+      Dec(I);
+    SetLength(S, I);
+  end;
+
+  if (S = '') or (S = '-0') then
+    S := '0';
+
+  Result := S;
+end;
 
 function IsValidUUID(const S: string): Boolean;
 var
@@ -1081,6 +1278,7 @@ begin
   FVisible := True;
   FIsVirtual := False;
   FIsRequired := False;
+  FDirty := False;
   FFieldKind := dfkString;
   FDBOptions := [dboInsert, dboUpdate];
 end;
@@ -1457,7 +1655,7 @@ end;
 function TDFDoubleNull.AsString: string;
 begin
   if IsNull then Result := ''
-  else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
+  else Result := DeltaFormatFloatFixed(Double(FValue), 8);
 end;
 
 function TDFDoubleNull.SwaggerDataType: string;
@@ -1488,7 +1686,7 @@ end;
 function TDFCurrencyNull.AsString: string;
 begin
   if IsNull then Result := ''
-  else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
+  else Result := DeltaFormatCurrencyFixed(Currency(FValue));
 end;
 
 function TDFCurrencyNull.SwaggerDataType: string;
@@ -1635,7 +1833,7 @@ end;
 function TDFDoubleRequired.AsString: string;
 begin
   if IsNull then Result := '0'
-  else Result := FloatToStr(Double(FValue), GlobalDeltaFS);
+  else Result := DeltaFormatFloatFixed(Double(FValue), 8);
 end;
 
 function TDFDoubleRequired.SwaggerDataType: string;
@@ -1666,7 +1864,7 @@ end;
 function TDFCurrencyRequired.AsString: string;
 begin
   if IsNull then Result := '0'
-  else Result := FloatToStr(Double(Currency(FValue)), GlobalDeltaFS);
+  else Result := DeltaFormatCurrencyFixed(Currency(FValue));
 end;
 
 function TDFCurrencyRequired.SwaggerDataType: string;
@@ -2082,7 +2280,7 @@ end;
 
 procedure TDFHasMany.SetValue(AValue: Variant);
 begin
-  // Campos virtuais não gravam valor escalar
+  // Virtual fields do not store a scalar value
 end;
 
 function TDFHasMany.IsNull: Boolean;
@@ -2153,7 +2351,7 @@ end;
 
 procedure TDFHasOne.SetValue(AValue: Variant);
 begin
-  // Campos virtuais não gravam valor escalar diretamente
+  // Virtual fields do not store a scalar value directly
 end;
 
 function TDFHasOne.IsNull: Boolean;

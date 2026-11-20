@@ -97,7 +97,7 @@ begin
   IsPK := dboPrimaryKey in DeltaField.DBOptions;
   IsAutoInc := dboAutoInc in DeltaField.DBOptions;
 
-  // Inteiro 32 bits
+  // 32-bit integer
   if (DeltaField is TDFIntNull) or (DeltaField is TDFIntRequired) then
   begin
     case ADialect of
@@ -107,7 +107,7 @@ begin
     end;
   end
   else
-  // Inteiro 64 bits
+  // 64-bit integer
   if (DeltaField is TDFInt64Null) or (DeltaField is TDFInt64Required) then
   begin
     case ADialect of
@@ -151,7 +151,7 @@ begin
     SQLType := 'DATE';
   end
   else
-  // Hora
+  // Time
   if (DeltaField is TDFTimeNull) or (DeltaField is TDFTimeRequired) then
   begin
     case ADialect of
@@ -161,7 +161,7 @@ begin
     end;
   end
   else
-  // Data e Hora
+  // Date and Time
   if (DeltaField is TDFDateTimeNull) or (DeltaField is TDFDateTimeRequired) then
   begin
     case ADialect of
@@ -174,7 +174,7 @@ begin
     end;
   end
   else
-  // Booleano
+  // Boolean
   if (DeltaField is TDFBooleanNull) or (DeltaField is TDFBooleanRequired) then
   begin
     case ADialect of
@@ -205,7 +205,7 @@ begin
   end
   else
   // Text (CLOB / BLOB SUB_TYPE TEXT / VARCHAR(MAX) / TEXT)
-  // Nota: Deve vir antes de TDFString porque TDFText herda de TDFString
+  // Note: Must precede TDFString because TDFText inherits from TDFString
   if (DeltaField is TDFTextNull) or (DeltaField is TDFTextRequired) then
   begin
     case ADialect of
@@ -218,7 +218,7 @@ begin
     end;
   end
   else
-  // String com tamanho
+  // Sized string
   if (DeltaField is TDFStringNull) or (DeltaField is TDFStringRequired) then
   begin
     if (DeltaField is TDFStringNull) then
@@ -265,7 +265,7 @@ begin
     Exit;
   end;
 
-  // Tratamento de Chave Primária e Auto-Incremento por dialeto
+  // Primary key and auto-increment handling per dialect
   if IsPK and IsAutoInc then
   begin
     case ADialect of
@@ -371,7 +371,7 @@ begin
     end;
   end;
 
-  // Se for SQLite, retorna a sintaxe inline para colocar dentro do CREATE TABLE
+  // For SQLite, return inline syntax for placement inside CREATE TABLE
   if ADialect in [ddSQLite] then
   begin
     Exit(Format('FOREIGN KEY (%s) REFERENCES %s(%s)%s%s',
@@ -473,7 +473,7 @@ begin
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
 
-        // Pula campos virtuais (como TDFHasMany) para não gerar colunas físicas no banco
+        // Skip virtual fields (such as TDFHasMany) so no physical DB columns are generated
         if DeltaField.IsVirtual then Continue;
 
         List.Add(sLineBreak + '  ' + FieldDDL(DeltaField, ADialect, FirebirdMajor));
@@ -549,7 +549,7 @@ var
   DeltaField: TDeltaField;
   TmpIdx: TDeltaIndex;
 begin
-  // 1. Índices a nível de campo (dboIndex)
+  // 1. Field-level indexes (dboIndex)
   for I := 0 to Pred(Obj.FieldList.Count) do
   begin
     DeltaField := Obj.FieldList[I];
@@ -568,7 +568,7 @@ begin
     end;
   end;
 
-  // 2. Índices a nível de tabela (Obj.Indexes)
+  // 2. Table-level indexes (Obj.Indexes)
   for I := 0 to Pred(Obj.Indexes.Count) do
   begin
     if (ExistingNames = nil) or
@@ -606,7 +606,7 @@ begin
 
         if DeltaField.IsVirtual then Continue;
 
-        // 1. Chaves Estrangeiras
+        // 1. Foreign Keys
         if IncludeForeignKeys and (DeltaField.ForeignKey.ReferencesTable <> nil) then
         begin
           if not DeltaField.ForeignKey.ReferencesTable.InheritsFrom(TDeltaModel) then
@@ -615,7 +615,7 @@ begin
           List.Add(ForeignKeyDDL(Obj.TableName, DeltaField, ADialect));
         end;
 
-        // 2. Constraints UNIQUE a nível de campo (dboUnique)
+        // 2. Field-level UNIQUE constraints (dboUnique)
         if (dboUnique in DeltaField.DBOptions) then
         begin
           CName := SanitizeIdentifier('UQ_' + Obj.TableName + '_' + DeltaField.FieldName, ADialect);
@@ -630,7 +630,7 @@ begin
     end;
   end;
 
-  // 3. Constraints a nível de tabela (Obj.Constraints)
+  // 3. Table-level constraints (Obj.Constraints)
   for I := 0 to Pred(Obj.Constraints.Count) do
   begin
     C := Obj.Constraints[I];
@@ -694,7 +694,7 @@ begin
       begin
         DeltaField := TDeltaField(GetObjectProp(Obj, PropInfo));
 
-        // Pula campos virtuais (TDFHasMany) no Auto-Migration
+        // Skip virtual fields (TDFHasMany) during auto-migration
         if DeltaField.IsVirtual then Continue;
 
         if ActualFieldList.IndexOf(DeltaField.FieldName) = -1 then

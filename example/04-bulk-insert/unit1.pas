@@ -13,7 +13,7 @@ uses
 
 type
 
-  { TProduct - Modelo de exemplo com suporte a todos os tipos de dados para Bulk Insert }
+  { TProduct - Sample model supporting all data types for Bulk Insert }
 
   TProduct = class(TDeltaModel)
   private
@@ -111,7 +111,7 @@ procedure TForm1.FormShow(Sender: TObject);
 begin
   spnQty.Value := 1000;
   spnBatchSize.Value := 500;
-  cmbDialect.ItemIndex := 2; // SQLite por padrão
+  cmbDialect.ItemIndex := 2; // SQLite by default
 end;
 
 function TForm1.CurrentDialect: TDatabaseDialect;
@@ -148,7 +148,7 @@ begin
   end;
 end;
 
-{ === Pré-visualização do SQL Bulk Insert para o dialeto selecionado === }
+{ === Bulk Insert SQL preview for the selected dialect === }
 
 procedure TForm1.btnPreviewSQLClick(Sender: TObject);
 var
@@ -159,7 +159,7 @@ begin
   mmoSQL.Clear;
   Dialect := CurrentDialect;
 
-  // Gera preview com 3 registros para ficar legível
+  // Generate preview with 3 records for readability
   PreviewCount := 3;
   SetLength(Models, PreviewCount);
   for I := 0 to PreviewCount - 1 do
@@ -186,7 +186,7 @@ begin
   end;
 end;
 
-{ === Bulk Insert com array aberto (open array) === }
+{ === Bulk Insert with open array === }
 
 procedure TForm1.btnBulkArrayClick(Sender: TObject);
 var
@@ -212,14 +212,14 @@ begin
 
       PrepareSchema(Con);
 
-      // Limpa dados anteriores para comparação justa
+      // Clear previous data for a fair comparison
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
-        // ignora se tabela vazia
+        // ignore if table is empty
       end;
 
-      // 2. Monta o array de modelos com todos os tipos
+      // 2. Build model array with all data types
       Log(Format('2. Criando %d objetos TProduct...', [Total]));
       SetLength(Models, Total);
       for I := 0 to Total - 1 do
@@ -238,7 +238,7 @@ begin
         TProduct(Models[I]).created_at.Value := Now;
       end;
 
-      // 3. Executa BulkInsert com medição de tempo
+      // 3. Execute BulkInsert with timing
       Log(Format('3. Executando BulkInsert (batch=%d)...', [spnBatchSize.Value]));
       StartTime := Now;
 
@@ -248,7 +248,7 @@ begin
 
       Log(Format('   ✅ %d registros inseridos em %d ms', [RowsInserted, ElapsedMs]));
 
-      // 4. Contagem de verificação
+      // 4. Verification count
       CountAfter := Con.Count(TProduct);
       Log(Format('4. Verificação: COUNT(*) = %d', [CountAfter]));
 
@@ -271,7 +271,7 @@ begin
   end;
 end;
 
-{ === Bulk Insert com TDeltaModelList === }
+{ === Bulk Insert with TDeltaModelList === }
 
 procedure TForm1.btnBulkListClick(Sender: TObject);
 var
@@ -298,13 +298,13 @@ begin
 
       PrepareSchema(Con);
 
-      // Limpa dados anteriores
+      // Clear previous data
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
       end;
 
-      // 2. Monta a lista de modelos
+      // 2. Build model list
       Log(Format('2. Criando lista com %d objetos TProduct...', [Total]));
       List := TDeltaModelList.Create;
       try
@@ -326,7 +326,7 @@ begin
           List.Add(P);
         end;
 
-        // 3. Executa BulkInsert via List
+        // 3. Execute BulkInsert via List
         Log(Format('3. Executando BulkInsert(List, %d)...', [spnBatchSize.Value]));
         StartTime := Now;
 
@@ -336,7 +336,7 @@ begin
 
         Log(Format('   ✅ %d registros inseridos em %d ms', [RowsInserted, ElapsedMs]));
 
-        // 4. Contagem e amostra
+        // 4. Count and sample
         CountAfter := Con.Count(TProduct);
         Log(Format('4. Verificação: COUNT(*) = %d', [CountAfter]));
 
@@ -360,7 +360,7 @@ begin
   end;
 end;
 
-{ === Comparação: Insert um-a-um (Save) para benchmark === }
+{ === Comparison: One-by-one Insert (Save) benchmark === }
 
 procedure TForm1.btnSaveOneByOneClick(Sender: TObject);
 var
@@ -386,13 +386,13 @@ begin
 
       PrepareSchema(Con);
 
-      // Limpa dados anteriores
+      // Clear previous data
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
       end;
 
-      // 2. Insere um-a-um com medição
+      // 2. Insert one-by-one with timing
       Log(Format('2. Inserindo %d registros com Save() individual...', [Total]));
       StartTime := Now;
 

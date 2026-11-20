@@ -1,3 +1,12 @@
+{
+    DeltaModel - High-Performance Direct JSON Streamer
+
+    Streams TDeltaModel instances and collections directly into a pre-allocated
+    RawByteString buffer without intermediate TJSONObject/TJSONArray DOM trees.
+    Guarantees pure fixed-point decimal serialization without scientific notation
+    and locale-independent '.' decimal separator.
+}
+
 unit DeltaModel.JsonStreamer;
 
 {$mode ObjFPC}{$H+}
@@ -9,9 +18,7 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.Metadata;
 
 type
-  { TDeltaFastJsonStreamer: Serializador JSON de alta performance direto para RawByteString,
-    eliminando nós DOM intermediários e formatando números decimais em ponto fixo
-    sem notação científica (ffFixed). }
+  { High-performance direct JSON serializer with fixed-point decimal formatting }
   TDeltaFastJsonStreamer = class
   private
     FBuffer: RawByteString;
@@ -22,9 +29,11 @@ type
     procedure AppendRaw(const S: RawByteString); inline;
     procedure AppendString(const S: string);
     procedure AppendFloat(const AValue: Double; AMaxDecimals: Integer = 8);
+    procedure AppendCurrency(const AValue: Currency); inline;
     procedure AppendInt64(const AValue: Int64); inline;
     procedure AppendBoolean(const AValue: Boolean); inline;
     procedure AppendNull; inline;
+    procedure WriteFloatProperty(AObj: TObject; APropInfo: PPropInfo);
   public
     constructor Create(AInitialCapacity: Integer = 4096);
     procedure Clear;
@@ -32,14 +41,17 @@ type
     procedure WriteModel(AModel: TDeltaModel);
     procedure WriteList(AList: TCustomDeltaModelList);
     procedure WritePaginatedList(AList: TCustomDeltaModelList);
+    procedure WriteObject(AObj: TObject);
 
     function AsJSON: RawByteString;
 
-    // Métodos utilitários e estáticos de conveniência
+    { Static convenience helpers }
     class function ModelToJson(AModel: TDeltaModel): RawByteString;
     class function ListToJson(AList: TCustomDeltaModelList): RawByteString;
     class function PaginatedListToJson(AList: TCustomDeltaModelList): RawByteString;
+    class function ObjectToJson(AObj: TObject): RawByteString;
     class function FormatFloatFixed(const AValue: Double; AMaxDecimals: Integer = 8): string;
+    class function FormatCurrencyFixed(const AValue: Currency): string;
   end;
 
 implementation
@@ -124,42 +136,23 @@ begin
 end;
 
 class function TDeltaFastJsonStreamer.FormatFloatFixed(const AValue: Double; AMaxDecimals: Integer = 8): string;
-var
-  FS: TFormatSettings;
-  S: string;
-  I: Integer;
 begin
-  if IsNan(AValue) or IsInfinite(AValue) then
-    Exit('0');
+  Result := DeltaFormatFloatFixed(AValue, AMaxDecimals);
+end;
 
-  FS := DefaultFormatSettings;
-  FS.DecimalSeparator := '.';
-  if AMaxDecimals < 0 then AMaxDecimals := 2;
-  if AMaxDecimals > 18 then AMaxDecimals := 18;
-
-  // ffFixed NUNCA gera notação científica (E+ ou E-)
-  S := FloatToStrF(AValue, ffFixed, 18, AMaxDecimals, FS);
-
-  // Remove zeros supérfluos à direita após o separador decimal
-  if Pos('.', S) > 0 then
-  begin
-    I := Length(S);
-    while (I > 0) and (S[I] = '0') do
-      Dec(I);
-    if (I > 0) and (S[I] = '.') then
-      Dec(I);
-    S := Copy(S, 1, I);
-  end;
-
-  if (S = '') or (S = '-0') then
-    S := '0';
-
-  Result := S;
+class function TDeltaFastJsonStreamer.FormatCurrencyFixed(const AValue: Currency): string;
+begin
+  Result := DeltaFormatCurrencyFixed(AValue);
 end;
 
 procedure TDeltaFastJsonStreamer.AppendFloat(const AValue: Double; AMaxDecimals: Integer = 8);
 begin
-  AppendRaw(FormatFloatFixed(AValue, AMaxDecimals));
+  AppendRaw(DeltaFormatFloatFixed(AValue, AMaxDecimals));
+end;
+
+procedure TDeltaFastJsonStreamer.AppendCurrency(const AValue: Currency);
+begin
+  AppendRaw(DeltaFormatCurrencyFixed(AValue));
 end;
 
 procedure TDeltaFastJsonStreamer.AppendInt64(const AValue: Int64);
@@ -178,6 +171,17 @@ end;
 procedure TDeltaFastJsonStreamer.AppendNull;
 begin
   AppendRaw('null');
+end;
+
+procedure TDeltaFastJsonStreamer.WriteFloatProperty(AObj: TObject; APropInfo: PPropInfo);
+var
+  TypeData: PTypeData;
+begin
+  TypeData := GetTypeData(APropInfo^.PropType);
+  if Assigned(TypeData) and (TypeData^.FloatType = ftCurr) then
+    AppendCurrency(Currency(GetFloatProp(AObj, APropInfo)))
+  else
+    AppendFloat(GetFloatProp(AObj, APropInfo), 8);
 end;
 
 procedure TDeltaFastJsonStreamer.WriteModel(AModel: TDeltaModel);
@@ -203,7 +207,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos gerenciados (TDeltaField e primitivos via TModelMetadata)
+  { 1. Managed schema fields (TDeltaField wrappers and primitive properties) }
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -246,6 +250,10 @@ begin
       begin
         AppendNull;
       end
+      else if (DeltaField is TDFCurrencyNull) or (DeltaField is TDFCurrencyRequired) then
+      begin
+        AppendCurrency(DeltaField.AsCurrency);
+      end
       else
       begin
         case FieldMeta^.FieldKind of
@@ -270,7 +278,7 @@ begin
     end
     else
     begin
-      // Propriedade Primitiva (Abordagem B)
+      { Primitive property (Style B with bitmask nullability) }
       if HasWrittenField then AppendChar(',');
       HasWrittenField := True;
 
@@ -285,9 +293,12 @@ begin
       begin
         case FieldMeta^.FieldKind of
           dfkInteger:
-            AppendInt64(GetOrdProp(AModel, FieldMeta^.PropInfo));
+            if FieldMeta^.PropInfo^.PropType^.Kind in [tkInt64, tkQWord] then
+              AppendInt64(GetInt64Prop(AModel, FieldMeta^.PropInfo))
+            else
+              AppendInt64(GetOrdProp(AModel, FieldMeta^.PropInfo));
           dfkFloat:
-            AppendFloat(GetFloatProp(AModel, FieldMeta^.PropInfo), 8);
+            WriteFloatProperty(AModel, FieldMeta^.PropInfo);
           dfkBoolean:
             AppendBoolean(Boolean(GetOrdProp(AModel, FieldMeta^.PropInfo)));
           dfkDateTime:
@@ -301,7 +312,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas normais (não declaradas no Schema e não-TDeltaField)
+  { 2. Additional published properties (not declared in Schema and non-TDeltaField) }
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -314,9 +325,18 @@ begin
     AppendString(PropItem^.Name);
     AppendChar(':');
 
+    if AModel.IsNull(PropItem^.Index) then
+    begin
+      AppendNull;
+      Continue;
+    end;
+
     case PropItem^.PropKind of
-      tkInteger, tkInt64:
+      tkInteger:
         AppendInt64(GetOrdProp(AModel, PropItem^.PropInfo));
+
+      tkInt64, tkQWord:
+        AppendInt64(GetInt64Prop(AModel, PropItem^.PropInfo));
 
       tkString, tkLString, tkAString, tkWString, tkUString, tkChar, tkWChar:
         AppendString(GetStrProp(AModel, PropItem^.PropInfo));
@@ -328,7 +348,87 @@ begin
         AppendString(GetEnumName(PropItem^.PropInfo^.PropType, GetOrdProp(AModel, PropItem^.PropInfo)));
 
       tkFloat:
-        AppendFloat(GetFloatProp(AModel, PropItem^.PropInfo), 8);
+        WriteFloatProperty(AModel, PropItem^.PropInfo);
+
+      tkClass:
+        begin
+          PropObj := GetObjectProp(AModel, PropItem^.PropInfo);
+          if PropObj = nil then
+            AppendNull
+          else if PropObj is TDeltaModel then
+            WriteModel(TDeltaModel(PropObj))
+          else if PropObj is TCustomDeltaModelList then
+            WriteList(TCustomDeltaModelList(PropObj))
+          else
+            WriteObject(PropObj);
+        end;
+    else
+      AppendNull;
+    end;
+  end;
+
+  AppendChar('}');
+end;
+
+procedure TDeltaFastJsonStreamer.WriteObject(AObj: TObject);
+var
+  ClassProps: TRTTIClassInfo;
+  PropItem: PDeltaPropItem;
+  PropObj: TObject;
+  I: Integer;
+  HasWrittenField: Boolean;
+begin
+  if AObj = nil then
+  begin
+    AppendNull;
+    Exit;
+  end;
+
+  if AObj is TDeltaModel then
+  begin
+    WriteModel(TDeltaModel(AObj));
+    Exit;
+  end;
+
+  if AObj is TCustomDeltaModelList then
+  begin
+    WriteList(TCustomDeltaModelList(AObj));
+    Exit;
+  end;
+
+  AppendChar('{');
+  HasWrittenField := False;
+  ClassProps := TRTTICache.GetClassProps(AObj.ClassType);
+
+  for I := 0 to ClassProps.PropCount - 1 do
+  begin
+    PropItem := @ClassProps.Props[I];
+    if not PropItem^.HasGetProc then Continue;
+
+    if HasWrittenField then AppendChar(',');
+    HasWrittenField := True;
+
+    AppendString(PropItem^.Name);
+    AppendChar(':');
+
+    case PropItem^.PropKind of
+      tkInteger:
+        AppendInt64(GetOrdProp(AObj, PropItem^.PropInfo));
+      tkInt64, tkQWord:
+        AppendInt64(GetInt64Prop(AObj, PropItem^.PropInfo));
+      tkString, tkLString, tkAString, tkWString, tkUString, tkChar, tkWChar:
+        AppendString(GetStrProp(AObj, PropItem^.PropInfo));
+      tkBool:
+        AppendBoolean(Boolean(GetOrdProp(AObj, PropItem^.PropInfo)));
+      tkEnumeration:
+        AppendString(GetEnumName(PropItem^.PropInfo^.PropType, GetOrdProp(AObj, PropItem^.PropInfo)));
+      tkFloat:
+        WriteFloatProperty(AObj, PropItem^.PropInfo);
+      tkClass:
+        begin
+          PropObj := GetObjectProp(AObj, PropItem^.PropInfo);
+          WriteObject(PropObj);
+        end;
     else
       AppendNull;
     end;
@@ -442,6 +542,19 @@ begin
   Streamer := TDeltaFastJsonStreamer.Create(4096);
   try
     Streamer.WritePaginatedList(AList);
+    Result := Streamer.AsJSON;
+  finally
+    Streamer.Free;
+  end;
+end;
+
+class function TDeltaFastJsonStreamer.ObjectToJson(AObj: TObject): RawByteString;
+var
+  Streamer: TDeltaFastJsonStreamer;
+begin
+  Streamer := TDeltaFastJsonStreamer.Create(1024);
+  try
+    Streamer.WriteObject(AObj);
     Result := Streamer.AsJSON;
   finally
     Streamer.Free;

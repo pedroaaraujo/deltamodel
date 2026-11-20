@@ -11,9 +11,9 @@ uses
 
 type
   {============================================================================}
-  { Modelo Moderno - Abordagem B                                              }
-  { Utiliza propriedades primitivas nativas do Free Pascal (Int64, string,     }
-  { Double, Boolean) sem overhead de boxing de Variant ou wrappers auxiliares. }
+  { Modern Model - Approach B                                                 }
+  { Uses native Free Pascal primitive properties (Int64, string,              }
+  { Double, Boolean) without Variant boxing overhead or wrapper objects.      }
   {============================================================================}
   TProduct = class(TDeltaModel)
   private
@@ -35,9 +35,9 @@ type
   end;
 
 {==============================================================================}
-{ Configuração Estática de Metadados (Fluent Class Schema)                     }
-{ Executada apenas 1 vez por classe via RTTI Cache, com alocação zero em cada  }
-{ nova instância do modelo!                                                    }
+{ Static Metadata Configuration (Fluent Class Schema)                          }
+{ Executed only once per class via RTTI Cache, with zero allocation per model  }
+{ instance!                                                                    }
 {==============================================================================}
 class procedure TProduct.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
@@ -72,7 +72,7 @@ begin
 
   Engine := TDeltaORMEngine.Create('sqlite://' + DEMO_DB);
   try
-    // 1. Criar tabela de exemplo
+    // 1. Create sample table
     Engine.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
@@ -89,7 +89,7 @@ begin
     // 2. Instanciar Query Tipada
     Query := TDeltaQuery<TProduct>.Create(Engine);
     try
-      // Inserir registros
+      // Insert records
       P := TProduct.Create;
       P.Name := 'Notebook Dell Inspiron';
       P.Price := 4299.90;
@@ -119,7 +119,7 @@ begin
 
       WriteLn(Format('[2] Inseridos 3 produtos. Total no banco: %d', [Query.Count]));
 
-      // 3. Consulta Tipada por Chave Primária
+      // 3. Typed Primary Key Lookup
       Found := Query.FindById(1);
       if Found <> nil then
       try
@@ -129,7 +129,7 @@ begin
         Found.Free;
       end;
 
-      // 4. Inserção em Lote (BulkInsert)
+      // 4. Batch Insert (BulkInsert)
       Lote := TGDeltaModelList<TProduct>.Create;
       try
         for I := 1 to 5 do
@@ -148,7 +148,7 @@ begin
         Lote.Free;
       end;
 
-      // 5. Consulta Filtrada e Ordenada com Iteração Idiomática
+      // 5. Filtered and Ordered Query with Idiomatic Iteration
       WriteLn('');
       WriteLn('[5] Listando produtos com preco > R$ 100,00 (ordenados por preco decrescente):');
       Query.Clear;
@@ -157,7 +157,7 @@ begin
                    .OrderBy('price DESC')
                    .All;
       try
-        // Loop idiomático direto sem typecasting!
+        // Direct idiomatic loop without typecasting!
         for P in List do
         begin
           WriteLn(Format('    - [%d] %-30s | R$ %8.2f | Custo: %s | Estoque: %3d',
@@ -166,7 +166,7 @@ begin
              P.Stock]));
         end;
 
-        // 6. Serialização JSON de Ultra Alta Performance
+        // 6. Ultra High-Performance JSON Serialization
         JsonData := List.ToJson;
         WriteLn('');
         WriteLn('[6] Serializacao JSON (FastJsonStreamer):');

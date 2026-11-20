@@ -91,7 +91,7 @@ type
 
     function AsJsonString: RawByteString;
 
-    // Cursor reusável
+    // Reusable cursor
     function Open: TQuery;
     function Next: Boolean;
     function EOF: Boolean;
@@ -118,6 +118,8 @@ type
   public
     class function UpdateObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static; overload;
     class function UpdateObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
+    class function PatchObject(AConn: IDeltaORMEngine; AModel: TDeltaModel): Boolean; static; overload;
+    class function PatchObject(AConn: IDeltaORMEngine; AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel; static; overload;
   end;
 
   { TInsert }
@@ -130,7 +132,7 @@ type
     class function BulkInsertObjects(AConn: IDeltaORMEngine; AList: TDeltaModelList; ABatchSize: Integer = 500): Integer; static; overload;
   end;
 
-  { TSave - Decide entre Insert e Update baseado na Chave Primária }
+  { TSave - Chooses between Insert and Update based on Primary Key }
 
   TSave = class
   public
@@ -1137,6 +1139,95 @@ begin
     DS.Close;
     if Assigned(Result) then
       AModel.AfterUpdate;
+  finally
+    DS.Free;
+  end;
+end;
+
+class function TUpdate.PatchObject(AConn: IDeltaORMEngine;
+  AModel: TDeltaModel): Boolean;
+var
+  DS: TSQLQuery;
+  SQL: string;
+begin
+  if (AModel = nil) or (not AModel.HasDirtyFields) then
+    Exit(False);
+
+  SQL := TDMSQLBuilder.CreatePartialUpdate(
+    AModel,
+    AConn.Dialect,
+    TDMSQLBuilder.WhereClausePK(AModel)
+  );
+  if SQL.IsEmpty then
+    Exit(False);
+
+  AModel.BeforeUpdate;
+  AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+      raise EDeltaValidation.Create(Message);
+  end;
+
+  DS := AConn.NewDataset;
+  try
+    DS.SQL.Text := SQL;
+    ToDatasetParams(AModel, DS);
+
+    DS.ExecSQL;
+    Result := DS.RowsAffected > 0;
+    if Result then
+    begin
+      AModel.ClearAllDirty;
+      AModel.AfterUpdate;
+    end;
+  finally
+    DS.Free;
+  end;
+end;
+
+class function TUpdate.PatchObject(AConn: IDeltaORMEngine;
+  AModel: TDeltaModel; Return: TDeltaModelClass): TDeltaModel;
+var
+  DS: TSQLQuery;
+  SQL: string;
+begin
+  if (AModel = nil) or (not AModel.HasDirtyFields) then
+    Exit(nil);
+
+  SQL := TDMSQLBuilder.CreatePartialUpdateReturning(
+    AModel,
+    AConn.Dialect,
+    TDMSQLBuilder.WhereClausePK(AModel)
+  );
+  if SQL.IsEmpty then
+    Exit(nil);
+
+  AModel.BeforeUpdate;
+  AModel.Validate;
+  with AModel.Validator.Validate do
+  begin
+    if not OK then
+      raise EDeltaValidation.Create(Message);
+  end;
+
+  DS := AConn.NewDataset;
+  try
+    DS.SQL.Text := SQL;
+    ToDatasetParams(AModel, DS);
+
+    DS.Open;
+    if DS.IsEmpty then
+      Exit(nil);
+
+    Result := Return.Create;
+    FromDataSet(Result, DS);
+    DS.Close;
+    if Assigned(Result) then
+    begin
+      AModel.ClearAllDirty;
+      AModel.AfterUpdate;
+    end;
   finally
     DS.Free;
   end;

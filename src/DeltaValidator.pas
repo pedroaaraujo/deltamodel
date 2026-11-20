@@ -35,7 +35,7 @@ type
     function ValidateToJson: TValid;
   end;
 
-  // Alias TDeltaField removido para evitar shadowing com DeltaModel.Fields.TDeltaField
+  // TDeltaField alias removed to avoid shadowing DeltaModel.Fields.TDeltaField
   // TDeltaField = TValidatorField;
 
   { TValidator }
@@ -93,21 +93,21 @@ type
 
   TValidatorItemEmail = TValidatorEmail;
 
-  { TValidatorItemUrl - Valida URL com http/https }
+  { TValidatorItemUrl - Validates http/https URL }
 
   TValidatorItemUrl = class(TInterfacedObject, IDeltaValidatorItem)
   public
     function Validate(Value: Variant): TValid;
   end;
 
-  { TValidatorItemCPF - Valida CPF brasileiro (apenas dígitos, sem pontuação) }
+  { TValidatorItemCPF - Validates Brazilian CPF (digits only, no punctuation) }
 
   TValidatorItemCPF = class(TInterfacedObject, IDeltaValidatorItem)
   public
     function Validate(Value: Variant): TValid;
   end;
 
-  { TValidatorItemCNPJ - Valida CNPJ brasileiro (apenas dígitos, sem pontuação) }
+  { TValidatorItemCNPJ - Validates Brazilian CNPJ (digits only, no punctuation) }
 
   TValidatorItemCNPJ = class(TInterfacedObject, IDeltaValidatorItem)
   public
@@ -140,7 +140,7 @@ type
     function Validate(Value: Variant): TValid;
   end;
 
-  { TValidatorItemBetween - Valida se o valor está entre Min e Max (inclusivo) }
+  { TValidatorItemBetween - Validates value is between Min and Max (inclusive) }
 
   TValidatorItemBetween = class(TInterfacedObject, IDeltaValidatorItem)
   private
@@ -186,10 +186,10 @@ begin
   Result := False;
   if Length(CPF) <> 11 then Exit;
 
-  // Rejeita sequências com todos os dígitos iguais
+  // Reject sequences with all identical digits
   if (CPF = StringOfChar(CPF[1], 11)) then Exit;
 
-  // Primeiro dígito verificador
+  // First check digit
   Sum := 0;
   for I := 1 to 9 do
     Sum := Sum + StrToInt(CPF[I]) * (11 - I);
@@ -197,7 +197,7 @@ begin
   if Remainder = 10 then Remainder := 0;
   if Remainder <> StrToInt(CPF[10]) then Exit;
 
-  // Segundo dígito verificador
+  // Second check digit
   Sum := 0;
   for I := 1 to 10 do
     Sum := Sum + StrToInt(CPF[I]) * (12 - I);
@@ -238,7 +238,7 @@ begin
   if Length(Cnpj) <> 14 then
     Exit(False);
 
-  // Verifica se todos os dígitos são iguais
+  // Check if all digits are identical
   AllEqual := True;
   for I := 2 to 14 do
     if Cnpj[I] <> Cnpj[1] then
@@ -249,7 +249,7 @@ begin
   if AllEqual then
     Exit(False);
 
-  // Cálculo do 1º digito verificador
+  // Compute 1st check digit
   Sum := 0;
   for I := 1 to 12 do
     Sum := Sum + (Ord(Cnpj[I]) - BaseSub) * Multiplier1[I];
@@ -259,7 +259,7 @@ begin
   else
     Digit1 := 11 - Remainder;
 
-  // Cálculo do 2º digito verificador
+  // Compute 2nd check digit
   Sum := 0;
   for I := 1 to 13 do
     Sum := Sum + (Ord(Cnpj[I]) - BaseSub) * Multiplier2[I];
@@ -506,9 +506,9 @@ begin
   Result := False;
   S := Trim(AEmail);
   Len := Length(S);
-  if Len < 6 then Exit; // Mínimo: a@b.co
+  if Len < 6 then Exit; // Minimum: a@b.co
 
-  // 1. Validação via Regex com hífens devidamente escapados (\-) para total compatibilidade x86_64, AArch64 e ARM
+  // 1. Regex validation with properly escaped hyphens (\-) for full x86_64, AArch64, and ARM compatibility
   try
     Regex := TRegExpr.Create(EmailPattern);
     try
@@ -519,14 +519,14 @@ begin
       Regex.Free;
     end;
   except
-    // Fallback de segurança caso a engine TRegExpr lance exceção de alinhamento/memória em AArch64/ARM
+    // Safety fallback if TRegExpr raises an alignment/memory exception on AArch64/ARM
   end;
 
-  // 2. Validação algorítmica pura como garantia de robustez em todas as arquiteturas
+  // 2. Pure algorithmic validation ensuring robustness across all architectures
   AtPos := Pos('@', S);
   if (AtPos <= 1) or (AtPos = Len) then Exit;
 
-  // Não pode conter múltiplos '@'
+  // Must not contain multiple '@'
   if Pos('@', Copy(S, AtPos + 1, Len)) > 0 then Exit;
 
   LocalPart := Copy(S, 1, AtPos - 1);

@@ -38,7 +38,7 @@ type
     procedure InTransaction(AProc: TDeltaTransactionProc); overload;
     procedure InTransaction(AProc: TDeltaTransactionStaticProc); overload;
     procedure Disconnect;
-    procedure Disconect; // Para retrocompatibilidade de escrita
+    procedure Disconect; // For write backward compatibility
 
     function ExecuteQuery(const ASQL: string): TDataSet;
     procedure ExecuteDirect(const ASQL: string);
@@ -147,7 +147,7 @@ begin
       FConnection.Params.Values['port'] := Config.Port.ToString;
     end;
 
-    // Transfere quaisquer parâmetros adicionais da URL
+    // Forward any additional URL parameters
     if Assigned(Config.Params) then
     begin
       for I := 0 to Pred(Config.Params.Count) do

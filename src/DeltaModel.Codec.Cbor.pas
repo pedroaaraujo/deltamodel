@@ -18,21 +18,21 @@ uses
   DeltaModel.Codec;
 
 const
-  { Blindagem de Segurança RFC 8949 Seção 10.1 (Anti-OOM / DoS) }
+  { RFC 8949 Section 10.1 Security Guards (Anti-OOM / DoS) }
   MAX_CBOR_NESTING_DEPTH = 64;
   MAX_CBOR_STRING_LENGTH = 16 * 1024 * 1024; // 16 MB
 
 type
-  { TDeltaCborCodec: Codec CBOR (RFC 8949) Binário de Alta Performance (Zero-DOM)
-    Especificação RFC 8949:
+  { TDeltaCborCodec: High-Performance Binary CBOR (RFC 8949) Codec (Zero-DOM)
+    RFC 8949 Specification:
     - Major 0: Unsigned Integer (0..23 inline, 24..27 uint8/16/32/64 big-endian)
     - Major 1: Negative Integer (-1 - N)
     - Major 2: Byte String
     - Major 3: UTF-8 Text String
-    - Major 4: Array de itens
-    - Major 5: Map de pares (chave/valor)
-    - Major 6: Tag semântica (ex: tag 0 = RFC 3339 text string)
-    - Major 7: Valores simples & Floats (0xF4 false, 0xF5 true, 0xF6 null, 0xFB float64 BE) }
+    - Major 4: Array of items
+    - Major 5: Map of key/value pairs
+    - Major 6: Semantic tag (e.g., tag 0 = RFC 3339 text string)
+    - Major 7: Simple values & Floats (0xF4 false, 0xF5 true, 0xF6 null, 0xFB float64 BE) }
   TDeltaCborCodec = class(TInterfacedObject, IDeltaCodec)
   private
     procedure WriteHeader(AStream: TStream; AMajor: Byte; ALength: UInt64);
@@ -251,7 +251,7 @@ begin
     raise EDeltaDeserializationException.CreateFmt('Invalid CBOR additional info value %d (RFC 8949 Section 3)', [AAddInfo]);
   end;
 
-  // RFC 8949 Seção 10.1 - Resource Exhaustion & Truncation Checks:
+  // RFC 8949 Section 10.1 - Resource Exhaustion & Truncation Checks:
   if (AMajor in [2, 3]) and not AIsIndefinite then
   begin
     if AVal > MAX_CBOR_STRING_LENGTH then
@@ -301,7 +301,7 @@ begin
   if not ReadHeader(AStream, Major, Val, AddInfo, IsIndef) then Exit;
 
   case Major of
-    0, 1: // Inteiro simples: valor já consumido
+    0, 1: // Simple integer: value already consumed
       ;
 
     2, 3: // Byte string, Text string
@@ -364,7 +364,7 @@ begin
       SkipCborValue(AStream, ADepth + 1);
     end;
 
-    7: // Floats e valores simples (bytes já consumidos no ReadHeader)
+    7: // Floats and simple values (bytes already consumed in ReadHeader)
       ;
   end;
 end;
@@ -430,7 +430,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos gerenciados
+  // 1. Managed fields
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -492,7 +492,7 @@ begin
     end
     else
     begin
-      // Propriedade primitiva mapeada
+      // Mapped primitive property
       WriteTextString(AStream, Key);
       if AModel.IsNull(FieldMeta^.PropIndex) then
       begin
@@ -520,7 +520,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas adicionais
+  // 2. Additional published properties
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -559,7 +559,7 @@ var
   KeyName: string;
   NestedObj, ChildObj: TObject;
 
-  // Valores de dados
+  // Data values
   IntVal: Int64;
   DblVal: Double;
   StrVal: string;
@@ -580,7 +580,7 @@ begin
     if AIsIndefinite then
     begin
       AStream.ReadBuffer(PeekB, 1);
-      if PeekB = $FF then Break; // Terminal de coleção indefinida
+      if PeekB = $FF then Break; // Indefinite-length collection break stop code
       AStream.Seek(-1, soCurrent);
     end
     else
@@ -589,7 +589,7 @@ begin
       Dec(APairCount);
     end;
 
-    // 1. Lê a chave (string UTF-8)
+    // 1. Read key (UTF-8 string)
     if not ReadHeader(AStream, KeyMajor, KeyVal, KeyAddInfo, KeyIndef) then Break;
     if KeyMajor = 3 then
       KeyName := ReadTextString(AStream, KeyVal)
@@ -603,7 +603,7 @@ begin
     if FMeta = nil then
       FMeta := Meta.FindField(KeyName);
 
-    // 2. Lê o valor
+    // 2. Read value
     if not ReadHeader(AStream, ValMajor, ValVal, ValAddInfo, ValIndef) then Break;
 
     case ValMajor of
@@ -822,9 +822,9 @@ begin
         end;
       end;
 
-      6: // Tag semântica (ex: tag 0 = data RFC 3339, tag 1 = epoch)
+      6: // Semantic tag (e.g., tag 0 = RFC 3339 date, tag 1 = epoch)
       begin
-        // Lê o valor etiquetado recursivamente
+        // Read tagged value recursively
         if ReadHeader(AStream, ValMajor, ValVal, ValAddInfo, ValIndef) then
         begin
           if ValMajor = 3 then
@@ -842,7 +842,7 @@ begin
         end;
       end;
 
-      7: // Simples e Floats
+      7: // Simple values and Floats
       begin
         case ValAddInfo of
           20: // False
@@ -1006,7 +1006,7 @@ begin
   if not ReadHeader(AInputStream, Major, Val, AddInfo, IsIndef) then
     raise EDeltaDeserializationException.Create('CBOR payload is empty or invalid (RFC 8949)');
 
-  // 1. Array direto de modelos: [ {..}, {..} ]
+  // 1. Direct model array: [ {..}, {..} ]
   if Major = 4 then
   begin
     ArrCount := Val;

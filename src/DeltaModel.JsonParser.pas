@@ -9,8 +9,8 @@ uses
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.Metadata;
 
 type
-  { TDeltaFastJsonParser: Parser JSON de passagem única sem construção de árvore DOM,
-    populando diretamente instâncias de TDeltaModel e coleções TCustomDeltaModelList. }
+  { TDeltaFastJsonParser: Single-pass JSON parser without DOM tree construction,
+    directly populating TDeltaModel instances and TCustomDeltaModelList collections. }
   TDeltaFastJsonParser = class
   private
     FJson: RawByteString;
@@ -70,7 +70,7 @@ begin
   begin
     if FPtr^ = '\' then
     begin
-      // Copia o trecho acumulado antes do escape
+      // Copy accumulated slice before escape sequence
       if FPtr > StartP then
         Res := Res + Copy(string(StartP), 1, FPtr - StartP);
       Inc(FPtr);
@@ -86,9 +86,9 @@ begin
         't': Res := Res + #9;
         'u':
         begin
-          // Unicode \uXXXX simples
-          Inc(FPtr, 4); // consome 4 hex dígitos
-          Res := Res + '?'; // representação segura básica
+          // Simple \uXXXX Unicode escape
+          Inc(FPtr, 4); // consume 4 hex digits
+          Res := Res + '?'; // basic safe representation
         end;
       else
         Res := Res + FPtr^;
@@ -271,7 +271,7 @@ begin
       Break;
     end;
 
-    // Lê a chave (nome da propriedade)
+    // Read key (property name)
     if not ReadString(KeyName) then Break;
 
     SkipWhitespace;
@@ -361,7 +361,7 @@ begin
     end
     else if FPtr^ = '{' then
     begin
-      // Objeto aninhado (ex: HasOne)
+      // Nested object (e.g., HasOne)
       if (FMeta <> nil) and FMeta^.IsDeltaField then
       begin
         NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
@@ -459,7 +459,7 @@ begin
   SkipWhitespace;
   if FPtr >= FEnd then Exit;
 
-  // 1. Suporta envelope paginado: {"items": [...], "page": 1, "page_size": 10, ...}
+  // 1. Support paginated envelope: {"items": [...], "page": 1, "page_size": 10, ...}
   if FPtr^ = '{' then
   begin
     Inc(FPtr); // consome '{'
@@ -538,7 +538,7 @@ begin
     Exit;
   end;
 
-  // 2. Suporta array direto: [ {...}, {...} ]
+  // 2. Support direct array: [ {...}, {...} ]
   if FPtr^ = '[' then
   begin
     Inc(FPtr); // consome '['

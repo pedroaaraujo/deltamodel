@@ -11,9 +11,9 @@ uses
 
 type
   {============================================================================}
-  { Modelo de Dados - TMunicipio                                               }
-  { Representa os municípios do Brasil. Metadados residem exclusivamente       }
-  { na classe (Schema Flyweight), existindo exatamente UMA vez na memória.     }
+  { Data Model - TMunicipio                                                    }
+  { Represents Brazilian municipalities. Metadata lives exclusively on the     }
+  { class (Schema Flyweight), existing exactly ONCE in memory.                 }
   {============================================================================}
   TMunicipio = class(TDeltaModel)
   private
@@ -30,7 +30,7 @@ type
     property CodigoIbge: Int64 read FCodigoIbge write FCodigoIbge;
   end;
 
-  { Callback helper para o padrão Query.Each }
+  { Callback helper for the Query.Each pattern }
   TMunicipioProcessor = class
   private
     FTotalProcessed: Integer;
@@ -42,9 +42,9 @@ type
   end;
 
 {==============================================================================}
-{ Configuração Estática do Schema Flyweight                                     }
-{ Executada apenas uma única vez para a classe inteira.                        }
-{ Metadados (FieldName, Size, IsRequired) NÃO são duplicados por linha.        }
+{ Static Flyweight Schema Configuration                                         }
+{ Executed only once for the entire class.                                      }
+{ Metadata (FieldName, Size, IsRequired) is NOT duplicated per row.             }
 {==============================================================================}
 class procedure TMunicipio.ConfigureSchema(ASchema: TDeltaModelSchema);
 begin
@@ -82,7 +82,7 @@ begin
   WriteLn('===================================================================');
   WriteLn('');
 
-  // 1. Schema Flyweight: Metadados acessíveis na classe
+  // 1. Flyweight Schema: Class-level accessible metadata
   WriteLn('[1] Schema Flyweight desassociado da linha:');
   WriteLn('    Classe: ', TMunicipio.ClassName);
   WriteLn('    Tabela configurada: ', TMunicipio.Schema.TableName);
@@ -95,7 +95,7 @@ begin
 
   Engine := TDeltaORMEngine.Create('sqlite://' + DEMO_DB);
   try
-    // 2. Criar banco e popular 1.000 municípios
+    // 2. Create database and seed 1,000 municipalities
     Engine.ExecuteDirect(
       'CREATE TABLE municipios (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
@@ -120,7 +120,7 @@ begin
 
     Query := TDeltaQuery<TMunicipio>.Create(Engine);
     try
-      // 3. Padrão Canônico Pascal: while Query.Next do
+      // 3. Canonical Pascal Pattern: while Query.Next do
       WriteLn('[3] Padrão Canônico Pascal (while Query.Next do):');
       Query.OrderBy('id ASC');
       Query.Open;
@@ -151,7 +151,7 @@ begin
                      [TOTAL_RECORDS, Integer(HeapAfter - HeapBefore)]));
       WriteLn('');
 
-      // 4. Suporte a Enumerador Nativo Pascal: for M in Query.Cursor do
+      // 4. Native Pascal Enumerator Support: for M in Query.Cursor do
       WriteLn('[4] Padrão com Enumerador Pascal Nativo (for M in Query.Cursor do):');
       Count := 0;
       for M in Query.Cursor do
@@ -179,7 +179,7 @@ begin
       end;
       WriteLn('');
 
-      // 6. Streaming Direto com Zero Alocação de Lotes
+      // 6. Direct Streaming with Zero Batch Allocation
       WriteLn('[6] Streaming HTTP/JSON com Zero-Alloc (Query.StreamJsonTo):');
       MemStream := TMemoryStream.Create;
       try

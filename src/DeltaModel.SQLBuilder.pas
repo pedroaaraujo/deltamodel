@@ -26,6 +26,7 @@ type
     FGroupBy: string;
     FUseQuotes: Boolean;
     FIsCount: Boolean;
+    FOnlyDirty: Boolean;
     FTableAlias: string;
     FJoins: TStringList;
 
@@ -49,6 +50,7 @@ type
     function Count: TDMSQLBuilder;
     function Insert(UseNamedParams: Boolean = True): TDMSQLBuilder;
     function Update(UseNamedParams: Boolean = True): TDMSQLBuilder;
+    function UpdateDirty(UseNamedParams: Boolean = True): TDMSQLBuilder;
     function Delete: TDMSQLBuilder;
     function TableAlias(const AAlias: string): TDMSQLBuilder;
     function Join(AJoinType: TJoinType; const ATable, AOnCondition: string; const AAlias: string = ''): TDMSQLBuilder; overload;
@@ -89,6 +91,8 @@ type
     class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
     class function CreateUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
     class function CreateUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
+    class function CreatePartialUpdate(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
+    class function CreatePartialUpdateReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''; UseNamedParams: Boolean = True): string; static;
     class function CreateDelete(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateSelect(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
     class function CreateCount(AModel: TDeltaModel; ADialect: TDatabaseDialect; const WhereClause: string = ''): string; static;
@@ -120,6 +124,7 @@ begin
   FOrderBy := '';
   FUseQuotes := False;
   FIsCount := False;
+  FOnlyDirty := False;
 end;
 
 destructor TDMSQLBuilder.Destroy;
@@ -219,7 +224,14 @@ begin
         if (NestedObj = nil) or not (NestedObj is TDeltaField) then Continue;
         Obj := TDeltaField(NestedObj);
 
-        if Obj.IsNull then Continue;
+        if FOnlyDirty and (FCommand = 'UPDATE') then
+        begin
+          if not (Obj.Dirty or FModel.IsDirty(FieldMeta^.PropIndex)) then Continue;
+        end
+        else
+        begin
+          if Obj.IsNull then Continue;
+        end;
 
         FFields.Add(QuoteIdentifier(FieldMeta^.FieldName));
 
@@ -236,9 +248,16 @@ begin
       end
       else
       begin
-        // Propriedade Primitiva (Abordagem B)
-        if FModel.IsNull(FieldMeta^.PropIndex) and (FCommand <> 'INSERT INTO') then
-          Continue;
+        // Primitive property (Approach B)
+        if FOnlyDirty and (FCommand = 'UPDATE') then
+        begin
+          if not FModel.IsDirty(FieldMeta^.PropIndex) then Continue;
+        end
+        else
+        begin
+          if FModel.IsNull(FieldMeta^.PropIndex) and (FCommand <> 'INSERT INTO') then
+            Continue;
+        end;
 
         FFields.Add(QuoteIdentifier(FieldMeta^.FieldName));
 
@@ -542,6 +561,17 @@ end;
 function TDMSQLBuilder.Update(UseNamedParams: Boolean): TDMSQLBuilder;
 begin
   FCommand := 'UPDATE';
+  FOnlyDirty := False;
+  FFields.Clear;
+  FValues.Clear;
+  ExtractFieldsAndValues(UseNamedParams);
+  Result := Self;
+end;
+
+function TDMSQLBuilder.UpdateDirty(UseNamedParams: Boolean): TDMSQLBuilder;
+begin
+  FCommand := 'UPDATE';
+  FOnlyDirty := True;
   FFields.Clear;
   FValues.Clear;
   ExtractFieldsAndValues(UseNamedParams);
@@ -712,6 +742,7 @@ begin
   FGroupBy := '';
   FOrderBy := '';
   FIsCount := False;
+  FOnlyDirty := False;
   Result := Self;
 end;
 
@@ -780,8 +811,12 @@ begin
         [FCommand, GetTableName, FieldsToSQL, ValuesToSQL]);
 
     'UPDATE':
+    begin
+      if FOnlyDirty and (FFields.Count = 0) then
+        Exit('');
       Result := Format('%s %s SET %s%s',
         [FCommand, GetTableName, FieldAndValuesToSQL, WhereToSQL]);
+    end;
 
     'DELETE FROM':
       Result := Format('%s %s%s',
@@ -885,6 +920,61 @@ begin
         Result := Builder.Build + sLineBreak + 'RETURNING *';
     else
       Result := Builder.Build;
+    end;
+  finally
+    Builder.Free;
+  end;
+end;
+
+class function TDMSQLBuilder.CreatePartialUpdate(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
+  ): string;
+var
+  Builder: TDMSQLBuilder;
+  WherePK: string;
+begin
+  if (AModel = nil) or (not AModel.HasDirtyFields) then
+    Exit('');
+
+  WherePK := WhereClausePK(AModel);
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Result := Builder
+      .UpdateDirty(UseNamedParams)
+      .Where(IfThen(WhereClause.IsEmpty, WherePK, WhereClause))
+      .Build;
+  finally
+    Builder.Free;
+  end;
+end;
+
+class function TDMSQLBuilder.CreatePartialUpdateReturning(AModel: TDeltaModel;
+  ADialect: TDatabaseDialect; const WhereClause: string; UseNamedParams: Boolean
+  ): string;
+var
+  Builder: TDMSQLBuilder;
+  WherePK, BaseSQL: string;
+begin
+  if (AModel = nil) or (not AModel.HasDirtyFields) then
+    Exit('');
+
+  WherePK := IfThen(WhereClause.IsEmpty, WhereClausePK(AModel), WhereClause);
+  Builder := TDMSQLBuilder.Create(AModel, ADialect);
+  try
+    Builder.UpdateDirty(UseNamedParams).Where(WherePK);
+    BaseSQL := Builder.Build;
+    if BaseSQL.IsEmpty then
+      Exit('');
+
+    case ADialect of
+      ddMSSQL:
+        Result := Format('UPDATE %s SET %s OUTPUT INSERTED.*%s',
+          [Builder.GetTableName, Builder.FieldAndValuesToSQL, Builder.WhereToSQL]);
+
+      ddPostgreSQL, ddSQLite, ddFirebird:
+        Result := BaseSQL + sLineBreak + 'RETURNING *';
+    else
+      Result := BaseSQL;
     end;
   finally
     Builder.Free;
@@ -1068,7 +1158,7 @@ begin
 
   ValuesBuilder := TStringBuilder.Create;
   try
-    // Monta a lista de campos separada por vírgula uma única vez
+    // Build comma-separated field list once
     FieldsSQL := FieldNames[0];
     for J := 1 to FieldNames.Count - 1 do
       FieldsSQL := FieldsSQL + ', ' + FieldNames[J];

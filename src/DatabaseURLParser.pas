@@ -102,7 +102,7 @@ begin
       Exit;
     end;
 
-    // Extrai parâmetros da URL (?param=value)
+    // Extract URL query parameters (?param=value)
     UrlParams := TStringList.Create;
     try
       URI := ExtractURLParams(URI, UrlParams);
@@ -112,22 +112,22 @@ begin
       UrlParams.Free;
     end;
 
-    // Normaliza múltiplas barras consecutivas no início (ex: ////var/data -> /var/data)
+    // Normalize multiple consecutive leading slashes (e.g., ////var/data -> /var/data)
     while (Length(URI) > 1) and (URI[1] = '/') and (URI[2] = '/') do
       Delete(URI, 1, 1);
 
-    // No Windows: sqlite:///C:/path -> C:/path (remove a primeira barra antes da letra de unidade)
+    // On Windows: sqlite:///C:/path -> C:/path (strip leading slash before drive letter)
     if (Length(URI) >= 3) and (URI[1] = '/') and (URI[2] in ['A'..'Z', 'a'..'z']) and (URI[3] = ':') then
       Result.Database := Copy(URI, 2, MaxInt)
     else
-    // Caminho relativo explicito: sqlite:///./data/test.db -> ./data/test.db
+    // Explicit relative path: sqlite:///./data/test.db -> ./data/test.db
     if (Length(URI) >= 3) and (URI[1] = '/') and (URI[2] = '.') and (URI[3] = '/') then
       Result.Database := Copy(URI, 2, MaxInt)
     else
-    // Arquivo relativo direto com 3 barras: sqlite:///dados.db -> dados.db
-    // Se o caminho inicia com '/' mas não possui outros separadores de diretório ('/'),
-    // trata-se de um nome de arquivo local relativo no diretório de trabalho/aplicação,
-    // e não de um arquivo na raiz do sistema operacional (/dados.db).
+    // Direct relative file with 3 slashes: sqlite:///data.db -> data.db
+    // If the path starts with '/' but has no other directory separators ('/'),
+    // treat it as a relative local filename in the working/application directory,
+    // rather than a file at the OS root (/data.db).
     if (Length(URI) > 1) and (URI[1] = '/') and (Pos('/', Copy(URI, 2, MaxInt)) = 0) then
       Result.Database := Copy(URI, 2, MaxInt)
     else
@@ -147,7 +147,7 @@ begin
   end;
 
   // Extract credentials (if any)
-  // Encontra o último '@' antes da primeira barra do database (caso a senha contenha '@')
+  // Find the last '@' before the first database slash (in case password contains '@')
   SlashPos := Pos('/', URI);
   AtPos := 0;
   if SlashPos > 0 then

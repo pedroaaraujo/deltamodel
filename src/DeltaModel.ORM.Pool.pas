@@ -10,12 +10,12 @@ uses
   DeltaModel.ORM.Types, DeltaModel.ORM.Connection, DeltaModel.ORM.DML;
 
 type
-  { Exceções do Pool }
+  { Pool Exceptions }
   EDeltaPoolException = class(Exception);
   EDeltaPoolTimeoutException = class(EDeltaPoolException);
   EDeltaPoolExhaustedException = class(EDeltaPoolException);
 
-  { Estatísticas e Métricas do Pool }
+  { Pool Statistics and Metrics }
   TDeltaPoolStats = record
     TotalAcquisitions: Int64;
     TotalReleases: Int64;
@@ -25,22 +25,22 @@ type
     PeakActiveConnections: Integer;
   end;
 
-  { Configuração do Pool }
+  { Pool Configuration }
   TDeltaPoolConfig = record
     DatabaseURL: string;
-    MinConnections: Integer;        // Conexões pré-aquecidas mantidas ativas (default: 2)
-    MaxConnections: Integer;        // Limite máximo de conexões simultâneas (default: 10)
-    AcquireTimeoutMs: Integer;      // Tempo limite de espera para obter conexão (default: 5000 ms)
-    IdleTimeoutSeconds: Integer;    // Tempo máximo de ociosidade para conexões extras (default: 300 s)
-    MaxLifetimeSeconds: Integer;    // Tempo máximo de vida de uma conexão (default: 1800 s = 30 min, 0 = sem limite)
-    HousekeeperIntervalSec: Integer;// Intervalo do limpador automático em background (default: 30 s, 0 = desativado)
-    TestOnBorrow: Boolean;          // Testa conexão antes de entregar (default: True)
-    ValidationQuery: string;        // Query de teste (vazio = automático por dialeto)
+    MinConnections: Integer;        // Pre-warmed connections kept active (default: 2)
+    MaxConnections: Integer;        // Maximum concurrent connections (default: 10)
+    AcquireTimeoutMs: Integer;      // Wait timeout to acquire a connection (default: 5000 ms)
+    IdleTimeoutSeconds: Integer;    // Maximum idle time for extra connections (default: 300 s)
+    MaxLifetimeSeconds: Integer;    // Maximum lifetime of a connection (default: 1800 s = 30 min, 0 = unlimited)
+    HousekeeperIntervalSec: Integer;// Background housekeeper sweep interval (default: 30 s, 0 = disabled)
+    TestOnBorrow: Boolean;          // Validate connection before checkout (default: True)
+    ValidationQuery: string;        // Health-check query (empty = automatic per dialect)
   end;
 
   TDeltaConnectionPool = class;
 
-  { TDeltaPoolHousekeeper - Thread de manutenção em segundo plano }
+  { TDeltaPoolHousekeeper - Background maintenance thread }
   TDeltaPoolHousekeeper = class(TThread)
   private
     FPool: TDeltaConnectionPool;
@@ -54,14 +54,14 @@ type
     procedure Stop;
   end;
 
-  { IDeltaPooledEngine - Interface com liberação automática (RAII) }
+  { IDeltaPooledEngine - Auto-releasing RAII interface }
   IDeltaPooledEngine = interface(IDeltaORMEngine)
     ['{3A5C9B21-789E-4B0D-9E33-1F4F9C2B81A0}']
     function Engine: TDeltaORMEngine;
     procedure ReleaseToPool;
     procedure Disconnect;
 
-    // Métodos DML/ORM diretos
+    // Direct DML/ORM methods
     function Insert(AModel: TDeltaModel): Boolean;
     function InsertReturning(AModel: TDeltaModel; AClass: TDeltaModelClass): TDeltaModel;
     function Merge(AModel: TDeltaModel): Boolean;
@@ -77,11 +77,11 @@ type
     function NewQuery: TQuery;
   end;
 
-  { Tipos de Callback para Execução Segura }
+  { Callback Types for Safe Execution }
   TDeltaPoolAction = procedure(AEngine: TDeltaORMEngine) of object;
   TDeltaPoolStaticAction = procedure(AEngine: TDeltaORMEngine);
 
-  { Item interno do Pool }
+  { Internal Pool Entry }
   TDeltaPoolItem = class
   public
     Engine: TDeltaORMEngine;
@@ -91,7 +91,7 @@ type
     destructor Destroy; override;
   end;
 
-  { TDeltaPooledEngine - Implementação do wrapper RAII }
+  { TDeltaPooledEngine - RAII wrapper implementation }
   TDeltaPooledEngine = class(TInterfacedObject, IDeltaPooledEngine, IDeltaORMEngine)
   private
     FPool: TDeltaConnectionPool;
@@ -166,22 +166,22 @@ type
     constructor Create(const AConfig: TDeltaPoolConfig); overload;
     destructor Destroy; override;
 
-    // Obtenção e devolução de conexões
+    // Connection acquisition and release
     function Acquire(ATimeoutMs: Integer = -1): IDeltaPooledEngine;
     function AcquireRaw(ATimeoutMs: Integer = -1): TDeltaORMEngine;
     procedure Release(AEngine: TDeltaORMEngine);
 
-    // Operações ORM de alta performance
+    // High-performance ORM operations
     function BulkInsert(AModels: array of TDeltaModel; ABatchSize: Integer = 500): Integer; overload;
     function BulkInsert(AList: TDeltaModelList; ABatchSize: Integer = 500): Integer; overload;
 
-    // Execução encapsulada
+    // Scoped execution
     procedure Execute(AAction: TDeltaPoolAction); overload;
     procedure Execute(AAction: TDeltaPoolStaticAction); overload;
     procedure InTransaction(AAction: TDeltaPoolAction); overload;
     procedure InTransaction(AAction: TDeltaPoolStaticAction); overload;
 
-    // Manutenção e métricas
+    // Maintenance and metrics
     procedure WarmUp;
     procedure CleanUpIdle;
     procedure Clear;
@@ -195,7 +195,7 @@ type
     property Config: TDeltaPoolConfig read FConfig;
     property Terminated: Boolean read FTerminated;
 
-    // Singleton / Pool padrão
+    // Singleton / Default pool
     class function DefaultPool: TDeltaConnectionPool;
     class procedure SetDefaultPool(APool: TDeltaConnectionPool);
   end;
@@ -213,7 +213,7 @@ begin
   Result.AcquireTimeoutMs := 5000;
   Result.IdleTimeoutSeconds := 300;
   Result.MaxLifetimeSeconds := 1800; // 30 minutos
-  Result.HousekeeperIntervalSec := 30; // varredura a cada 30s
+  Result.HousekeeperIntervalSec := 30; // sweep every 30s
   Result.TestOnBorrow := True;
   Result.ValidationQuery := '';
 end;
@@ -700,7 +700,7 @@ begin
     if (not Assigned(AItem.Engine)) or (not Assigned(AItem.Engine.Connection)) then
       Exit;
 
-    // 1. Verifica tempo máximo de vida da conexão
+    // 1. Check connection max lifetime
     if (FConfig.MaxLifetimeSeconds > 0) then
     begin
       LifeSec := (Now - AItem.CreatedAt) * 86400.0;
@@ -736,14 +736,14 @@ begin
     try
       DS := AItem.Engine.ExecuteQuery(CheckSQL);
       try
-        // Conexão ativa e responsiva
+        // Active and responsive connection
       finally
         DS.Free;
       end;
       if AItem.Engine.TransactionActive then
         AItem.Engine.Commit;
     except
-      // Falhou na consulta de validação, tenta reconectar uma vez
+      // Validation query failed; attempt to reconnect once
       try
         AItem.Engine.Disconnect;
         AItem.Engine.Connection.Open;
@@ -753,7 +753,7 @@ begin
       end;
     end;
   except
-    // Tratamento defensivo contra itens inválidos em pool
+    // Defensive handling against invalid pooled entries
   end;
 end;
 
@@ -805,7 +805,7 @@ begin
       if FTerminated then
         raise EDeltaPoolException.Create('Connection pool is terminated.');
 
-      // 1. Procura item ocioso
+      // 1. Search for an idle entry
       Item := FindIdleItem;
       if Assigned(Item) then
       begin
@@ -814,7 +814,7 @@ begin
       end
       else if FItems.Count < FConfig.MaxConnections then
       begin
-        // 2. Cria nova conexão dentro da capacidade máxima
+        // 2. Create new connection within max capacity
         Item := CreateNewItem;
         Item.InUse := True;
         Item.LastUsedAt := Now;
@@ -824,7 +824,7 @@ begin
       FLock.Leave;
     end;
 
-    // Se obtivemos um item, validamos fora da seção crítica
+    // If an entry was acquired, validate it outside the critical section
     if Assigned(Item) then
     begin
       try
@@ -843,7 +843,7 @@ begin
         Result := Item.Engine;
         Exit;
       except
-        // Se a validação falhar, liberamos e relançamos
+        // If validation fails, release and re-raise
         FLock.Enter;
         try
           Item.InUse := False;
@@ -854,7 +854,7 @@ begin
       end;
     end;
 
-    // 3. Pool esgotado: aguarda notificação com timeout
+    // 3. Pool exhausted: wait for notification with timeout
     Elapsed := GetTickCount64 - StartTime;
     if Elapsed >= QWord(WaitLimitMs) then
     begin
@@ -901,7 +901,7 @@ begin
   if not Assigned(AEngine) then
     Exit;
 
-  // 1. Sanitiza transações pendentes
+  // 1. Sanitize pending transactions
   FLock.Enter;
   try
     if FTerminated then
@@ -944,7 +944,7 @@ begin
       Item.InUse := False;
       Item.LastUsedAt := Now;
       Inc(FStats.TotalReleases);
-      // Notifica thread em espera
+      // Notify waiting thread
       FWaitEvent.SetEvent;
     end;
   finally
@@ -1105,7 +1105,7 @@ begin
   try
     FTerminated := True;
 
-    // Desconecta e invalida quaisquer leases ativos
+    // Disconnect and invalidate any active leases
     if Assigned(FActiveLeases) then
     begin
       for I := 0 to FActiveLeases.Count - 1 do

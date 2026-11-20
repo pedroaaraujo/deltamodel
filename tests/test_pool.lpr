@@ -11,7 +11,7 @@ uses
   DeltaModel.ORM.Interfaces, DeltaModel.ORM.Types, DatabaseURLParser;
 
 type
-  { Thread trabalhadora para teste de concorrência }
+  { Worker thread for concurrency test }
   TWorkerThread = class(TThread)
   private
     FPool: TDeltaConnectionPool;
@@ -45,10 +45,10 @@ begin
   try
     for I := 1 to 5 do
     begin
-      // 1. Adquire conexão do pool usando RAII (IDeltaPooledEngine)
+      // 1. Acquire pooled connection via RAII (IDeltaPooledEngine)
       Lease := FPool.Acquire(5000);
       try
-        // 2. Executa operações no banco compartilhado
+        // 2. Execute operations on shared database
         Lease.ExecuteDirect('PRAGMA busy_timeout = 5000');
         Lease.StartTransaction;
         Lease.ExecuteDirect(Format(
@@ -121,7 +121,7 @@ begin
 
   DbURL := Format('sqlite://%s?pool_min=2&pool_max=4&pool_timeout=1500&pool_test=true', [TEST_DB_PATH]);
 
-  // TESTE 1: Parser de configuração na URL
+  // TEST 1: URL configuration parser
   Write('Teste 1: Parser de configuracao da URL... ');
   Cfg := PoolConfigFromURL(DbURL);
   if (Cfg.MinConnections <> 2) or (Cfg.MaxConnections <> 4) or (Cfg.AcquireTimeoutMs <> 1500) or (not Cfg.TestOnBorrow) then
@@ -133,7 +133,7 @@ begin
   end;
   WriteLn('OK!');
 
-  // TESTE 2: Criação e WarmUp do Pool
+  // TEST 2: Pool creation and WarmUp
   Write('Teste 2: Criacao do Pool e WarmUp (MinConnections)... ');
   Pool := TDeltaConnectionPool.Create(DbURL);
   try
@@ -149,7 +149,7 @@ begin
     end;
     WriteLn('OK!');
 
-    // TESTE 3: RAII Empréstimo e devolução automática ao sair de escopo
+    // TEST 3: RAII lease and automatic release on scope exit
     Write('Teste 3: Emprestimo e devolucao automatica RAII... ');
     Lease := Pool.Acquire;
     if Pool.ActiveCount <> 1 then
@@ -157,7 +157,7 @@ begin
       WriteLn(Format('FALHOU: ActiveCount=%d (esperado 1)', [Pool.ActiveCount]));
       Halt(1);
     end;
-    Lease := nil; // Libera
+    Lease := nil; // Release
     if Pool.ActiveCount <> 0 then
     begin
       WriteLn(Format('FALHOU: ActiveCount apos release=%d (esperado 0)', [Pool.ActiveCount]));
@@ -165,15 +165,15 @@ begin
     end;
     WriteLn('OK!');
 
-    // TESTE 4: Sanitização de transação pendente na devolução
+    // TEST 4: Pending transaction sanitization on release
     Write('Teste 4: Sanitizacao de transacao pendente (Auto-Rollback)... ');
     RawEng := Pool.AcquireRaw;
     RawEng.StartTransaction;
     RawEng.ExecuteDirect('INSERT INTO test_log (thread_id, iteration, msg) VALUES (999, 1, ''nao comitado'')');
-    // Devolve com transação ainda ativa!
+    // Release while transaction is still active!
     Pool.Release(RawEng);
 
-    // Verifica se foi revertido
+    // Verify rollback occurred
     Lease := Pool.Acquire;
     DS := Lease.ExecuteQuery('SELECT COUNT(*) FROM test_log WHERE thread_id = 999');
     try
@@ -188,7 +188,7 @@ begin
     Lease := nil;
     WriteLn('OK!');
 
-    // TESTE 5: Concorrência com múltiplas Threads simultâneas
+    // TEST 5: Multi-threaded concurrency
     WriteLn('Teste 5: Execucao multithread concorrente (10 threads vs pool max 4)...');
     for I := 0 to 9 do
       Threads[I] := TWorkerThread.Create(Pool, I + 1);
@@ -207,7 +207,7 @@ begin
       Threads[I].Free;
     end;
 
-    // Confere número total de registros gravados por todas as threads (10 threads * 5 inserts = 50)
+    // Verify total rows written across all threads (10 threads * 5 inserts = 50)
     Lease := Pool.Acquire;
     DS := Lease.ExecuteQuery('SELECT COUNT(*) FROM test_log WHERE thread_id <= 10');
     try
@@ -222,7 +222,7 @@ begin
     Lease := nil;
     WriteLn('   -> 10 threads concorrentes finalizaram com 100% de sucesso! OK!');
 
-    // TESTE 6: Esgotamento do pool e Timeout
+    // TEST 6: Pool exhaustion and Timeout
     Write('Teste 6: Esgotamento do pool e Timeout... ');
     TimeoutCaught := False;
     L1 := Pool.Acquire;
@@ -231,14 +231,14 @@ begin
     L4 := Pool.Acquire;
 
     try
-      // Tenta pegar a 5ª conexão com timeout de 300ms
+      // Attempt to acquire 5th connection with 300ms timeout
       Pool.Acquire(300);
     except
       on E: EDeltaPoolTimeoutException do
         TimeoutCaught := True;
     end;
 
-    // Libera as 4 conexões
+    // Release all 4 connections
     L1 := nil;
     L2 := nil;
     L3 := nil;
@@ -251,7 +251,7 @@ begin
     end;
     WriteLn('OK!');
 
-    // TESTE 7: Execução encapsulada Pool.Execute e Pool.InTransaction
+    // TEST 7: Scoped Pool.Execute and Pool.InTransaction
     Write('Teste 7: Callbacks Pool.Execute e Pool.InTransaction... ');
     Pool.Execute(@LogActionCallback);
     Pool.InTransaction(@LogTxCallback);
@@ -270,7 +270,7 @@ begin
     Lease := nil;
     WriteLn('OK!');
 
-    // TESTE 8: Métricas do Pool (Observabilidade)
+    // TEST 8: Pool metrics (Observability)
     Write('Teste 8: Metricas e Observabilidade (Stats)... ');
     St := Pool.Stats;
     if (St.TotalAcquisitions <= 0) or (St.TotalReleases <= 0) or (St.ConnectionsCreated <= 0) or (St.PeakActiveConnections <= 0) then

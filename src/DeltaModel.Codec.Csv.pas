@@ -18,14 +18,14 @@ uses
   DeltaModel.Codec;
 
 type
-  { TDeltaCsvCodec: Codec CSV RFC 4180 de Alta Performance (Zero-DOM Streamer)
-    Especificação RFC 4180:
-    - Primeira linha: cabeçalho com nomes das colunas separadas por vírgula.
-    - Linhas de dados com campos separados por vírgula.
-    - Campos com vírgula, aspas duplas ou quebras de linha são delimitados por aspas duplas ("...").
-    - Aspas duplas internas são escapadas duplicando-as ("").
-    - Ponto decimal '.' para números reais sem notação científica.
-    - Datas no formato canônico ISO-8601. }
+  { TDeltaCsvCodec: High-Performance RFC 4180 CSV Codec (Zero-DOM Streamer)
+    RFC 4180 Specification:
+    - First line: header with comma-separated column names.
+    - Data lines with comma-separated fields.
+    - Fields containing commas, double quotes, or line breaks are enclosed in double quotes ("...").
+    - Embedded double quotes are escaped by doubling them ("").
+    - Decimal point '.' for floating-point numbers without scientific notation.
+    - Dates formatted in canonical ISO-8601. }
   TDeltaCsvCodec = class(TInterfacedObject, IDeltaCodec)
   private
     function CsvEscape(const S: string): string;
@@ -46,7 +46,7 @@ type
 
 implementation
 
-{ Funções Utilitárias }
+{ Utility Functions }
 
 function StreamToRawString(AStream: TStream): string;
 var
@@ -410,7 +410,7 @@ begin
     Exit;
   end;
 
-  // Usa o primeiro item para gerar o cabeçalho
+  // Use the first item to generate the header row
   ItemObj := CustomList.GetItemObj(0);
   if not (ItemObj is TDeltaModel) then Exit;
   Meta := TRTTICache.GetModelMetadata(ItemObj.ClassType);
@@ -423,7 +423,7 @@ begin
   end;
   StringToStream(HeaderLine + sLineBreak, AOutputStream);
 
-  // Gera as linhas de dados
+  // Emit data rows
   for J := 0 to Count - 1 do
   begin
     ItemObj := CustomList.GetItemObj(J);
@@ -515,7 +515,7 @@ begin
     if not ParseCsvRow(P, NextP, DataRow) then Break;
     P := NextP;
 
-    // Linha vazia ao fim do arquivo
+    // Blank line at end of file
     if (Length(DataRow) = 0) or ((Length(DataRow) = 1) and (DataRow[0] = '')) then
       Continue;
 

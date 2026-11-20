@@ -11,7 +11,7 @@ uses
 
 type
 
-  { TCompany - Modelo com CPF/CNPJ, URL e lista de funcionários }
+  { TCompany - Model with CPF/CNPJ, URL, and employee list }
 
   TEmployee = class(TDeltaModel)
   private
@@ -159,7 +159,7 @@ procedure TCompany.Configure;
 begin
   Self.name.Size    := 200;
   Self.website.Size := 500;
-  Self.cnpj.Size    := 14; // só dígitos
+  Self.cnpj.Size    := 14; // digits only
 
   if Self.employees = nil then
     Self.employees := TEmployeeList.Create;
@@ -197,7 +197,7 @@ begin
   if not VResult.OK then
     raise EDeltaValidation.Create(VResult.Message);
 
-  // Valida cada funcionário também
+  // Validate each employee as well
   for I := 0 to Pred(Self.employees.Records.Count) do
     (Self.employees.Records[I] as TEmployee).Validate;
 end;
@@ -214,13 +214,13 @@ procedure TForm1.FormCreate(Sender: TObject);
 begin
   pgcBase.ActivePageIndex := 0;
 
-  // Preenche campos de exemplo
+  // Populate sample fields
   edtEmployeeName.Text  := 'João da Silva';
   edtEmployeeEmail.Text := 'joao@exemplo.com';
-  edtEmployeeCPF.Text   := '529.982.247-25'; // CPF válido para teste
+  edtEmployeeCPF.Text   := '529.982.247-25'; // Valid CPF for testing
 
   edtCompanyName.Text    := 'Acme Corp';
-  edtCompanyCNPJ.Text    := '11.222.333/0001-81'; // CNPJ para teste
+  edtCompanyCNPJ.Text    := '11.222.333/0001-81'; // CNPJ for testing
   edtCompanyWebsite.Text := 'https://www.acme.com';
 end;
 
@@ -267,7 +267,7 @@ begin
     if edtCompanyWebsite.Text <> '' then
       Co.website.Value := edtCompanyWebsite.Text;
 
-    // Adiciona funcionário com todos os tipos de exemplo
+    // Add sample employee with all data types
     Emp := TEmployee.Create;
     Emp.name.Value             := edtEmployeeName.Text;
     Emp.email.Value            := edtEmployeeEmail.Text;

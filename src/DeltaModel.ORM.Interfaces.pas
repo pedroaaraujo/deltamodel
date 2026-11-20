@@ -11,7 +11,7 @@ type
   TDeltaTransactionProc = procedure of object;
   TDeltaTransactionStaticProc = procedure;
 
-  { IDeltaTransaction: Escopo de transação seguro RAII }
+  { IDeltaTransaction: Safe RAII transaction scope }
   IDeltaTransaction = interface
     ['{B1A456C8-1122-3344-5566-778899AABBCC}']
     procedure Commit;

@@ -18,13 +18,13 @@ uses
   DeltaModel.Codec;
 
 type
-  { TDeltaXmlCodec: Codec XML de Alta Performance (Zero-DOM Streamer)
-    Contrato Universal de Serialização e Desserialização XML:
-    - Declaração XML padrão UTF-8.
-    - Modelo: <entity><field1>valor</field1>...</entity>
-    - Lista: <items><item>...</item></items>
-    - Tratamento de entidades XML (&amp;, &lt;, &gt;, &quot;, &apos;).
-    - Suporte a tags auto-fechadas <field/> para valores nulos. }
+  { TDeltaXmlCodec: High-Performance XML Codec (Zero-DOM Streamer)
+    Universal XML Serialization and Deserialization Contract:
+    - Standard UTF-8 XML declaration.
+    - Model: <entity><field1>value</field1>...</entity>
+    - List: <items><item>...</item></items>
+    - XML entity escaping (&amp;, &lt;, &gt;, &quot;, &apos;).
+    - Self-closing <field/> tags supported for null values. }
   TDeltaXmlCodec = class(TInterfacedObject, IDeltaCodec)
   private
     function XmlEscape(const S: string): string;
@@ -48,7 +48,7 @@ type
 
 implementation
 
-{ Funções Utilitárias }
+{ Utility Functions }
 
 function StreamToRawString(AStream: TStream): string;
 var
@@ -214,7 +214,7 @@ begin
   Meta := TRTTICache.GetModelMetadata(AModel.ClassType);
   ClassProps := TRTTICache.GetClassProps(AModel.ClassType);
 
-  // 1. Campos mapeados (TDeltaField e primitivos)
+  // 1. Mapped fields (TDeltaField and primitives)
   for I := 0 to Meta.FieldCount - 1 do
   begin
     FieldMeta := @Meta.Fields[I];
@@ -279,7 +279,7 @@ begin
     end
     else
     begin
-      // Propriedade Primitiva
+      // Primitive property
       if AModel.IsNull(FieldMeta^.PropIndex) then
       begin
         StringToStream('<' + Key + ' xsi:nil="true"/>', AStream);
@@ -308,7 +308,7 @@ begin
     end;
   end;
 
-  // 2. Propriedades publicadas adicionais
+  // 2. Additional published properties
   for I := 0 to ClassProps.PropCount - 1 do
   begin
     PropItem := @ClassProps.Props[I];
@@ -359,7 +359,7 @@ begin
 
   Inc(P); // Pula '<'
 
-  // Pula comentários <!-- ... -->
+  // Skip XML comments <!-- ... -->
   if (P[0] = '!') and (P[1] = '-') and (P[2] = '-') then
   begin
     Inc(P, 3);
@@ -369,7 +369,7 @@ begin
     Exit;
   end;
 
-  // Pula declaração <?xml ... ?>
+  // Skip XML declaration <?xml ... ?>
   if P^ = '?' then
   begin
     while (P^ <> #0) and not ((P[0] = '?') and (P[1] = '>')) do Inc(P);
@@ -397,7 +397,7 @@ begin
   while (P^ <> #0) and not (P^ in [' ', '>', '/', #9, #10, #13]) do Inc(P);
   SetString(TagName, TagStart, P - TagStart);
 
-  // Consome atributos até '>' ou '/>'
+  // Consume attributes up to '>' or '/>'
   InQuote := #0;
   while P^ <> #0 do
   begin
@@ -430,7 +430,7 @@ begin
     end;
   end;
 
-  // Lê texto de conteúdo até o próximo '<'
+  // Read text content until the next '<'
   ContentStart := P;
   while (P^ <> #0) and (P^ <> '<') do Inc(P);
   SetString(Content, ContentStart, P - ContentStart);
@@ -622,7 +622,7 @@ begin
       if P = NextP then Break;
       P := NextP;
 
-      // Detecta abertura de um item de dados (ex: <item>, <produto>, ou entidade filha de <items>)
+      // Detect opening of a data item (e.g., <item>, <product>, or child entity of <items>)
       if not IsClosing and (TagName <> '') and not SameText(TagName, 'items') and
          not SameText(TagName, 'list') and not SameText(TagName, 'root') then
       begin
@@ -636,7 +636,7 @@ begin
       if P = NextP then Break;
       P := NextP;
 
-      // Detecta fechamento do item atual
+      // Detect closing tag of current item
       if IsClosing and SameText(TagName, ItemTag) then
       begin
         SetString(ItemXml, ItemStart, P - ItemStart);

@@ -157,12 +157,12 @@ begin
                 begin
                   SchemaObj.Add('type', (NestedObj as TDeltaField).SwaggerDataType);
 
-                  // Adiciona format quando disponível
+                  // Add format when available
                   SwaggerFmt := (NestedObj as TDeltaField).SwaggerFormat;
                   if not SwaggerFmt.IsEmpty then
                     SchemaObj.Add('format', SwaggerFmt);
 
-                  // Adiciona nullable para campos opcionais
+                  // Add nullable for optional fields
                   if NestedObj is TDeltaFieldNullable then
                   begin
                     {$IF FPC_FULLVERSION >= 30200}
@@ -266,7 +266,7 @@ begin
 
   PropsObj := TJSONObject.Create;
 
-  // 1. items (lista genérica)
+  // 1. items (generic list)
   ItemSchema := GenerateSchema(Obj, AddExamples, False);
   if not Assigned(ItemSchema) then
     ItemSchema := TJSONObject.Create;
@@ -276,26 +276,26 @@ begin
   ItemsArray.Add('items', ItemSchema);
   PropsObj.Add('items', ItemsArray);
 
-  // 2. page (inteiro)
+  // 2. page (integer)
   PageProp := TJSONObject.Create;
   PageProp.Add('type', 'integer');
   if AddExamples then PageProp.Add('example', 1);
   PropsObj.Add('page', PageProp);
 
-  // 3. page_size (inteiro)
+  // 3. page_size (integer)
   PageSizeProp := TJSONObject.Create;
   PageSizeProp.Add('type', 'integer');
   if AddExamples then PageSizeProp.Add('example', 20);
   PropsObj.Add('page_size', PageSizeProp);
 
-  // 4. total_records (inteiro)
+  // 4. total_records (integer)
   TotalProp := TJSONObject.Create;
   TotalProp.Add('type', 'integer');
   TotalProp.Add('format', 'int64');
   if AddExamples then TotalProp.Add('example', 100);
   PropsObj.Add('total_records', TotalProp);
 
-  // 5. total_pages (inteiro)
+  // 5. total_pages (integer)
   TotalPagesProp := TJSONObject.Create;
   TotalPagesProp.Add('type', 'integer');
   if AddExamples then TotalPagesProp.Add('example', 5);

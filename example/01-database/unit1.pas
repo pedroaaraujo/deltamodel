@@ -13,7 +13,7 @@ uses
 
 type
 
-  { TProfile - Modelo 1:1 dependente com ForeignKey }
+  { TProfile - Dependent 1:1 model with ForeignKey }
 
   TProfile = class(TDeltaModel)
   private
@@ -29,7 +29,7 @@ type
     procedure Configure; override;
   end;
 
-  { TPerson - Modelo com suporte a todos os tipos de dados do DeltaModel }
+  { TPerson - Model supporting all DeltaModel data types }
 
   TPerson = class(TDeltaModel)
   private
@@ -133,16 +133,16 @@ begin
   Self.id.DBOptions := [dboPrimaryKey, dboAutoInc];
   Self.name.Size := 120;
   Self.surname.Size := 120;
-  // Campo com índice secundário direto
+  // Field with direct secondary index
   Self.active.IsIndexed := True;
 end;
 
 procedure TPerson.Configure;
 begin
   inherited Configure;
-  // Constraint UNIQUE composta no nível de tabela
+  // Composite table-level UNIQUE constraint
   AddUniqueConstraint('uq_person_name_surname', ['name', 'surname']);
-  // Índice de performance composto
+  // Composite performance index
   AddIndex('ix_person_created_age', ['created', 'age']);
   // Relacionamento 1:1 HasOne
   Profile.References(TProfile, 'personId', 'id');
@@ -185,7 +185,7 @@ var
 begin
   Person := TPerson.Create;
   try
-    // 1. SELECT com paginação (Page 2, tamanho 10)
+    // 1. Paginated SELECT (Page 2, size 10)
     Builder := TDMSQLBuilder.Create(Person, ADialect);
     try
       mmoSelect.Lines.Text := Builder
@@ -198,7 +198,7 @@ begin
       Builder.Free;
     end;
 
-    // 2. INSERT com Returning / Output
+    // 2. INSERT with Returning / Output
     Person.name.Value := 'Carlos Eduardo';
     Person.surname.Value := 'Silveira';
     Person.age.Value := 35;
@@ -232,7 +232,7 @@ begin
       ADialect
     );
 
-    // 5. DDL gerado para o dialeto (Tabela, Constraints e Índices)
+    // 5. Generated DDL for dialect (Table, Constraints, and Indexes)
     ConstraintsList := TStringList.Create;
     IndexesList := TStringList.Create;
     try
@@ -310,7 +310,7 @@ begin
       Con.Connection.Open;
       mmoDDL.Lines.Add('1. Conectado ao banco (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
 
-      // 2. Prepara tabelas
+      // 2. Prepare tables
       Schema := TDeltaORMSchema.Create(Con);
       try
         Schema.RegisterModel(TPerson.Create);
@@ -321,7 +321,7 @@ begin
         Schema.Free;
       end;
 
-      // 3. Teste do Save (Insert automático porque PK está vazia)
+      // 3. Save test (automatic Insert because PK is empty)
       P := TPerson.Create;
       try
         P.name.Value := 'Ana Beatriz';
@@ -341,7 +341,7 @@ begin
         begin
           mmoDDL.Lines.Add('3. [SAVE - INSERT] Registro inserido com sucesso: ' + P.name.Value + ' (Id: ' + P.id.AsString + ')');
 
-          // Insere Profile associado
+          // Insert associated Profile
           Prof := TProfile.Create;
           try
             Prof.personId.Value := P.id.Value;
@@ -356,7 +356,7 @@ begin
         P.Free;
       end;
 
-      // 4. Inserindo segundo registro
+      // 4. Inserting second record
       P := TPerson.Create;
       try
         P.name.Value := 'Bruno Martins';
@@ -378,11 +378,11 @@ begin
         P.Free;
       end;
 
-      // 5. Contagem com Con.Count
+      // 5. Row count via Con.Count
       Total := Con.Count(TPerson);
       mmoDDL.Lines.Add(Format('5. [COUNT] Total de pessoas no banco: %d', [Total]));
 
-      // 6. Consulta fluente com Query e paginação
+      // 6. Fluent query with pagination
       List := Con.Query(TPerson)
         .OrderBy('name ASC')
         .Page(1, 10)

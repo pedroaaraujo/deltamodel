@@ -65,7 +65,7 @@ type
     constructor Create(AEngine: IDeltaORMEngine = nil);
     destructor Destroy; override;
 
-    // Cursor Reusável (Zero-Alloc Loop)
+    // Reusable Cursor (Zero-Alloc Loop)
     function Open: TDeltaQuery<T>;
     function Next: Boolean;
     function EOF: Boolean;
@@ -593,7 +593,7 @@ begin
         if FKName.IsEmpty then
           FKName := LowerCase(Meta.TableName) + '_id';
 
-        // Coleta os IDs únicos dos pais
+        // Collect unique parent IDs
         IdListStr := '';
         for I := 0 to Result.Count - 1 do
         begin
@@ -613,7 +613,7 @@ begin
 
         if not IdListStr.IsEmpty then
         begin
-          // Executa query secundária em lote (WHERE fk_field IN (...))
+          // Execute batched secondary query (WHERE fk_field IN (...))
           ChildQuery := TQuery.Create(FEngine);
           try
             ChildQuery.SetModel(ChildClass);

@@ -12,7 +12,7 @@ uses
   DeltaModel.JsonStreamer, DeltaSerialization;
 
 type
-  { Modelo Legado (TDF* wrappers com boxing Variant) }
+  { Legacy Model (TDF* wrappers with Variant boxing) }
   TLegacyProduct = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -32,7 +32,7 @@ type
     procedure AfterConstruction; override;
   end;
 
-  { Modelo Moderno - Abordagem B (Fluent Schema + Propriedades Primitivas Nativas) }
+  { Modern Model - Approach B (Fluent Schema + Native Primitive Properties) }
   TModernProduct = class(TDeltaModel)
   private
     FId: Int64;
@@ -123,7 +123,7 @@ begin
   WriteLn('-------------------------------------------------------------------------------------------------------');
 
   // ---------------------------------------------------------------------------
-  // 1. MEMÓRIA HEAP E CRIAÇÃO EM RAM
+  // 1. HEAP MEMORY AND IN-RAM ALLOCATION
   // ---------------------------------------------------------------------------
   // Legado
   MemBefore := GetAllocatedMemKB;
@@ -177,7 +177,7 @@ begin
      (1.0 - (Double(MemModern) / Double(MemLegacy))) * 100.0]));
 
   // ---------------------------------------------------------------------------
-  // 2. SERIALIZAÇÃO JSON (TDeltaFastJsonStreamer)
+  // 2. JSON SERIALIZATION (TDeltaFastJsonStreamer)
   // ---------------------------------------------------------------------------
   T0 := Now;
   LegJson := LegList.ToJson;
@@ -201,9 +201,9 @@ begin
      Double(LegJsonMs) / Double(ModJsonMs)]));
 
   // ---------------------------------------------------------------------------
-  // 3. PERSISTÊNCIA EM BANCO REAL SQLITE (BULK INSERT)
+  // 3. REAL SQLITE PERSISTENCE (BULK INSERT)
   // ---------------------------------------------------------------------------
-  // 3. PERSISTÊNCIA EM BANCO REAL SQLITE (BULK INSERT)
+  // 3. REAL SQLITE PERSISTENCE (BULK INSERT)
   // ---------------------------------------------------------------------------
   // Legado BulkInsert
   Engine.ExecuteDirect('DELETE FROM legacy_products;');
@@ -235,7 +235,7 @@ begin
     ModQuery.Free;
   end;
 
-  // Liberar listas iniciais para medir leitura limpa do banco
+  // Free initial lists to measure clean database read
   T0 := Now;
   LegList.Free;
   T1 := Now;
@@ -247,7 +247,7 @@ begin
   ModFreeMs := MilliSecondsBetween(T1, T0);
 
   // ---------------------------------------------------------------------------
-  // 4. LEITURA COMPLETA DO BANCO E HYDRATION ORM (SELECT -> OBJECT LIST)
+  // 4. FULL DATABASE READ AND ORM HYDRATION (SELECT -> OBJECT LIST)
   // ---------------------------------------------------------------------------
   // Legado All
   LegDmlQuery := TQuery.Create(Engine);
@@ -325,7 +325,7 @@ begin
     );
     if Engine.TransactionActive then Engine.Commit;
 
-    // Executar para 1.000, 10.000 e 50.000 registros reais
+    // Run for 1,000, 10,000, and 50,000 real records
     RunBenchmarkVolume(1000, Engine);
     RunBenchmarkVolume(10000, Engine);
     RunBenchmarkVolume(50000, Engine);
