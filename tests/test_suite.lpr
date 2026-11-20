@@ -12,7 +12,8 @@ uses
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
   DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
-  DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages;
+  DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages,
+  DeltaModel.Codec;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -2510,6 +2511,144 @@ begin
 end;
 
 {==============================================================================}
+{ Test 21: Arquitetura Plugável de Codecs (IDeltaCodec & TDeltaCodecRegistry)  }
+{==============================================================================}
+
+type
+  { Dummy Codec para validar plugabilidade e extensibilidade }
+  TDummyCSVCodec = class(TInterfacedObject, IDeltaCodec)
+  public
+    function GetFormatName: string;
+    function GetMimeType: string;
+    function CanHandleMimeType(const AMimeType: string): Boolean;
+    procedure EncodeModel(AModel: TDeltaModel; AOutputStream: TStream);
+    procedure EncodeList(AList: TObject; AOutputStream: TStream);
+    procedure DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
+    procedure DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
+  end;
+
+function TDummyCSVCodec.GetFormatName: string;
+begin
+  Result := 'csv';
+end;
+
+function TDummyCSVCodec.GetMimeType: string;
+begin
+  Result := 'text/csv';
+end;
+
+function TDummyCSVCodec.CanHandleMimeType(const AMimeType: string): Boolean;
+begin
+  Result := (Pos('csv', LowerCase(AMimeType)) > 0);
+end;
+
+procedure TDummyCSVCodec.EncodeModel(AModel: TDeltaModel; AOutputStream: TStream);
+var
+  S: RawByteString;
+begin
+  S := 'id,name' + sLineBreak;
+  if (AOutputStream <> nil) and (Length(S) > 0) then
+    AOutputStream.WriteBuffer(S[1], Length(S));
+end;
+
+procedure TDummyCSVCodec.EncodeList(AList: TObject; AOutputStream: TStream);
+var
+  S: RawByteString;
+begin
+  S := 'id,name' + sLineBreak;
+  if (AOutputStream <> nil) and (Length(S) > 0) then
+    AOutputStream.WriteBuffer(S[1], Length(S));
+end;
+
+procedure TDummyCSVCodec.DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
+begin
+  // No-op para testes
+end;
+
+procedure TDummyCSVCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
+begin
+  // No-op para testes
+end;
+
+procedure TestCodecArchitecture;
+var
+  Codec: IDeltaCodec;
+  SupportedMimes, SupportedFormats: TStringArray;
+  P: TProductModel;
+  EncodedStr: string;
+  DecodedP: TProductModel;
+  CustomCodec: IDeltaCodec;
+  CaughtException: Boolean;
+begin
+  Suite('Arquitetura Plugável de Codecs (IDeltaCodec & TDeltaCodecRegistry)');
+
+  // 1. Validação de Codec JSON padrão registrado automaticamente
+  AssertTrue(TDeltaCodecRegistry.HasCodec('json'), 'Codec "json" está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/json'), 'Codec "application/json" está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/json; charset=utf-8'), 'Codec com parâmetro MIME está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('text/json'), 'Codec "text/json" é aceito pelo CanHandleMimeType');
+  AssertFalse(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" não está registrado inicialmente');
+
+  // 2. Resolução do Codec JSON
+  Codec := TDeltaCodecRegistry.GetCodec('json');
+  AssertTrue(Codec <> nil, 'GetCodec("json") retornou instância válida');
+  AssertEquals('json', Codec.GetFormatName, 'GetFormatName é "json"');
+  AssertEquals('application/json', Codec.GetMimeType, 'GetMimeType é "application/json"');
+  AssertTrue(Codec.CanHandleMimeType('application/problem+json'), 'CanHandleMimeType aceita problem+json');
+
+  // 3. Serialização e Desserialização de Model via Registry Helpers
+  P := TProductModel.Create;
+  try
+    P.Id.Value := 101;
+    P.Name.Value := 'Monitor Gamer UltraWide 34';
+    P.Price.Value := 3499.50;
+    P.Active.Value := True;
+
+    EncodedStr := TDeltaCodecRegistry.EncodeModelToString(P, 'json');
+    AssertTrue(Pos('Monitor Gamer UltraWide 34', EncodedStr) > 0, 'EncodeModelToString gerou JSON com nome');
+    AssertTrue(Pos('3499.5', EncodedStr) > 0, 'EncodeModelToString gerou JSON com preço');
+
+    DecodedP := TProductModel.Create;
+    try
+      TDeltaCodecRegistry.DecodeModelFromString(EncodedStr, DecodedP, 'application/json');
+      AssertEqualsInt(101, DecodedP.Id.Value, 'DecodeModelFromString restaurou Id 101');
+      AssertEquals('Monitor Gamer UltraWide 34', DecodedP.Name.Value, 'DecodeModelFromString restaurou Name');
+      AssertTrue(Abs(DecodedP.Price.Value - 3499.50) < 0.001, 'DecodeModelFromString restaurou Price');
+    finally
+      DecodedP.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // 4. Registro Dinâmico de Codec Customizado (CSV)
+  CustomCodec := TDummyCSVCodec.Create;
+  TDeltaCodecRegistry.RegisterCodec(CustomCodec);
+  AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Novo codec "csv" foi registrado com sucesso');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('text/csv'), 'Novo codec responde a "text/csv"');
+
+  SupportedFormats := TDeltaCodecRegistry.GetSupportedFormats;
+  AssertTrue(Length(SupportedFormats) >= 2, 'Há pelo menos 2 formatos suportados no Registry');
+
+  SupportedMimes := TDeltaCodecRegistry.GetSupportedMimeTypes;
+  AssertTrue(Length(SupportedMimes) >= 2, 'Há pelo menos 2 MIME types suportados no Registry');
+
+  // 5. Desregistro de Codec
+  TDeltaCodecRegistry.UnregisterCodec('csv');
+  AssertFalse(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" foi desregistrado');
+
+  // 6. Tratamento de Erro ao buscar codec inexistente
+  CaughtException := False;
+  try
+    TDeltaCodecRegistry.GetCodec('inexistente_formato_xyz');
+  except
+    on E: EDeltaCodecNotFound do
+      CaughtException := True;
+  end;
+  AssertTrue(CaughtException, 'Busca por codec inexistente dispara EDeltaCodecNotFound');
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -2539,6 +2678,7 @@ begin
     TestFastJsonParser;
     TestLocalizationMessages;
     TestEagerLoadingAndStreaming;
+    TestCodecArchitecture;
   except
     on E: Exception do
     begin
