@@ -7,9 +7,10 @@
 [![FPC](https://img.shields.io/badge/FPC-%3E%3D%203.2.2-blue.svg)](https://www.freepascal.org/)
 [![Lazarus](https://img.shields.io/badge/Lazarus-%3E%3D%203.0-orange.svg)](https://www.lazarus-ide.org/)
 [![DBMS](https://img.shields.io/badge/Bases%20de%20Datos-6%20SGBD-blue.svg)](https://github.com/pedroaaraujo/deltamodel)
+[![Codecs](https://img.shields.io/badge/Codecs-5%20Formatos-orange.svg)](https://github.com/pedroaaraujo/deltamodel)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-DeltaModel es una biblioteca de micro-ORM tipado, motor de validación y serializador JSON Zero-DOM para Free Pascal y Lazarus. Ofrece generador genérico de consultas (`TDeltaQuery<T>`), migraciones automáticas de DDL, pool de conexiones con gestión RAII, Eager Loading 1:N y serialización de alto rendimiento con formato de coma fija decimal.
+DeltaModel es una biblioteca de micro-ORM tipado, motor de validación y framework de serialización multiformato para Free Pascal y Lazarus. Ofrece generador genérico de consultas (`TDeltaQuery<T>`), migraciones automáticas de DDL, pool de conexiones con gestión RAII, Eager Loading 1:N y códecs Zero-DOM compatibles con 5 formatos canónicos: JSON, CBOR, BSON, XML y CSV.
 
 ---
 
@@ -25,7 +26,8 @@ DeltaModel es una biblioteca de micro-ORM tipado, motor de validación y seriali
   - Firebird 2.5 / 3.0+ (vía `ibconnection`)
   - Microsoft SQL Server (vía `mssqlconn` / ODBC)
   - Oracle Database (vía `oracleconnection`)
-- **Unidades Principales**: `DeltaModel`, `DeltaModel.Generics`, `DeltaModel.ORM.Connection`, `DeltaModel.ORM.Pool`, `DeltaModel.JsonStreamer`, `DeltaValidator`.
+- **Formatos de Serialización Compatibles**: JSON, CBOR (RFC 8949), BSON (v1.1), XML, CSV (RFC 4180).
+- **Unidades Principales**: `DeltaModel`, `DeltaModel.Generics`, `DeltaModel.ORM.Connection`, `DeltaModel.ORM.Pool`, `DeltaModel.Codec`, `DeltaModel.Codec.Cbor`, `DeltaModel.Codec.Bson`, `DeltaModel.Codec.Xml`, `DeltaModel.Codec.Csv`, `DeltaModel.JsonStreamer`, `DeltaValidator`.
 
 ---
 
@@ -46,7 +48,7 @@ fpc -Fusrc mi_aplicacion.pas
 
 ## Guía Rápida (60 Segundos)
 
-Ejemplo completo ejecutable que demuestra definición de modelo, creación de tabla, inserción, consulta tipada y serialización JSON con SQLite:
+Ejemplo completo ejecutable que demuestra definición de modelo, creación de tabla, inserción, consulta tipada y serialización multiformato con SQLite:
 
 ```pascal
 program QuickstartDeltaModel;
@@ -56,7 +58,8 @@ program QuickstartDeltaModel;
 uses
   {$IFDEF UNIX}cthreads, cmem,{$ENDIF}
   SysUtils, Classes,
-  DeltaModel, DeltaModel.Generics, DeltaModel.ORM.Connection;
+  DeltaModel, DeltaModel.Generics, DeltaModel.ORM.Connection,
+  DeltaModel.Codec;
 
 type
   { Declaración del modelo con propiedades primitivas nativas }
@@ -89,6 +92,7 @@ var
   Query: TDeltaQuery<TProduct>;
   P: TProduct;
   List: TGDeltaModelList<TProduct>;
+  CsvOutput: string;
 begin
   // Inicialización de SQLite en memoria
   Engine := TDeltaORMEngine.Create('sqlite://:memory:');
@@ -129,7 +133,12 @@ begin
         .OrderBy('price DESC')
         .All;
       try
+        // Exportación a JSON
         WriteLn('JSON generado: ', List.ToJson);
+
+        // Exportación a CSV vía Codec Registry
+        CsvOutput := TDeltaCodecRegistry.EncodeListToString(List, 'csv');
+        WriteLn('CSV generado:' + sLineBreak + CsvOutput);
       finally
         List.Free;
       end;
@@ -327,15 +336,107 @@ TotalInsertados := Query.BulkInsert(ProductList, 500);
 
 ---
 
-## Transmisión JSON Zero-DOM
+## Serialización Multiformato (JSON, CBOR, BSON, XML, CSV)
 
-Los serializadores tradicionales construyen árboles intermedios de objetos en heap (`TJSONObject`, `TJSONData`), produciendo alta fragmentación de memoria. DeltaModel utiliza `TDeltaFastJsonStreamer` para escribir directamente en búferes continuos de bytes.
+DeltaModel implementa una arquitectura extensible de códecs Zero-DOM gestionada por la clase `TDeltaCodecRegistry` (unidad `DeltaModel.Codec`). Los códecs codifican y decodifican modelos y colecciones genéricas directamente hacia y desde streams o búferes de memoria sin crear árboles intermedios de objetos DOM.
 
-### Características:
-- **Cero Asignación DOM**: Produce JSON directo en `RawByteString` o flujos sin generar nodos intermedios.
-- **Coma Fija Decimal (`ffFixed`)**: Los números se formatean en coma fija decimal sin notación científica exponencial (`1.2E+05`), evitando fallos en analizadores de JavaScript y clientes móviles.
+### 1. Formatos Compatibles y Media Types Canónicos
 
-### Transmisión HTTP en Lotes:
+| Formato | Clase del Códec | Media Types Canónicos | Especificación Estándar |
+| :--- | :--- | :--- | :--- |
+| **JSON** | `TDeltaJsonCodec` | `application/json` | RFC 8259 |
+| **CBOR** | `TDeltaCborCodec` | `application/cbor` | RFC 8949 (Binario) |
+| **BSON** | `TDeltaBsonCodec` | `application/bson` | BSON Specification v1.1 (Binario) |
+| **XML**  | `TDeltaXmlCodec`  | `application/xml`, `text/xml` | W3C XML 1.0 (Zero-DOM Streamer) |
+| **CSV**  | `TDeltaCsvCodec`  | `text/csv` | RFC 4180 |
+
+### 2. Matriz de Tradeoffs Técnicos
+
+- **CBOR (`application/cbor`)**:
+  - *Tamaño del payload*: ~40-60% menor que JSON.
+  - *Características*: Coma flotante IEEE 754 directa, empaquetado de enteros (0..23 inline), semántica de tags, cero coste de conversión a texto.
+  - *Ideal para*: Dispositivos IoT, clientes móviles (Flutter), comunicación inter-microservicios donde el ancho de banda y la latencia son críticos.
+- **BSON (`application/bson`)**:
+  - *Tamaño del payload*: Similar a JSON; prefijado con el tamaño total del documento en 32 bits.
+  - *Características*: Tipado binario enriquecido (UTC datetime en ms, enteros de 64 bits, BLOBs binarios, elementos tipados).
+  - *Ideal para*: Bases de datos documentales, pipelines analíticos e interoperabilidad con MongoDB.
+- **CSV (`text/csv`)**:
+  - *Tamaño del payload*: Muy compacto para tablas planas.
+  - *Características*: Conforme con RFC 4180, cabecera automática, escape de comillas dobles, formato canónico de fechas ISO-8601.
+  - *Ideal para*: Exportaciones masivas, informes financieros, hojas de cálculo e importación en herramientas analíticas.
+- **XML (`application/xml`)**:
+  - *Tamaño del payload*: ~20-40% mayor que JSON debido a las etiquetas de cierre.
+  - *Características*: Declaración UTF-8 estándar, escape estricto de entidades (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`), etiquetas autocerradas para campos nulos.
+  - *Ideal para*: Integraciones corporativas enterprise, cumplimiento bancario/fiscal y sistemas SOAP/XML heredados.
+- **JSON (`application/json`)**:
+  - *Tamaño del payload*: Línea de base estándar.
+  - *Características*: Compatibilidad universal en navegadores y SPAs, streaming Zero-DOM, números en coma fija decimal (`ffFixed`) sin notación científica.
+  - *Ideal para*: APIs públicas REST y aplicaciones web JavaScript.
+
+### 3. Protecciones de Seguridad (RFC 8949 Sección 10 y BSON Anti-DoS)
+
+Los decodificadores binarios incorporan defensas activas contra el agotamiento de memoria y desbordamiento de pila:
+
+- **Anti-OOM (Protección contra Agotamiento de Memoria)**: Antes de invocar `SetLength` o reservar búferes, los decodificadores validan la longitud declarada contra los bytes restantes en `AInputStream`. Si la longitud indicada excede el stream o supera `MAX_CBOR_STRING_LENGTH` / `MAX_BSON_STRING_LENGTH` (16 MB), la deserialización se detiene inmediatamente con `EDeltaDeserializationException`.
+- **Límite Estricto de Recursión**: El techo de `MAX_NESTING_DEPTH = 64` previene ataques de desbordamiento de pila (stack overflow) causados por estructuras maliciosas profundamente anidadas.
+- **Control de CStrings Nulas**: `MAX_BSON_CSTRING_LENGTH = 1024` evita bucles infinitos de escaneo ante documentos BSON corruptos sin terminador `0x00`.
+
+### 4. Uso del Registro de Códecs
+
+```pascal
+uses
+  DeltaModel, DeltaModel.Codec, DeltaModel.Generics;
+
+var
+  P, DecodedP: TProduct;
+  RawBytes: string;
+  Codec: IDeltaCodec;
+  Stream: TMemoryStream;
+begin
+  P := TProduct.Create;
+  try
+    P.Id := 101;
+    P.Name := 'SSD NVMe 2TB';
+    P.Price := 699.00;
+    P.Active := True;
+
+    // Codificación directa mediante el registro
+    RawBytes := TDeltaCodecRegistry.EncodeModelToString(P, 'cbor');
+
+    // Decodificación a partir del payload binario
+    DecodedP := TProduct.Create;
+    try
+      TDeltaCodecRegistry.DecodeModelFromString(RawBytes, DecodedP, 'application/cbor');
+      WriteLn('Decodificado vía CBOR: ', DecodedP.Name, ' - $ ', DecodedP.Price:0:2);
+    finally
+      DecodedP.Free;
+    end;
+
+    // Procesamiento con streams
+    Stream := TMemoryStream.Create;
+    try
+      Codec := TDeltaCodecRegistry.GetCodec('bson');
+      Codec.EncodeModel(P, Stream);
+      Stream.Position := 0;
+
+      DecodedP := TProduct.Create;
+      try
+        Codec.DecodeModel(Stream, DecodedP);
+        WriteLn('Decodificado vía BSON: ', DecodedP.Name);
+      finally
+        DecodedP.Free;
+      end;
+    finally
+      Stream.Free;
+    end;
+  finally
+    P.Free;
+  end;
+end;
+```
+
+### 5. Transmisión HTTP en Lotes (`StreamJsonTo`)
+
 Para grandes volúmenes de datos, `StreamJsonTo` envía lotes directamente a un `TStream` (como el flujo de respuesta HTTP) manteniendo un consumo de memoria constante:
 
 ```pascal
@@ -407,10 +508,10 @@ Si una regla falla, DeltaModel lanza una excepción `EDeltaValidation` con el de
 
 ## Batería de Pruebas Automatizadas
 
-DeltaModel cuenta con una suíte completa de pruebas que valida operaciones ORM, concurrencia del pool y transmisión JSON:
+DeltaModel cuenta con una suite completa de pruebas que valida operaciones ORM, concurrencia del pool y los 5 códecs (JSON, CBOR, BSON, XML, CSV):
 
 ```bash
-# Compilar y ejecutar suite de pruebas
+# Compilar y ejecutar suite de pruebas (540 pruebas automatizadas)
 fpc -B -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/test_suite.lpr
 /tmp/test_suite
 
