@@ -1,95 +1,228 @@
 <p align="right">
-  <b>Language / Idioma:</b>
-  <a href="README.md">English</a> |
-  <a href="README.pt-BR.md">Português (Brasil)</a> |
-  <a href="README.es-ES.md">Español</a>
+  [ English ](README.md) | [ Português (Brasil) ](README.pt-BR.md) | [ Español ](README.es-ES.md)
 </p>
 
 # DeltaModel
 
-[![Lazarus](https://img.shields.io/badge/Lazarus-2.2%2B-blue.svg)](https://www.lazarus-ide.org/)
-[![FreePascal](https://img.shields.io/badge/FPC-3.2.2%2B-green.svg)](https://www.freepascal.org/)
-[![Multi--Database](https://img.shields.io/badge/Databases-6%20DBMS-orange.svg)](https://github.com/pedroaaraujo/deltamodel)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![FPC](https://img.shields.io/badge/FPC-%3E%3D%203.2.2-blue.svg)](https://www.freepascal.org/)
+[![Lazarus](https://img.shields.io/badge/Lazarus-%3E%3D%203.0-orange.svg)](https://www.lazarus-ide.org/)
+[![DBMS](https://img.shields.io/badge/Databases-6%20DBMS-blue.svg)](https://github.com/pedroaaraujo/deltamodel)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**DeltaModel** is a lightweight, modern, and extensible micro-ORM and data-modeling library for **Lazarus / Free Pascal (FPC)** that unites in a single framework:
-
-- 🧱 **Data Modeling**: Strongly-typed field descriptors (`TDF*`) or pure native primitive properties with Fluent Class Schema (`ConfigureSchema`).
-- ✅ **Fluent Validation Engine**: Declarative validation rules in schema (`Min`, `Max`, `Range`, `MinLength`, `MaxLength`, `Positive`, `NotEmpty`, `Email`, `CPF`, `CNPJ`, `URL`) and custom validation hooks (`Validate`).
-- 🔄 **High-Performance JSON Serialization**: Zero-DOM serializer `TDeltaFastJsonStreamer` and lexical streaming deserializer `TDeltaFastJsonParser`.
-- 🌐 **Internationalization (i18n)**: Multi-language validation messages and internal exceptions (`en-US`, `pt-BR`, `es-ES`), configurable programmatically (`SetDeltaLocale`) or via environment variable (`DELTAMODEL_LOCALE`).
-- 📋 **OpenAPI / Swagger Schemas**: Automatic generation of OpenAPI 3.1 compliant schemas with canonical `$ref` component resolution for API documentation.
-- 🗄️ **Multi-DBMS Micro-ORM with Generics**:
-  - Automated DDL migration engine that inspects and creates/updates tables, columns, primary keys, foreign keys, constraints (`UNIQUE`, `CHECK`), and database indexes.
-  - Fluent, type-safe SQL query builder `TDeltaQuery<T>` with Generics and collections `TGDeltaModelList<T>`.
-  - Automated 1:N Eager Loading via `Include('RelationName')`.
-  - HTTP Chunked Streaming Response (`StreamJsonTo`) with constant, low heap footprint.
-  - RAII-scoped atomic transaction manager with auto-rollback (`IDeltaTransaction`, `BeginTransaction`).
-  - Intelligent CRUD operations and lifecycle hooks.
+DeltaModel is a typed micro-ORM, data validation engine, and zero-DOM JSON serializer for Free Pascal and Lazarus. It provides generic query building (`TDeltaQuery<T>`), automated DDL migrations, connection pooling with RAII leases, 1:N eager loading, and high-throughput serialization with fixed-point decimal formatting.
 
 ---
 
-## 🚀 Supported DBMS
+## Technical Specifications
 
-DeltaModel's ORM module provides database-agnostic support across the primary enterprise relational database engines:
-
-| DBMS | Dialect | Auto-Increment | Pagination Syntax | Returning Syntax |
-| :--- | :--- | :--- | :--- | :--- |
-| **PostgreSQL** | `ddPostgreSQL` | `SERIAL / BIGSERIAL` | `LIMIT n OFFSET m` | `RETURNING *` |
-| **MySQL / MariaDB** | `ddMySQL` | `AUTO_INCREMENT` | `LIMIT n OFFSET m` | Standard INSERT |
-| **SQLite3** | `ddSQLite` | `AUTOINCREMENT` | `LIMIT n OFFSET m` | `RETURNING *` |
-| **Firebird** | `ddFirebird` | Generator + trigger (2.5); `IDENTITY` (3+) | `ROWS m TO n` | `RETURNING *` |
-| **SQL Server (MSSQL)** | `ddMSSQL` | `IDENTITY(1,1)` | `OFFSET-FETCH` | `OUTPUT INSERTED.*` |
-| **Oracle Database** | `ddOracle` | `IDENTITY` | `OFFSET-FETCH` | Standard INSERT |
+- **Compilers**: Free Pascal Compiler (FPC) >= 3.2.2.
+- **IDE / Tooling**: Lazarus >= 3.0 (`lazbuild`).
+- **Operating Systems**: Linux (x86_64, aarch64), Windows (x86_64, i386), macOS (x86_64, arm64).
+- **Supported Databases**:
+  - PostgreSQL (via `pqconnection`)
+  - MySQL / MariaDB (via `mysql57conn` / `mysql80conn`)
+  - SQLite3 (via `sqlite3conn`)
+  - Firebird 2.5 / 3.0+ (via `ibconnection`)
+  - Microsoft SQL Server (via `mssqlconn` / ODBC)
+  - Oracle Database (via `oracleconnection`)
+- **Core Units**: `DeltaModel`, `DeltaModel.Generics`, `DeltaModel.ORM.Connection`, `DeltaModel.ORM.Pool`, `DeltaModel.JsonStreamer`, `DeltaValidator`.
 
 ---
 
-## 📦 Standard Connection URL
+## Installation
 
-Initialize the ORM engine using a standardized connection URL:
+### Method 1: Lazarus Package Manager
+1. In Lazarus, open `Package` -> `Open Package File (.lpk)`.
+2. Select `deltamodel_pkg.lpk`.
+3. Click `Compile` and `Use` -> `Install`.
 
-```pascal
-uses DeltaModel.ORM.Connection;
-
-var
-  Con: TDeltaORMEngine;
-begin
-  // SQLite in-memory
-  Con := TDeltaORMEngine.Create('sqlite://:memory:');
-
-  // SQLite local file
-  Con := TDeltaORMEngine.Create('sqlite:///var/data/app.db');
-
-  // PostgreSQL
-  Con := TDeltaORMEngine.Create('postgres://user:password@localhost:5432/mydb?charset=UTF8');
-
-  // MySQL / MariaDB
-  Con := TDeltaORMEngine.Create('mysql://root:password@127.0.0.1:3306/mydb');
-
-  // Firebird
-  Con := TDeltaORMEngine.Create('firebird://sysdba:masterkey@localhost:3050//var/db/enterprise.fdb');
-
-  // Microsoft SQL Server
-  Con := TDeltaORMEngine.Create('mssql://sa:password@127.0.0.1:1433/mydb');
-
-  // Oracle Database
-  Con := TDeltaORMEngine.Create('oracle://system:password@localhost:1521/XE');
+### Method 2: Manual Unit Path
+Add the `src/` directory to your project unit search path:
+```bash
+fpc -Fusrc my_application.pas
 ```
 
 ---
 
-## ⚡ Connection Pool (High Performance & Multithreaded)
+## Quickstart (60 Seconds)
 
-For web APIs, REST microservices, and concurrent background workers, DeltaModel provides a thread-safe connection pool in unit [`DeltaModel.ORM.Pool`]:
+A complete executable example demonstrating model definition, table creation, record insertion, querying, and JSON serialization using SQLite:
 
-### Key Advantages:
-- **Zero Handshake Latency**: Pre-warmed connections (`MinConnections`) ready for immediate execution.
-- **Full Thread-Safety**: Concurrency synchronization using lightweight `TCriticalSection` and `TEvent`.
-- **Automatic Resource Cleanup (RAII)**: When using `IDeltaPooledEngine`, connections automatically return to the pool upon exiting scope or on unexpected exceptions.
-- **Automatic Rollback**: Uncommitted transactions are safely rolled back upon returning to the pool.
-- **Health Check & Auto-Reconnect**: Connections dropped by the database server are validated and reconnected prior to lease (`TestOnBorrow`).
+```pascal
+program QuickstartDeltaModel;
 
-### Example with RAII:
+{$mode Delphi}{$H+}
+
+uses
+  {$IFDEF UNIX}cthreads, cmem,{$ENDIF}
+  SysUtils, Classes,
+  DeltaModel, DeltaModel.Generics, DeltaModel.ORM.Connection;
+
+type
+  { Model declaration with native primitive properties }
+  TProduct = class(TDeltaModel)
+  private
+    FId: Int64;
+    FName: string;
+    FPrice: Double;
+    FActive: Boolean;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property Name: string read FName write FName;
+    property Price: Double read FPrice write FPrice;
+    property Active: Boolean read FActive write FActive;
+  end;
+
+class procedure TProduct.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  Schema.Table('products');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('Name').Column('name').Required.Size(120);
+  Schema.Field('Price').Column('price').Required;
+  Schema.Field('Active').Column('active').Required;
+end;
+
+var
+  Engine: TDeltaORMEngine;
+  Query: TDeltaQuery<TProduct>;
+  P: TProduct;
+  List: TGDeltaModelList<TProduct>;
+begin
+  // Initialize SQLite in-memory database
+  Engine := TDeltaORMEngine.Create('sqlite://:memory:');
+  try
+    Engine.ExecuteDirect(
+      'CREATE TABLE products (' +
+      '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
+      '  name VARCHAR(120) NOT NULL,' +
+      '  price REAL NOT NULL,' +
+      '  active INTEGER NOT NULL' +
+      ');'
+    );
+
+    // Initialize typed query builder
+    Query := TDeltaQuery<TProduct>.Create(Engine);
+    try
+      // Insert record
+      P := TProduct.Create;
+      P.Name := 'Mechanical Keyboard';
+      P.Price := 149.90;
+      P.Active := True;
+      Query.Insert(P);
+      P.Free;
+
+      // Query single record by primary key
+      P := Query.FindById(1);
+      if P <> nil then
+      try
+        WriteLn('Found Product: ', P.Name, ' - $', P.Price:0:2);
+      finally
+        P.Free;
+      end;
+
+      // Query list with filter and ordering
+      List := Query
+        .Where('price > :min_price')
+        .Param('min_price', 50.0)
+        .OrderBy('price DESC')
+        .All;
+      try
+        WriteLn('JSON output: ', List.ToJson);
+      finally
+        List.Free;
+      end;
+    finally
+      Query.Free;
+    end;
+  finally
+    Engine.Free;
+  end;
+end.
+```
+
+---
+
+## Model Definition & Fluent Schema
+
+DeltaModel maps native Pascal primitives (`Int64`, `string`, `Double`, `Boolean`, `TDateTime`) directly to database columns. This eliminates COM/OLE `Variant` boxing and reduces memory usage by up to 53% compared to descriptor-wrapped records.
+
+```pascal
+type
+  TAccount = class(TDeltaModel)
+  private
+    FId: Int64;
+    FName: string;
+    FBalance: Double;
+    FLimit: Double;
+    FCreatedAt: TDateTime;
+    FActive: Boolean;
+  public
+    class procedure ConfigureSchema(Schema: TDeltaModelSchema); override;
+  published
+    property Id: Int64 read FId write FId;
+    property Name: string read FName write FName;
+    property Balance: Double read FBalance write FBalance;
+    property Limit: Double read FLimit write FLimit;
+    property CreatedAt: TDateTime read FCreatedAt write FCreatedAt;
+    property Active: Boolean read FActive write FActive;
+  end;
+
+class procedure TAccount.ConfigureSchema(Schema: TDeltaModelSchema);
+begin
+  Schema.Table('accounts');
+  Schema.Field('Id').Column('id').AsPK.AutoInc;
+  Schema.Field('Name').Column('name').Required.Size(150);
+  Schema.Field('Balance').Column('balance').Required;
+  Schema.Field('Limit').Column('limit_amount').Nullable;
+  Schema.Field('CreatedAt').Column('created_at').Required;
+  Schema.Field('Active').Column('active').Required;
+end;
+```
+
+### Handling Nullable Fields
+Nullability is tracked using an internal bitmask:
+
+```pascal
+// Set a field to SQL NULL
+Account.SetNull('Limit');
+
+// Check if a field is SQL NULL
+if Account.IsNull('Limit') then
+  WriteLn('No limit assigned');
+```
+
+---
+
+## Database Connections & Connection Pool
+
+### Standard Connection URLs
+Engines are initialized via uniform connection strings:
+
+```pascal
+// SQLite (file or in-memory)
+Engine := TDeltaORMEngine.Create('sqlite://:memory:');
+Engine := TDeltaORMEngine.Create('sqlite:///var/lib/app.db');
+
+// PostgreSQL
+Engine := TDeltaORMEngine.Create('postgres://user:pass@localhost:5432/mydb?charset=UTF8');
+
+// MySQL / MariaDB
+Engine := TDeltaORMEngine.Create('mysql://root:pass@127.0.0.1:3306/mydb');
+
+// Firebird
+Engine := TDeltaORMEngine.Create('firebird://sysdba:masterkey@localhost:3050//var/db/app.fdb');
+
+// Microsoft SQL Server
+Engine := TDeltaORMEngine.Create('mssql://sa:pass@127.0.0.1:1433/mydb');
+
+// Oracle Database
+Engine := TDeltaORMEngine.Create('oracle://system:pass@localhost:1521/XE');
+```
+
+### Thread-Safe Connection Pool
+For multi-threaded services and web APIs, `TDeltaConnectionPool` manages pre-warmed connection lifecycles:
 
 ```pascal
 uses DeltaModel.ORM.Pool;
@@ -97,17 +230,22 @@ uses DeltaModel.ORM.Pool;
 var
   Pool: TDeltaConnectionPool;
   Lease: IDeltaPooledEngine;
+  Query: TDeltaQuery<TProduct>;
 begin
-  Pool := TDeltaConnectionPool.Create('postgres://user:pass@localhost:5432/mydb?pool_min=5&pool_max=20&pool_timeout=5000');
+  Pool := TDeltaConnectionPool.Create(
+    'postgres://user:pass@localhost:5432/mydb?pool_min=5&pool_max=20&pool_timeout=5000'
+  );
   try
-    // Acquire RAII-protected connection lease
+    // Acquire a thread-safe connection lease with RAII auto-release
     Lease := Pool.Acquire;
 
-    // Direct ORM operations on the leased engine
-    Lease.Save(Person);
-    Lease.Find(TPerson, 1);
-    
-    // Connection is automatically returned to the pool at block exit!
+    Query := TDeltaQuery<TProduct>.Create(Lease);
+    try
+      WriteLn('Total products: ', Query.Count);
+    finally
+      Query.Free;
+    end;
+    // Lease returns to pool automatically when variable leaves scope
   finally
     Pool.Free;
   end;
@@ -116,252 +254,173 @@ end;
 
 ---
 
-## 🛠️ Model Definition
+## Query Builder (`TDeltaQuery<T>`)
 
-DeltaModel supports two distinct modeling paradigms:
+### Fetching Records
+```pascal
+// Fetch by Primary Key
+Product := Query.FindById(42);
 
-### Approach A: Descriptor-Based Field Objects (`TDF*`)
+// Fetch first matching record
+Product := Query.Where('active = 1').OrderBy('id ASC').First;
+
+// Fetch all matching records
+List := Query.Where('price > :price').Param('price', 100.0).All;
+```
+
+### Filters, Parameters and Sorting
+```pascal
+List := Query
+  .Where('status = :status')
+  .Param('status', 'SHIPPED')
+  .AndWhere('total >= :min_total')
+  .Param('min_total', 500.0)
+  .OrWhere('is_priority = 1')
+  .OrderBy('created_at DESC')
+  .All;
+```
+
+### Pagination and Limits
+```pascal
+// Direct Limit and Offset
+List := Query.OrderBy('id ASC').Limit(25).Offset(50).All;
+
+// Page helper: Page(PageNumber, PageSize)
+List := Query.OrderBy('id ASC').Page(3, 25).All;
+```
+
+### Aggregates and Existence
+```pascal
+TotalRecords := Query.Where('active = 1').Count;
+HasPending   := Query.Where('status = :s').Param('s', 'PENDING').Exists;
+```
+
+### Eager Loading (1:N Relations)
+To prevent $N+1$ query overhead, `Include` fetches related collections in a single secondary batch query (`WHERE fk IN (...)`):
 
 ```pascal
-unit Person.Model;
+// Fetches orders and populates each Order.Items in 2 queries total
+Orders := OrderQuery.Include('Items').Where('status = :s').Param('s', 'OPEN').All;
+```
 
-{$mode ObjFPC}{$H+}
+---
 
-interface
+## Persistence Operations
 
-uses
-  Classes, SysUtils, DeltaModel, DeltaModel.Fields, DeltaModel.ORM.Types;
+```pascal
+// Insert a new record
+Query.Insert(Product);
 
-type
-  { TPerson }
-  TPerson = class(TDeltaModel)
-  private
-    Fid: TDFIntNull;
-    Fname: TDFStringRequired;
-    Femail: TDFStringRequired;
-    Fsalary: TDFCurrencyRequired;
-    Factive: TDFBooleanRequired;
-    Fcreated: TDFDateTimeNull;
-  published
-    property id: TDFIntNull read Fid write Fid;
-    property name: TDFStringRequired read Fname write Fname;
-    property email: TDFStringRequired read Femail write Femail;
-    property salary: TDFCurrencyRequired read Fsalary write Fsalary;
-    property active: TDFBooleanRequired read Factive write Factive;
-    property created: TDFDateTimeNull read Fcreated write Fcreated;
-  public
-    procedure AfterConstruction; override;
-    procedure Configure; override;
-    procedure Validate; override;
-    procedure BeforeInsert; override;
-  end;
+// Update an existing record (identified by Primary Key)
+Product.Price := 189.90;
+Query.Update(Product);
 
-implementation
+// Insert or Update (Save checks primary key existence)
+Query.Save(Product);
 
-procedure TPerson.AfterConstruction;
+// Delete records matching current query filter
+Query.Where('active = 0').Delete;
+
+// Bulk Insert using batches (e.g. 500 records per transaction)
+TotalInserted := Query.BulkInsert(ProductList, 500);
+```
+
+---
+
+## Zero-DOM JSON Streaming
+
+Traditional JSON serializers build intermediate in-memory DOM object trees (`TJSONObject`, `TJSONData`), causing high heap allocation rates. DeltaModel provides `TDeltaFastJsonStreamer` to write directly to contiguous byte buffers.
+
+### Key Capabilities:
+- **Zero DOM Allocation**: Emits JSON directly to `RawByteString` or streams without intermediate objects.
+- **Fixed-Point Float Formatting (`ffFixed`)**: Numbers are serialized strictly in decimal notation without scientific exponents (`1.2E+05`), preventing parsing errors in JavaScript and mobile clients.
+
+### HTTP Chunked Streaming:
+For large tables, `StreamJsonTo` streams batches directly into an output `TStream` (e.g., HTTP response stream) with constant memory overhead:
+
+```pascal
+var
+  TotalStreamed: Int64;
 begin
-  inherited AfterConstruction;
-  Self.TableName := 'persons';
-  Self.id.DBOptions := [dboPrimaryKey, dboAutoInc];
-  Self.name.Size := 120;
-  Self.email.Size := 150;
-  Self.email.IsUnique := True;
-  Self.created.IsIndexed := True;
+  // Streams 1,000 records per batch into HTTP response stream
+  TotalStreamed := Query.Where('active = 1').StreamJsonTo(AResponse.ContentStream, 1000);
+  AResponse.ContentType := 'application/json';
+  AResponse.SendContent;
 end;
+```
 
-procedure TPerson.Configure;
+---
+
+## Transactions
+
+### Manual Transaction Control
+```pascal
+Engine.BeginTransaction;
+try
+  Query.Insert(Order);
+  Query.Insert(OrderItem);
+  Engine.Commit;
+except
+  Engine.Rollback;
+  raise;
+end;
+```
+
+### RAII Scoped Transactions
+When using `IDeltaTransaction`, transactions automatically roll back if an unhandled exception exits scope:
+
+```pascal
+var
+  Tx: IDeltaTransaction;
 begin
-  inherited Configure;
-  AddUniqueConstraint('uq_person_email', ['email']);
-  AddIndex('ix_person_name_salary', ['name', 'salary']);
+  Tx := Engine.BeginTransaction;
+  Query.Insert(Order);
+  Query.Insert(OrderItem);
+  Tx.Commit; // If an exception occurs before Commit, auto-rollback is triggered
 end;
+```
 
-procedure TPerson.Validate;
+---
+
+## Validation Engine
+
+Models can define business validation rules overriding `Validate`:
+
+```pascal
+procedure TUser.Validate;
 begin
   inherited Validate;
   Validator
-    .RuleFor(email.Value, 'E-mail')
-      .ValidEmail
-    .RuleFor(salary.Value, 'Salary')
-      .GreaterThan(0);
-end;
-
-procedure TPerson.BeforeInsert;
-begin
-  inherited BeforeInsert;
-  if created.IsNull then
-    created.Value := Now;
-end;
-
-end.
-```
-
----
-
-### Approach B: Fluent Class Schema & Generics (Zero Variant Boxing)
-
-For maximal performance, minimal memory footprint (-53% heap), and pure native Pascal primitives (`Int64`, `string`, `Double`, `Boolean`):
-
-```pascal
-unit Product.Model;
-
-{$mode ObjFPC}{$H+}
-
-interface
-
-uses
-  Classes, SysUtils, DeltaModel, DeltaModel.ClassSchema, DeltaModel.Query;
-
-type
-  { TProduct }
-  TProduct = class(TDeltaModel)
-  private
-    FId: Int64;
-    FName: string;
-    FPrice: Double;
-    FActive: Boolean;
-  public
-    class procedure ConfigureSchema(const S: TClassSchema); override;
-  published
-    property Id: Int64 read FId write FId;
-    property Name: string read FName write FName;
-    property Price: Double read FPrice write FPrice;
-    property Active: Boolean read FActive write FActive;
-  end;
-
-implementation
-
-class procedure TProduct.ConfigureSchema(const S: TClassSchema);
-begin
-  S.Table('products');
-  S.PrimaryKey('Id').AutoIncrement;
-  S.Field('Name').Required.MaxLength(100);
-  S.Field('Price').Positive;
-  S.Field('Active').DefaultValue('true');
-end;
-
-end.
-```
-
-#### Querying with `TDeltaQuery<T>`:
-
-```pascal
-var
-  Query: TDeltaQuery<TProduct>;
-  List: TGDeltaModelList<TProduct>;
-  P: TProduct;
-begin
-  Query := TDeltaQuery<TProduct>.Create(Con);
-  try
-    List := Query
-      .Where('Price', opGreaterThan, 50.0)
-      .OrderBy('Price', odDesc)
-      .Limit(10)
-      .FindAll;
-    try
-      for P in List do
-        WriteLn(P.Name, ' -> $ ', P.Price:0:2);
-    finally
-      List.Free;
-    end;
-  finally
-    Query.Free;
-  end;
+    .RuleFor(name.Value, 'Name')
+      .NotEmpty
+      .MinLength(3)
+      .MaxLength(100)
+    .RuleFor(email.Value, 'Email')
+      .NotEmpty
+      .ValidEmail;
 end;
 ```
 
----
-
-## 📊 Real Benchmark Results (SQLite3 Disk | -O3 Optimization)
-
-Benchmark executed on Linux x86_64 comparing Legacy Wrapper Model (`TDF*`) vs Approach B (Native Primitives + Fluent Schema):
-
-| Evaluated Metric | Volume (Records) | Legacy Model (`TDF*`) | Approach B (Native) | Gain / Optimization |
-| :--- | :---: | :---: | :---: | :---: |
-| **RAM Footprint (Heap)** | 1,000 | 1,257 bytes/obj (1.20 MB) | 585 bytes/obj (0.56 MB) | **-53.4% RAM** |
-| **RAM Footprint (Heap)** | 10,000 | 1,257 bytes/obj (11.99 MB) | 585 bytes/obj (5.58 MB) | **-53.5% RAM** |
-| **RAM Footprint (Heap)** | 50,000 | 1,256 bytes/obj (59.92 MB) | 584 bytes/obj (27.88 MB) | **-53.5% RAM (32 MB freed)** |
-| **Object Allocation Time** | 50,000 | 257 ms | 73 ms | **3.5x faster** |
-| **SQL Read + ORM Hydration** | 1,000 | 8 ms (125,000 recs/s) | 4 ms (250,000 recs/s) | **2.0x faster** |
-| **SQL Read + ORM Hydration** | 10,000 | 83 ms (120,482 recs/s) | 44 ms (227,273 recs/s) | **1.9x faster** |
-| **SQL Read + ORM Hydration** | 50,000 | 418 ms (119,617 recs/s) | 217 ms (230,415 recs/s) | **1.9x faster** |
-| **JSON Serialization (FastStreamer)**| 50,000 | 245 ms (204,082 objs/s) | 230 ms (217,391 objs/s) | **23.6 MB/s sustained** |
-| **Memory Deallocation (Free)** | 50,000 | 60 ms | 30 ms | **2.0x faster** |
+When a rule fails, DeltaModel raises an `EDeltaValidation` exception containing field names and localized validation messages.
 
 ---
 
-## ⚡ High-Performance Architecture
+## Test Suite
 
-### 1. `TDeltaFastJsonStreamer`: Direct JSON Streaming (Zero-DOM Allocation)
-Traditional JSON serialization (`fpjson`) allocates hundreds of intermediate DOM nodes (`TJSONObject`, `TJSONString`, `TJSONFloat`) for every single database row, creating high heap thrashing and garbage collection overhead.
-
-`TDeltaFastJsonStreamer` serializes `TDeltaModel` instances and collections directly into a contiguous `RawByteString` buffer:
-- **Zero DOM Node Allocation**: Bypasses tree construction during `Model.ToJson`, `List.ToJson`, and `PaginatedList.ToJson`.
-- **Fixed-Point Float Formatting (`ffFixed`)**: Resolves the historical `fpjson` limitation that outputs scientific exponents (`1.2E+05` or `1.0E-04`). Floats are strictly formatted in fixed-point decimal, preventing parser breaks on Web, Mobile, and fiscal/accounting integrations.
-
-### 2. `TColumnBindingMap`: Direct Typed ORM Binding Without Variant Boxing
-- **Pre-Allocated Mapping**: Resolves dataset column bindings once per query.
-- **Direct Typed Transfer**: Reads typed values directly from `TDataSet` fields (`ADS.Fields[I].AsLargeInt`, `.AsString`, `.AsFloat`, `.AsBoolean`) into target model memory offsets.
-- **Zero Variant Conversions**: Eliminates COM/OLE Variant boxing overhead across tens of thousands of records.
-
-### 3. `TRTTICache` & `TModelMetadata`: Static RTTI Cache
-Caches class reflection metadata (`TypInfo.GetPropList`) protected by `TCriticalSection`, ensuring $O(1)$ fast lookups across the lifecycle of the process.
-
----
-
-## 📋 OpenAPI / Swagger 3.1 Schemas
-
-DeltaModel models natively generate OpenAPI 3.1 specification schemas with `$ref` component resolution:
-
-```pascal
-var
-  ObjSchema: string;
-  RefObjSchema: string;
-  PaginatedSchema: string;
-begin
-  // Generates standalone schema: {"type": "object", "properties": { ... }}
-  ObjSchema := TPerson.SwaggerSchemaObject(True);
-
-  // Registers model into components.schemas and returns: {"$ref": "#/components/schemas/Person"}
-  RefObjSchema := TPerson.SwaggerSchemaRefObject;
-
-  // Generates canonical paginated envelope schema:
-  PaginatedSchema := TPerson.SwaggerSchemaRefPaginated;
-end;
-```
-
----
-
-## 🧪 Automated Test Suite
-
-DeltaModel includes comprehensive automated test coverage with **344 tests passing 100%**:
+DeltaModel includes an automated test suite covering all ORM operations, connection pool concurrency, and JSON streaming:
 
 ```bash
-# Compile and execute the main test suite
+# Compile and run test suite
 fpc -B -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/test_suite.lpr
 /tmp/test_suite
 
-# Run pool concurrency tests
+# Run pool concurrency test
 fpc -B -FE/tmp -FU/tmp -Fusrc tests/test_pool.lpr
 /tmp/test_pool
-
-# Run real-world benchmarks
-fpc -O3 -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/benchmark_real.pas
-/tmp/benchmark_real
 ```
 
 ---
 
-## 📦 Lazarus Package Compilation
+## License
 
-The Lazarus package file is located at `deltamodel_pkg.lpk`:
-
-```bash
-lazbuild --build-all deltamodel_pkg.lpk
-```
-
----
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for details.
+MIT License. See [LICENSE](LICENSE) for details.
