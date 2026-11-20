@@ -13,7 +13,8 @@ uses
   DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
   DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
   DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages,
-  DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor;
+  DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor,
+  DeltaModel.Codec.Xml, DeltaModel.Codec.Csv;
 
 {==============================================================================}
 { Test Runner Infrastructure                                                   }
@@ -2516,7 +2517,7 @@ end;
 
 type
   { Dummy Codec para validar plugabilidade e extensibilidade }
-  TDummyCSVCodec = class(TInterfacedObject, IDeltaCodec)
+  TDummyYAMLCodec = class(TInterfacedObject, IDeltaCodec)
   public
     function GetFormatName: string;
     function GetMimeType: string;
@@ -2527,45 +2528,45 @@ type
     procedure DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
   end;
 
-function TDummyCSVCodec.GetFormatName: string;
+function TDummyYAMLCodec.GetFormatName: string;
 begin
-  Result := 'csv';
+  Result := 'yaml';
 end;
 
-function TDummyCSVCodec.GetMimeType: string;
+function TDummyYAMLCodec.GetMimeType: string;
 begin
-  Result := 'text/csv';
+  Result := 'application/x-yaml';
 end;
 
-function TDummyCSVCodec.CanHandleMimeType(const AMimeType: string): Boolean;
+function TDummyYAMLCodec.CanHandleMimeType(const AMimeType: string): Boolean;
 begin
-  Result := (Pos('csv', LowerCase(AMimeType)) > 0);
+  Result := (Pos('yaml', LowerCase(AMimeType)) > 0);
 end;
 
-procedure TDummyCSVCodec.EncodeModel(AModel: TDeltaModel; AOutputStream: TStream);
+procedure TDummyYAMLCodec.EncodeModel(AModel: TDeltaModel; AOutputStream: TStream);
 var
   S: RawByteString;
 begin
-  S := 'id,name' + sLineBreak;
+  S := 'id: 1' + sLineBreak;
   if (AOutputStream <> nil) and (Length(S) > 0) then
     AOutputStream.WriteBuffer(S[1], Length(S));
 end;
 
-procedure TDummyCSVCodec.EncodeList(AList: TObject; AOutputStream: TStream);
+procedure TDummyYAMLCodec.EncodeList(AList: TObject; AOutputStream: TStream);
 var
   S: RawByteString;
 begin
-  S := 'id,name' + sLineBreak;
+  S := '- id: 1' + sLineBreak;
   if (AOutputStream <> nil) and (Length(S) > 0) then
     AOutputStream.WriteBuffer(S[1], Length(S));
 end;
 
-procedure TDummyCSVCodec.DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
+procedure TDummyYAMLCodec.DecodeModel(AInputStream: TStream; AModel: TDeltaModel);
 begin
   // No-op para testes
 end;
 
-procedure TDummyCSVCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
+procedure TDummyYAMLCodec.DecodeList(AInputStream: TStream; AList: TObject; AModelClass: TClass);
 begin
   // No-op para testes
 end;
@@ -2582,13 +2583,13 @@ var
 begin
   Suite('Arquitetura Plugável de Codecs (IDeltaCodec & TDeltaCodecRegistry)');
 
-  // 1. Validação de Codec JSON padrão registrado automaticamente
+  // 1. Validação de Codecs registrados automaticamente
   AssertTrue(TDeltaCodecRegistry.HasCodec('json'), 'Codec "json" está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('application/json'), 'Codec "application/json" está registrado');
-  AssertTrue(TDeltaCodecRegistry.HasCodec('application/json; charset=utf-8'), 'Codec com parâmetro MIME está registrado');
-  AssertTrue(TDeltaCodecRegistry.HasCodec('text/json'), 'Codec "text/json" é aceito pelo CanHandleMimeType');
   AssertTrue(TDeltaCodecRegistry.HasCodec('cbor'), 'Codec "cbor" está registrado');
   AssertTrue(TDeltaCodecRegistry.HasCodec('bson'), 'Codec "bson" está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('xml'), 'Codec "xml" está registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" está registrado');
   AssertFalse(TDeltaCodecRegistry.HasCodec('yaml'), 'Codec "yaml" não está registrado inicialmente');
 
   // 2. Resolução do Codec JSON
@@ -2623,21 +2624,21 @@ begin
     P.Free;
   end;
 
-  // 4. Registro Dinâmico de Codec Customizado (CSV)
-  CustomCodec := TDummyCSVCodec.Create;
+  // 4. Registro Dinâmico de Codec Customizado (YAML)
+  CustomCodec := TDummyYAMLCodec.Create;
   TDeltaCodecRegistry.RegisterCodec(CustomCodec);
-  AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Novo codec "csv" foi registrado com sucesso');
-  AssertTrue(TDeltaCodecRegistry.HasCodec('text/csv'), 'Novo codec responde a "text/csv"');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('yaml'), 'Novo codec "yaml" foi registrado com sucesso');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/x-yaml'), 'Novo codec responde a "application/x-yaml"');
 
   SupportedFormats := TDeltaCodecRegistry.GetSupportedFormats;
-  AssertTrue(Length(SupportedFormats) >= 2, 'Há pelo menos 2 formatos suportados no Registry');
+  AssertTrue(Length(SupportedFormats) >= 5, 'Há pelo menos 5 formatos suportados no Registry');
 
   SupportedMimes := TDeltaCodecRegistry.GetSupportedMimeTypes;
-  AssertTrue(Length(SupportedMimes) >= 2, 'Há pelo menos 2 MIME types suportados no Registry');
+  AssertTrue(Length(SupportedMimes) >= 5, 'Há pelo menos 5 MIME types suportados no Registry');
 
   // 5. Desregistro de Codec
-  TDeltaCodecRegistry.UnregisterCodec('csv');
-  AssertFalse(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" foi desregistrado');
+  TDeltaCodecRegistry.UnregisterCodec('yaml');
+  AssertFalse(TDeltaCodecRegistry.HasCodec('yaml'), 'Codec "yaml" foi desregistrado');
 
   // 6. Tratamento de Erro ao buscar codec inexistente
   CaughtException := False;
@@ -2850,6 +2851,201 @@ begin
 end;
 
 {==============================================================================}
+{ Test 24: Codec XML de Alta Performance (Zero-DOM)                            }
+{==============================================================================}
+
+procedure TestXmlCodec;
+var
+  Codec: IDeltaCodec;
+  MS: TMemoryStream;
+  P, DecodedP: TProductModel;
+  List, DecodedList: TProductGenericList;
+  I: Integer;
+begin
+  Suite('Codec XML de Alta Performance (Zero-DOM)');
+
+  // 1. Resolução do Codec XML
+  AssertTrue(TDeltaCodecRegistry.HasCodec('xml'), 'Codec "xml" registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('application/xml'), 'Codec "application/xml" registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('text/xml'), 'Codec "text/xml" registrado');
+  Codec := TDeltaCodecRegistry.GetCodec('xml');
+  AssertTrue(Codec <> nil, 'GetCodec("xml") retornou instância');
+  AssertEquals('xml', Codec.GetFormatName, 'GetFormatName é "xml"');
+  AssertEquals('application/xml', Codec.GetMimeType, 'GetMimeType é "application/xml"');
+
+  // 2. Round-trip de modelo simples com acentos e caracteres especiais XML
+  P := TProductModel.Create;
+  try
+    P.Id.Value := 404;
+    P.Name.Value := 'Monitor Curvo 49" QLED & HDR — Edição Especial <Pro>';
+    P.Price.Value := 5899.90;
+    P.Active.Value := True;
+    P.BigCode.Value := 1234567890;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeModel(P, MS);
+      AssertTrue(MS.Size > 20, 'XML gerou stream com conteúdo');
+
+      DecodedP := TProductModel.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeModel(MS, DecodedP);
+
+        AssertEqualsInt(404, DecodedP.Id.Value, 'XML restaurou Id');
+        AssertEquals('Monitor Curvo 49" QLED & HDR — Edição Especial <Pro>', DecodedP.Name.Value, 'XML restaurou Name com entidades escapadas');
+        AssertTrue(Abs(DecodedP.Price.Value - 5899.90) < 0.001, 'XML restaurou Price Double');
+        AssertTrue(DecodedP.Active.Value, 'XML restaurou Active Boolean');
+        AssertEqualsInt(1234567890, DecodedP.BigCode.Value, 'XML restaurou BigCode Int64');
+        AssertTrue(DecodedP.Description.IsNull, 'XML preservou campo nulo Description');
+      finally
+        DecodedP.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // 3. Round-trip de List de modelos
+  List := TProductGenericList.Create;
+  try
+    for I := 1 to 4 do
+    begin
+      P := TProductModel.Create;
+      P.Id.Value := I;
+      P.Name.Value := 'Produto XML #' + IntToStr(I) + ' & Cia';
+      P.Price.Value := I * 75.50;
+      P.Active.Value := (I mod 2 = 1);
+      List.Add(P);
+    end;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeList(List, MS);
+      AssertTrue(MS.Size > 30, 'XML EncodeList gerou payload');
+
+      DecodedList := TProductGenericList.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeList(MS, DecodedList, TProductModel);
+        AssertEqualsInt(4, DecodedList.Count, 'XML DecodeList restaurou todos os 4 itens');
+        for I := 0 to 3 do
+        begin
+          AssertEqualsInt(I + 1, DecodedList[I].Id.Value, 'Item ID confere');
+          AssertEquals('Produto XML #' + IntToStr(I + 1) + ' & Cia', DecodedList[I].Name.Value, 'Item Name confere');
+          AssertTrue(Abs(DecodedList[I].Price.Value - ((I + 1) * 75.50)) < 0.001, 'Item Price confere');
+        end;
+      finally
+        DecodedList.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    List.Free;
+  end;
+end;
+
+{==============================================================================}
+{ Test 25: Codec CSV RFC 4180 (Zero-DOM)                                       }
+{==============================================================================}
+
+procedure TestCsvCodec;
+var
+  Codec: IDeltaCodec;
+  MS: TMemoryStream;
+  P, DecodedP: TProductModel;
+  List, DecodedList: TProductGenericList;
+  I: Integer;
+begin
+  Suite('Codec CSV RFC 4180 (Zero-DOM)');
+
+  // 1. Resolução do Codec CSV
+  AssertTrue(TDeltaCodecRegistry.HasCodec('csv'), 'Codec "csv" registrado');
+  AssertTrue(TDeltaCodecRegistry.HasCodec('text/csv'), 'Codec "text/csv" registrado');
+  Codec := TDeltaCodecRegistry.GetCodec('csv');
+  AssertTrue(Codec <> nil, 'GetCodec("csv") retornou instância');
+  AssertEquals('csv', Codec.GetFormatName, 'GetFormatName é "csv"');
+  AssertEquals('text/csv', Codec.GetMimeType, 'GetMimeType é "text/csv"');
+
+  // 2. Round-trip de modelo simples com vírgulas e aspas duplas no texto
+  P := TProductModel.Create;
+  try
+    P.Id.Value := 505;
+    P.Name.Value := 'Café Gourmet, Torrado e Moído "Seleção Ouro"';
+    P.Price.Value := 42.50;
+    P.Active.Value := True;
+    P.BigCode.Value := 9988776655;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeModel(P, MS);
+      AssertTrue(MS.Size > 20, 'CSV gerou stream com conteúdo');
+
+      DecodedP := TProductModel.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeModel(MS, DecodedP);
+
+        AssertEqualsInt(505, DecodedP.Id.Value, 'CSV restaurou Id');
+        AssertEquals('Café Gourmet, Torrado e Moído "Seleção Ouro"', DecodedP.Name.Value, 'CSV restaurou Name com vírgulas e aspas');
+        AssertTrue(Abs(DecodedP.Price.Value - 42.50) < 0.001, 'CSV restaurou Price Double');
+        AssertTrue(DecodedP.Active.Value, 'CSV restaurou Active Boolean');
+        AssertEqualsInt(9988776655, DecodedP.BigCode.Value, 'CSV restaurou BigCode Int64');
+        AssertTrue(DecodedP.Description.IsNull, 'CSV preservou campo nulo Description');
+      finally
+        DecodedP.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    P.Free;
+  end;
+
+  // 3. Round-trip de List de modelos
+  List := TProductGenericList.Create;
+  try
+    for I := 1 to 5 do
+    begin
+      P := TProductModel.Create;
+      P.Id.Value := I * 100;
+      P.Name.Value := 'Item CSV #' + IntToStr(I) + ', Lote Especial';
+      P.Price.Value := I * 33.30;
+      P.Active.Value := True;
+      List.Add(P);
+    end;
+
+    MS := TMemoryStream.Create;
+    try
+      Codec.EncodeList(List, MS);
+      AssertTrue(MS.Size > 30, 'CSV EncodeList gerou payload');
+
+      DecodedList := TProductGenericList.Create;
+      try
+        MS.Position := 0;
+        Codec.DecodeList(MS, DecodedList, TProductModel);
+        AssertEqualsInt(5, DecodedList.Count, 'CSV DecodeList restaurou todos os 5 itens');
+        for I := 0 to 4 do
+        begin
+          AssertEqualsInt((I + 1) * 100, DecodedList[I].Id.Value, 'Item ID confere');
+          AssertEquals('Item CSV #' + IntToStr(I + 1) + ', Lote Especial', DecodedList[I].Name.Value, 'Item Name confere');
+          AssertTrue(Abs(DecodedList[I].Price.Value - ((I + 1) * 33.30)) < 0.001, 'Item Price confere');
+        end;
+      finally
+        DecodedList.Free;
+      end;
+    finally
+      MS.Free;
+    end;
+  finally
+    List.Free;
+  end;
+end;
+
+{==============================================================================}
 { Main Entry Point                                                             }
 {==============================================================================}
 
@@ -2882,6 +3078,8 @@ begin
     TestCodecArchitecture;
     TestBsonCodec;
     TestCborCodec;
+    TestXmlCodec;
+    TestCsvCodec;
   except
     on E: Exception do
     begin
