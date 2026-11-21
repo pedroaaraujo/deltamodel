@@ -334,8 +334,12 @@ begin
       end
       else
       begin
-        for I := 1 to Val do
+        I := 0;
+        while I < Val do
+        begin
           SkipCborValue(AStream, ADepth + 1);
+          Inc(I);
+        end;
       end;
     end;
 
@@ -354,8 +358,12 @@ begin
       end
       else
       begin
-        for I := 1 to Val * 2 do
+        I := 0;
+        while I < Val * 2 do
+        begin
           SkipCborValue(AStream, ADepth + 1);
+          Inc(I);
+        end;
       end;
     end;
 
@@ -739,14 +747,22 @@ begin
           end
           else
           begin
-            for I := 1 to ArrCount do
+            I := 0;
+            while I < ArrCount do
+            begin
               SkipCborValue(AStream, ADepth + 1);
+              Inc(I);
+            end;
           end;
         end
         else
         begin
-          for I := 1 to ArrCount do
+          I := 0;
+          while I < ArrCount do
+          begin
             SkipCborValue(AStream, ADepth + 1);
+            Inc(I);
+          end;
         end;
       end;
 
@@ -776,8 +792,12 @@ begin
               end
               else
               begin
-                for I := 1 to ValVal * 2 do
+                I := 0;
+                while I < ValVal * 2 do
+                begin
                   SkipCborValue(AStream, ADepth + 1);
+                  Inc(I);
+                end;
               end;
             end;
           end
@@ -796,8 +816,12 @@ begin
             end
             else
             begin
-              for I := 1 to ValVal * 2 do
+              I := 0;
+              while I < ValVal * 2 do
+              begin
                 SkipCborValue(AStream, ADepth + 1);
+                Inc(I);
+              end;
             end;
           end;
         end
@@ -816,8 +840,12 @@ begin
           end
           else
           begin
-            for I := 1 to ValVal * 2 do
+            I := 0;
+            while I < ValVal * 2 do
+            begin
               SkipCborValue(AStream, ADepth + 1);
+              Inc(I);
+            end;
           end;
         end;
       end;
