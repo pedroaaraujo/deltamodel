@@ -291,7 +291,7 @@ end;
 // Schema: generate Swagger/OpenAPI schema for the model with all types
 procedure TForm1.Button4Click(Sender: TObject);
 begin
-  mmoSchema.Lines.Text := TUser.SwaggerSchema(False);
+  mmoSchema.Lines.Text := TUser.SwaggerSchemaObject;
 end;
 
 end.

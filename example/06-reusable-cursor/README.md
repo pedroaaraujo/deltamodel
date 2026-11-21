@@ -1,34 +1,33 @@
-# Exemplo 06 — Schema Flyweight & Cursor Reusável (Zero-Alloc Loop)
+# DeltaModel ORM — Example 06: Schema Flyweight & Reusable Cursor (`06-reusable-cursor`)
 
-Este projeto demonstra a solução implementada no **DeltaModel ORM** para consultas em tabelas com milhares ou milhões de registros, eliminando o consumo exponencial de memória do Garbage Collector / Heap do Free Pascal.
+A console benchmark and demonstration of **DeltaModel ORM's Flyweight Schema and Zero-Allocation Reusable Cursor**, engineered for iterating and streaming thousands or millions of database rows with constant $O(1)$ heap memory usage.
 
 ---
 
-## 🚀 Problema Resolvido
+## 🚀 Problem Solved
 
-No modelo tradicional de ORM (ex: `Query.All`), uma consulta de 5.000 municípios gerava mais de **50.000 objetos no Heap** (cada linha instanciava o modelo, mais os objetos `TDeltaField` de cada propriedade, nós de lista e bindings).
+In traditional ORM query patterns (such as loading a full collection with `Query.All`), fetching 5,000 rows allocates tens of thousands of heap objects (one model instance per row plus field wrappers and list nodes).
 
-Com as inovações introduzidas:
+DeltaModel eliminates per-row heap allocations through two architectural mechanisms:
 1. **Schema Flyweight (`TMunicipio.Schema`)**:
-   - Metadados (`FieldName`, `Size`, `IsRequired`, `DBOptions`) são desacoplados da instância de linha.
-   - Residem na classe e existem **exatamente 1 vez na memória** para todo o ciclo de vida da aplicação.
-2. **Cursor Reusável (Zero-Alloc Loop)**:
-   - Uma **única instância** do modelo é criada no início da iteração e reaproveitada a cada linha percorrida pelo dataset.
-   - 5.000 linhas = **EXATAMENTE 1 OBJETO no Heap**!
+   - Column metadata (`FieldName`, `FieldSize`, `IsRequired`, `DBOptions`) is decoupled from row instances and lives at the class level, existing **exactly once in memory** for the entire application lifecycle.
+2. **Reusable Cursor (Zero-Allocation Loop)**:
+   - A **single model instance** is allocated when the cursor opens and is repopulated in-place as the cursor advances through the dataset.
+   - Iterating over 1,000 or 1,000,000 rows allocates **exactly 1 model object on the heap** (`0 bytes` of heap growth during iteration).
 
 ---
 
-## 🛠 Padrões de Uso Suportados
+## 🛠️ Supported Iteration & Streaming Patterns
 
-### 1. Padrão Canônico Pascal (`while Query.Next do`)
+### 1. Canonical Pascal Cursor Loop (`while Query.Next do`)
 ```pascal
 Query := TDeltaQuery<TMunicipio>.Create(Engine);
 try
-  Query.Where('uf = :uf').Open;
+  Query.OrderBy('id ASC').Open;
   while Query.Next do
   begin
-    // Query.Current aponta SEMPRE para a mesma instância atualizada
-    ProcessarMunicipio(Query.Current);
+    // Query.Current always points to the same reused model instance
+    ProcessItem(Query.Current);
   end;
   Query.Close;
 finally
@@ -36,32 +35,56 @@ finally
 end;
 ```
 
-### 2. Suporte a Enumerador Nativo (`for M in Query.Cursor do`)
+### 2. Native `for..in` Enumerator (`for M in Query.Cursor do`)
 ```pascal
 for M in Query.Cursor do
 begin
-  // M reutiliza a mesma instância a cada iteração com zero alocações
+  // M reuses the same underlying instance on every iteration with zero allocations
   WriteLn(M.Nome, ' - ', M.Uf);
 end;
 ```
 
-### 3. Padrão Callback Funcional (`Query.Each`)
+### 3. Functional Callback (`Query.Each`)
 ```pascal
-Query.Each(@ProcessarItem);
+Query.Each(Processor.ProcessItem);
 ```
 
-### 4. Streaming Direto para HTTP/Socket (`Query.StreamJsonTo`)
-Transmite a resposta JSON diretamente para um `TStream` (como a resposta HTTP do Zenith Framework) sem criar listas intermediárias ou lotes de objetos na memória:
+### 4. Direct Zero-Allocation JSON Streaming (`Query.StreamJsonTo`)
+Streams the JSON array directly to any `TStream` (such as an HTTP response stream) without building intermediate object lists in memory:
 ```pascal
-LinhasEnviadas := Query.StreamJsonTo(Context.Response.OutputStream);
+RowsSent := Query.StreamJsonTo(OutputStream);
 ```
 
 ---
 
-## 📦 Compilar e Executar
+## 🛠️ Build & Run
+
+### Compilation with Free Pascal Compiler (`fpc`)
+
+Compile into a temporary directory to keep the repository clean:
 
 ```bash
+mkdir -p /tmp/deltamodel_ex06
 cd example/06-reusable-cursor
-fpc -MDelphi -Fu../../src reusable_cursor_demo.lpr
-./reusable_cursor_demo
+
+fpc -MDelphi -Scghi -O2 \
+  -FE/tmp/deltamodel_ex06 \
+  -FU/tmp/deltamodel_ex06 \
+  -Fu../../src \
+  -Fi../../src \
+  reusable_cursor_demo.lpr
 ```
+
+### Execution
+
+```bash
+/tmp/deltamodel_ex06/reusable_cursor_demo
+```
+
+The program populates a temporary SQLite database (`/tmp/deltamodel_cursor_demo.db`) with 1,000 records, verifies pointer identity and zero heap growth across `while Query.Next`, `for M in Query.Cursor`, `Query.Each`, and `Query.StreamJsonTo`, and removes the temporary database upon completion.
+
+---
+
+## 🛡️ License
+
+Part of the **DeltaModel ORM** ecosystem under the MIT License.

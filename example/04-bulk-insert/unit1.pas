@@ -234,7 +234,7 @@ begin
         TProduct(Models[I]).manufacturingDate.Value := EncodeDate(2025, 1 + Random(12), 1 + Random(28));
         TProduct(Models[I]).description.Value := Format('Item catalogado no lote de bulk insert %d', [I + 1]);
         TProduct(Models[I]).productUuid.Value := Format('550e8400-e29b-41d4-a716-%012d', [I + 1]);
-        TProduct(Models[I]).active.Value := (Random(10) > 1); // 90% ativos
+        TProduct(Models[I]).active.Value := (Random(10) > 1); // 90% active
         TProduct(Models[I]).created_at.Value := Now;
       end;
 

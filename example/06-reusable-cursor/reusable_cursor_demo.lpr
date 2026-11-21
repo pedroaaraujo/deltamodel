@@ -167,7 +167,7 @@ begin
       WriteLn('    Instancia unica reaproveitada com sucesso.');
       WriteLn('');
 
-      // 5. Callback Funcional: Query.Each
+      // 5. Functional Callback: Query.Each
       WriteLn('[5] Padrão Callback Funcional (Query.Each):');
       Processor := TMunicipioProcessor.Create;
       try

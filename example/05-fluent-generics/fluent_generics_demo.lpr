@@ -86,7 +86,7 @@ begin
     if Engine.TransactionActive then Engine.Commit;
     WriteLn('[1] Tabela "products" criada com sucesso.');
 
-    // 2. Instanciar Query Tipada
+    // 2. Instantiate Typed Query
     Query := TDeltaQuery<TProduct>.Create(Engine);
     try
       // Insert records
@@ -102,7 +102,7 @@ begin
       P := TProduct.Create;
       P.Name := 'Mouse Gamer RGB';
       P.Price := 149.90;
-      P.SetNull('Cost'); // Bitmask de nulidade ultraleve
+      P.SetNull('Cost'); // Ultra-lightweight nullability bitmask
       P.Stock := 80;
       P.Active := True;
       Query.Insert(P);

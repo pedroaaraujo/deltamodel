@@ -144,7 +144,7 @@ begin
   AddUniqueConstraint('uq_person_name_surname', ['name', 'surname']);
   // Composite performance index
   AddIndex('ix_person_created_age', ['created', 'age']);
-  // Relacionamento 1:1 HasOne
+  // 1:1 HasOne relationship
   Profile.References(TProfile, 'personId', 'id');
 end;
 

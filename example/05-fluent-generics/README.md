@@ -1,17 +1,64 @@
-# Exemplo 05: Fluent Class Schema & Generics (Abordagem B)
+# DeltaModel ORM — Example 05: Fluent Class Schema & Generics (`05-fluent-generics`)
 
-Este exemplo demonstra a **Abordagem B** implementada no **DeltaModel ORM**:
-- Uso de **propriedades primitivas nativas** (`Int64`, `string`, `Double`, `Boolean`) na classe do modelo em vez de wrappers auxiliares (`TDF*`).
-- Configuração de metadados de classe fluente e estática (`ConfigureSchema`), que roda apenas **uma única vez** via cache RTTI, eliminando o overhead de alocação por instância.
-- **Bitmask ultraleve de nulidade** (`FNullMask: UInt64`), permitindo testar e atribuir `null` em 1 ciclo de clock de CPU com zero boxing de Variant.
-- Consulta tipada via `TDeltaQuery<T>` com sintaxe fluente (`Where`, `Param`, `OrderBy`, `Limit`, `FindById`, `All`).
-- Coleção tipada `TGDeltaModelList<T>` com suporte ao laço idiomático `for Item in List do`.
-- Inserção em lotes (`BulkInsert`) de alta performance com montagem nativa de parâmetros.
-- Serialização JSON ultrarrápida com `TDeltaFastJsonStreamer`.
+A console application demonstrating **DeltaModel ORM's Fluent Class Schema & Generics API** (`DeltaModel.Generics`), allowing domain models to use native Object Pascal primitive properties (`Int64`, `string`, `Double`, `Integer`, `Boolean`) with zero per-field wrapper allocations.
 
-## Como compilar e executar
+---
+
+## 🚀 Key Features Demonstrated
+
+- **Native Primitive Properties**:
+  - `TProduct` declares standard `published` Pascal properties (`Id: Int64`, `Name: string`, `Price: Double`, `Cost: Double`, `Stock: Integer`, `Active: Boolean`) without requiring `TDF*` field wrapper objects.
+- **Static Flyweight Class Schema (`ConfigureSchema`)**:
+  - Metadata is registered once per class via `class procedure ConfigureSchema(ASchema: TDeltaModelSchema)` and cached in RTTI:
+    ```pascal
+    class procedure TProduct.ConfigureSchema(ASchema: TDeltaModelSchema);
+    begin
+      ASchema.Table('products');
+      ASchema.Field('Id').Column('id').AsPK.AutoInc;
+      ASchema.Field('Name').Column('name').Required.Size(150);
+      ASchema.Field('Price').Column('price').Required;
+      ASchema.Field('Cost').Column('cost').Nullable;
+      ASchema.Field('Stock').Column('stock').Required;
+      ASchema.Field('Active').Column('active').Required;
+    end;
+    ```
+- **O(1) Nullability Bitmask (`FNullMask: UInt64`)**:
+  - Nullable primitive properties can be marked or tested for SQL `NULL` in a single CPU cycle using `P.SetNull('Cost')` and `P.IsNull('Cost')`, avoiding `Variant` boxing overhead.
+- **Strongly-Typed Generic Query (`TDeltaQuery<TProduct>`)**:
+  - Fluent query execution: `Insert`, `FindById`, `Count`, `BulkInsert`, and `Where('price > :min_price').Param('min_price', 100.0).OrderBy('price DESC').All`.
+- **Typed Generic Collection (`TGDeltaModelList<TProduct>`)**:
+  - Supports idiomatic `for P in List do` iteration without typecasts and ultra-fast JSON serialization via `List.ToJson` (`TDeltaFastJsonStreamer`).
+
+---
+
+## 🛠️ Build & Run
+
+### Compilation with Free Pascal Compiler (`fpc`)
+
+Compile into `/tmp` so the repository stays clean of binaries and `.o`/`.ppu` artifacts:
 
 ```bash
-fpc -FE/tmp -FU/tmp -Fu../../src -Fi../../src fluent_generics_demo.lpr
-/tmp/fluent_generics_demo
+mkdir -p /tmp/deltamodel_ex05
+cd example/05-fluent-generics
+
+fpc -MDelphi -Scghi -O2 \
+  -FE/tmp/deltamodel_ex05 \
+  -FU/tmp/deltamodel_ex05 \
+  -Fu../../src \
+  -Fi../../src \
+  fluent_generics_demo.lpr
 ```
+
+### Execution
+
+```bash
+/tmp/deltamodel_ex05/fluent_generics_demo
+```
+
+The demo creates a temporary SQLite database (`/tmp/deltamodel_fluent_demo.db`), runs all CRUD, bulk insert, filtered query, and JSON serialization steps, prints the output to stdout, and cleans up the temporary database file on exit.
+
+---
+
+## 🛡️ License
+
+Part of the **DeltaModel ORM** ecosystem under the MIT License.
