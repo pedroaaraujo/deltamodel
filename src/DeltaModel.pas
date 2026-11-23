@@ -102,7 +102,7 @@ type
     property FieldList: TFieldList read FFieldList;
     property Constraints: TConstraintList read FConstraints;
     property Indexes: TIndexList read FIndexes;
-    procedure FromJson(JsonStr: string);
+    procedure FromJson(JsonStr: string); virtual;
     procedure Validate; virtual;
     procedure BeforeDestruction; override;
     procedure Configure; virtual;

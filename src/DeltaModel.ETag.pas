@@ -19,7 +19,7 @@ unit DeltaModel.ETag;
 interface
 
 uses
-  Classes, SysUtils, TypInfo, fpsha256,
+  Classes, SysUtils, TypInfo, {$IF FPC_FULLVERSION >= 30301}fpsha256,{$ENDIF}
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.List;
 
 type
@@ -196,9 +196,108 @@ begin
   FeedRaw(@NormVal, SizeOf(Double));
 end;
 
+{$IF FPC_FULLVERSION < 30301}
+function SHA256DigestHexaFallback(const AData: TBytes): string;
+const
+  K: array[0..63] of LongWord = (
+    $428a2f98, $71374491, $b5c0fbcf, $e9b5dba5,
+    $3956c25b, $59f111f1, $923f82a4, $ab1c5ed5,
+    $d807aa98, $12835b01, $243185be, $550c7dc3,
+    $72be5d74, $80deb1fe, $9bdc06a7, $c19bf174,
+    $e49b69c1, $efbe4786, $0fc19dc6, $240ca1cc,
+    $2de92c6f, $4a7484aa, $5cb0a9dc, $76f988da,
+    $983e5152, $a831c66d, $b00327c8, $bf597fc7,
+    $c6e00bf3, $d5a79147, $06ca6351, $14292967,
+    $27b70a85, $2e1b2138, $4d2c6dfc, $53380d13,
+    $650a7354, $766a0abb, $81c2c92e, $92722c85,
+    $a2bfe8a1, $a81a664b, $c24b8b70, $c76c51a3,
+    $d192e819, $d6990624, $f40e3585, $106aa070,
+    $19a4c116, $1e376c08, $2748774c, $34b0bcb5,
+    $391c0cb3, $4ed8aa4a, $5b9cca4f, $682e6ff3,
+    $748f82ee, $78a5636f, $84c87814, $8cc70208,
+    $90befffa, $a4506ceb, $bef9a3f7, $c67178f2
+  );
+var
+  Msg: TBytes;
+  BitLen: QWord;
+  OrigLen, PadLen, I, J, Offset: Integer;
+  W: array[0..63] of LongWord;
+  H: array[0..7] of LongWord;
+  A, B, C, D, E, F, G, Hv, S0, S1, Ch, Maj, T1, T2: LongWord;
+  BVal: Byte;
+begin
+  {$PUSH}{$R-}{$Q-}
+  OrigLen := Length(AData);
+  PadLen := ((OrigLen + 9 + 63) div 64) * 64;
+  SetLength(Msg, PadLen);
+  if OrigLen > 0 then
+    Move(AData[0], Msg[0], OrigLen);
+  Msg[OrigLen] := $80;
+  for I := OrigLen + 1 to PadLen - 9 do
+    Msg[I] := 0;
+  BitLen := QWord(OrigLen) * 8;
+  for I := 0 to 7 do
+    Msg[PadLen - 1 - I] := Byte((BitLen shr (I * 8)) and $FF);
+
+  H[0] := $6a09e667; H[1] := $bb67ae85; H[2] := $3c6ef372; H[3] := $a54ff53a;
+  H[4] := $510e527f; H[5] := $9b05688c; H[6] := $1f83d9ab; H[7] := $5be0cd19;
+
+  Offset := 0;
+  while Offset < PadLen do
+  begin
+    for J := 0 to 15 do
+      W[J] := (LongWord(Msg[Offset + J * 4]) shl 24) or
+              (LongWord(Msg[Offset + J * 4 + 1]) shl 16) or
+              (LongWord(Msg[Offset + J * 4 + 2]) shl 8) or
+              LongWord(Msg[Offset + J * 4 + 3]);
+    for J := 16 to 63 do
+    begin
+      S0 := ((W[J - 15] shr 7) or (W[J - 15] shl 25)) xor
+            ((W[J - 15] shr 18) or (W[J - 15] shl 14)) xor
+            (W[J - 15] shr 3);
+      S1 := ((W[J - 2] shr 17) or (W[J - 2] shl 15)) xor
+            ((W[J - 2] shr 19) or (W[J - 2] shl 13)) xor
+            (W[J - 2] shr 10);
+      W[J] := W[J - 16] + S0 + W[J - 7] + S1;
+    end;
+
+    A := H[0]; B := H[1]; C := H[2]; D := H[3];
+    E := H[4]; F := H[5]; G := H[6]; Hv := H[7];
+
+    for J := 0 to 63 do
+    begin
+      S1 := ((E shr 6) or (E shl 26)) xor ((E shr 11) or (E shl 21)) xor ((E shr 25) or (E shl 7));
+      Ch := (E and F) xor ((not E) and G);
+      T1 := Hv + S1 + Ch + K[J] + W[J];
+      S0 := ((A shr 2) or (A shl 30)) xor ((A shr 13) or (A shl 19)) xor ((A shr 22) or (A shl 10));
+      Maj := (A and B) xor (A and C) xor (B and C);
+      T2 := S0 + Maj;
+
+      Hv := G; G := F; F := E; E := D + T1;
+      D := C; C := B; B := A; A := T1 + T2;
+    end;
+
+    Inc(H[0], A); Inc(H[1], B); Inc(H[2], C); Inc(H[3], D);
+    Inc(H[4], E); Inc(H[5], F); Inc(H[6], G); Inc(H[7], Hv);
+    Inc(Offset, 64);
+  end;
+
+  SetLength(Result, 64);
+  for I := 0 to 31 do
+  begin
+    BVal := Byte(H[I shr 2] shr ((3 - (I and 3)) * 8));
+    Result[I * 2 + 1] := HEX_CHARS_LOWER[BVal shr 4];
+    Result[I * 2 + 2] := HEX_CHARS_LOWER[BVal and $0F];
+  end;
+  {$POP}
+end;
+{$ENDIF}
+
 function TETagAccumulator.FinalizeHex: string;
 var
+  {$IF FPC_FULLVERSION >= 30301}
   HexOut: AnsiString;
+  {$ENDIF}
   FinalBytes: TBytes;
   I: Integer;
   V: QWord;
@@ -224,8 +323,12 @@ begin
       SetLength(FinalBytes, BufLen);
       Move(Buffer[0], FinalBytes[0], BufLen);
     end;
+    {$IF FPC_FULLVERSION >= 30301}
     TSHA256.DigestHexa(FinalBytes, HexOut);
     Result := LowerCase(string(HexOut));
+    {$ELSE}
+    Result := SHA256DigestHexaFallback(FinalBytes);
+    {$ENDIF}
   end;
 end;
 
