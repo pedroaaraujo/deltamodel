@@ -1067,6 +1067,58 @@ begin
   end;
 end;
 
+type
+  TModelCreateThread = class(TThread)
+  public
+    Errors: Integer;
+    procedure Execute; override;
+  end;
+
+procedure TModelCreateThread.Execute;
+var
+  I: Integer;
+  M: TFluentTdfItem;
+begin
+  Errors := 0;
+  for I := 1 to 3000 do
+  try
+    M := TFluentTdfItem.Create;
+    try
+      M.description.Value := 'item';
+      M.id.Value := I;
+      if Pos('"description":"item"', M.ToJson) = 0 then
+        Inc(Errors);
+    finally
+      M.Free;
+    end;
+  except
+    Inc(Errors);
+  end;
+end;
+
+procedure TestConcurrentModelCreation;
+var
+  Threads: array[0..7] of TModelCreateThread;
+  I, Total: Integer;
+begin
+  Suite('4d. Criação concorrente de modelos (schema compartilhado)');
+  for I := 0 to High(Threads) do
+  begin
+    Threads[I] := TModelCreateThread.Create(True);
+    Threads[I].FreeOnTerminate := False;
+  end;
+  for I := 0 to High(Threads) do
+    Threads[I].Start;
+  Total := 0;
+  for I := 0 to High(Threads) do
+  begin
+    Threads[I].WaitFor;
+    Inc(Total, Threads[I].Errors);
+    Threads[I].Free;
+  end;
+  AssertEqualsInt(0, Total, '8 threads x 3000 instâncias sem erro nem corrupção');
+end;
+
 procedure TestStringLiteralEscaping;
 begin
   Suite('4b. Escape de literais por dialeto');
@@ -3277,6 +3329,7 @@ begin
     TestSwaggerSchema;
     TestStringLiteralEscaping;
     TestFluentSchemaOnTdfFields;
+    TestConcurrentModelCreation;
     TestDDLGenerator;
     TestModelLifecycleHooks;
     TestORMCRUDAndQueries;

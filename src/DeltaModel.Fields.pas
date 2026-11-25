@@ -673,6 +673,16 @@ function DeltaFormatCurrencyFixed(const AValue: Currency): string;
 
 implementation
 
+uses
+  SyncObjs;
+
+var
+  { O TDeltaSchemaField é compartilhado por todas as instâncias da classe.
+    Escritas vindas de instâncias (SetFieldName/SetIsRequired/SetDBOptions)
+    só ocorrem quando o valor muda e são serializadas por este lock; em
+    regime normal nenhuma instância escreve e as leituras são seguras. }
+  GSchemaWriteLock: TCriticalSection = nil;
+
 { TDeltaSchemaField }
 
 constructor TDeltaSchemaField.Create(const APropName: string);
@@ -1195,8 +1205,16 @@ procedure TDeltaField.SetFieldName(AValue: string);
 begin
   if FFieldName = AValue then Exit;
   FFieldName := AValue;
-  if FSchemaField <> nil then
-    FSchemaField.Column(AValue);
+  if (FSchemaField <> nil) and (FSchemaField.FieldName <> AValue) then
+  begin
+    GSchemaWriteLock.Acquire;
+    try
+      if FSchemaField.FieldName <> AValue then
+        FSchemaField.Column(AValue);
+    finally
+      GSchemaWriteLock.Release;
+    end;
+  end;
 end;
 
 function TDeltaField.GetIsRequired: Boolean;
@@ -1210,8 +1228,16 @@ end;
 procedure TDeltaField.SetIsRequired(AValue: Boolean);
 begin
   FIsRequired := AValue;
-  if FSchemaField <> nil then
-    FSchemaField.Required(AValue);
+  if (FSchemaField <> nil) and (FSchemaField.IsRequired <> AValue) then
+  begin
+    GSchemaWriteLock.Acquire;
+    try
+      if FSchemaField.IsRequired <> AValue then
+        FSchemaField.Required(AValue);
+    finally
+      GSchemaWriteLock.Release;
+    end;
+  end;
 end;
 
 function TDeltaField.GetDBOptions: TDBOptionsSet;
@@ -1232,8 +1258,16 @@ end;
 procedure TDeltaField.SetDBOptions(AValue: TDBOptionsSet);
 begin
   FDBOptions := AValue;
-  if FSchemaField <> nil then
-    FSchemaField.DBOptions := AValue;
+  if (FSchemaField <> nil) and (FSchemaField.DBOptions <> AValue) then
+  begin
+    GSchemaWriteLock.Acquire;
+    try
+      if FSchemaField.DBOptions <> AValue then
+        FSchemaField.DBOptions := AValue;
+    finally
+      GSchemaWriteLock.Release;
+    end;
+  end;
 end;
 
 function TDeltaField.GetForeignKey: TForeignKey;
@@ -2392,8 +2426,12 @@ begin
 end;
 
 initialization
+  GSchemaWriteLock := TCriticalSection.Create;
   GlobalDeltaFS := DefaultFormatSettings;
   GlobalDeltaFS.DecimalSeparator := '.';
   GlobalDeltaFS.ThousandSeparator := ',';
+
+finalization
+  FreeAndNil(GSchemaWriteLock);
 
 end.
