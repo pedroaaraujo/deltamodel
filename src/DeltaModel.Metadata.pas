@@ -256,7 +256,11 @@ begin
     begin
       SchemaField := FSchema.Fields[I];
       PropItem := FRTTIInfo.FindProp(SchemaField.PropName);
-      if PropItem <> nil then
+      { Propriedades de classe (TDF*) também podem ser citadas no schema fluente
+        (ex.: Field('id').AsPK), mas são processadas no passo 2 a partir da
+        instância; tratá-las aqui como primitivas faria o streamer e o binding
+        de INSERT/UPDATE lerem o objeto como string vazia. }
+      if (PropItem <> nil) and not PropItem^.IsClass then
       begin
         Meta.PropInfo := PropItem^.PropInfo;
         Meta.PropName := PropItem^.Name;
@@ -344,8 +348,16 @@ begin
                 SchemaField := FSchema.Field(PropItem^.Name);
 
               if SchemaField.FieldName.IsEmpty or (SchemaField.FieldName = LowerCase(PropItem^.Name)) then
-                SchemaField.Column(Meta.FieldName);
+                SchemaField.Column(Meta.FieldName)
+              else
+                Meta.FieldName := SchemaField.FieldName;
+              { O schema fluente só acrescenta marcas estruturais (AsPK, AutoInc,
+                Unique, Index); permissões de escrita vêm do campo. }
+              Meta.DBOptions := Meta.DBOptions + (SchemaField.DBOptions * DELTA_STRUCTURAL_DB_OPTIONS);
               SchemaField.DBOptions := Meta.DBOptions;
+              Meta.IsPrimaryKey := dboPrimaryKey in Meta.DBOptions;
+              Meta.IsAutoInc := dboAutoInc in Meta.DBOptions;
+              Meta.IsRequired := Meta.IsRequired or SchemaField.IsRequired;
               if Meta.IsRequired then
                 SchemaField.Required;
               SchemaField.FieldKind := Meta.FieldKind;

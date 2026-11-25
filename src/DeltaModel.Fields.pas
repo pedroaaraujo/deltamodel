@@ -12,6 +12,13 @@ type
   TDBOptions = set of TDBOption;
   TDBOptionsSet = TDBOptions;
 
+const
+  { Marcas que o schema fluente pode acrescentar a um TDF* com opções próprias.
+    dboInsert/dboUpdate ficam de fora: são permissões decididas pelo campo. }
+  DELTA_STRUCTURAL_DB_OPTIONS: TDBOptionsSet = [dboPrimaryKey, dboAutoInc, dboUnique, dboIndex];
+
+type
+
   TForeignKeyEvent = (fkNone, fkCascade, fkSetNull, fkRestrict);
   TFKOption = TForeignKeyEvent;
 
@@ -1209,10 +1216,17 @@ end;
 
 function TDeltaField.GetDBOptions: TDBOptionsSet;
 begin
-  if (FDBOptions = []) and (FSchemaField <> nil) then
-    Result := FSchemaField.DBOptions
-  else
-    Result := FDBOptions;
+  { Sem opções próprias, vale o schema fluente. Com opções próprias, o campo
+    decide as permissões (dboInsert/dboUpdate) e o schema só acrescenta marcas
+    estruturais (ex.: Field('id').AsPK.AutoInc), como em ExtractMetadata. }
+  Result := FDBOptions;
+  if FSchemaField <> nil then
+  begin
+    if Result = [] then
+      Result := FSchemaField.DBOptions
+    else
+      Result := Result + (FSchemaField.DBOptions * DELTA_STRUCTURAL_DB_OPTIONS);
+  end;
 end;
 
 procedure TDeltaField.SetDBOptions(AValue: TDBOptionsSet);

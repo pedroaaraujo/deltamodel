@@ -960,6 +960,113 @@ end;
 { Test 5: DDL Generator Across Dialects                                        }
 {==============================================================================}
 
+type
+  { Campos TDF* herdados e também citados no schema fluente (formato do demo todolist) }
+  TFluentTdfBase = class(TDeltaModel)
+  private
+    FDescription: TDFStringRequired;
+  published
+    property description: TDFStringRequired read FDescription write FDescription;
+  public
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
+  end;
+
+  TFluentTdfItem = class(TFluentTdfBase)
+  private
+    FDone: TDFBooleanRequired;
+    FId: TDFIntRequired;
+  published
+    property done: TDFBooleanRequired read FDone write FDone;
+    property id: TDFIntRequired read FId write FId;
+  public
+    class procedure ConfigureSchema(ASchema: TDeltaModelSchema); override;
+  end;
+
+class procedure TFluentTdfBase.ConfigureSchema(ASchema: TDeltaModelSchema);
+begin
+  inherited ConfigureSchema(ASchema);
+  ASchema.Field('description').MinLength(2);
+end;
+
+class procedure TFluentTdfItem.ConfigureSchema(ASchema: TDeltaModelSchema);
+begin
+  inherited ConfigureSchema(ASchema);
+  ASchema.Table('fluent_tdf_item');
+  ASchema.Field('id').AsPK.AutoInc;
+end;
+
+procedure TestFluentSchemaOnTdfFields;
+var
+  Item, Loaded: TFluentTdfItem;
+  Meta: TModelMetadata;
+  F: PDeltaFieldMeta;
+  Engine: TDeltaORMEngine;
+  Query: specialize TDeltaQuery<TFluentTdfItem>;
+  Json: string;
+  Raised: Boolean;
+begin
+  Suite('4c. Schema fluente sobre campos TDF*');
+  Meta := TRTTICache.GetModelMetadata(TFluentTdfItem);
+  F := Meta.FindFieldByProp('description');
+  AssertTrue((F <> nil) and F^.IsDeltaField, 'description (TDF citado no schema) é tratado como TDeltaField');
+  F := Meta.FindFieldByProp('id');
+  AssertTrue((F <> nil) and F^.IsDeltaField and F^.IsPrimaryKey and F^.IsAutoInc,
+    'id mantém AsPK/AutoInc do schema fluente');
+  AssertEquals('id', Meta.PKFieldName, 'PK vinda do schema fluente');
+
+  Item := TFluentTdfItem.Create;
+  try
+    Item.FromJson('{"description":"primeira","done":true,"id":7}');
+    Json := Item.ToJson;
+    AssertTrue(Pos('"description":"primeira"', Json) > 0, 'ToJson serializa o texto do TDF: ' + Json);
+    AssertTrue(Pos('"id":7', Json) > 0, 'ToJson serializa o inteiro do TDF como número: ' + Json);
+  finally
+    Item.Free;
+  end;
+
+  Item := TFluentTdfItem.Create;
+  try
+    Item.FromJson('{"description":"x","done":false}');
+    Raised := False;
+    try
+      Item.Validate;
+    except
+      on E: EDeltaValidation do Raised := True;
+    end;
+    AssertTrue(Raised, 'MinLength do schema fluente vale para TDFStringRequired');
+  finally
+    Item.Free;
+  end;
+
+  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  try
+    Engine.Connection.Open;
+    Engine.ExecuteDirect('CREATE TABLE fluent_tdf_item (id INTEGER PRIMARY KEY AUTOINCREMENT, description VARCHAR(100) NOT NULL, done INTEGER NOT NULL)');
+    Item := TFluentTdfItem.Create;
+    try
+      Item.FromJson('{"description":"persistida","done":false}');
+      AssertTrue(Engine.Insert(Item), 'Insert de modelo com schema fluente sobre TDF');
+    finally
+      Item.Free;
+    end;
+    Query := specialize TDeltaQuery<TFluentTdfItem>.Create(Engine);
+    try
+      Loaded := Query.First;
+    finally
+      Query.Free;
+    end;
+    try
+      AssertTrue(Loaded <> nil, 'Registro inserido é lido de volta');
+      if Loaded <> nil then
+        AssertEquals('persistida', Loaded.description.AsString, 'Valor do TDF persistido no INSERT');
+    finally
+      Loaded.Free;
+    end;
+  finally
+    Engine.Free;
+  end;
+end;
+
 procedure TestStringLiteralEscaping;
 begin
   Suite('4b. Escape de literais por dialeto');
@@ -3169,6 +3276,7 @@ begin
     TestSerialization;
     TestSwaggerSchema;
     TestStringLiteralEscaping;
+    TestFluentSchemaOnTdfFields;
     TestDDLGenerator;
     TestModelLifecycleHooks;
     TestORMCRUDAndQueries;
