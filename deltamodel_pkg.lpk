@@ -7,7 +7,7 @@
     <CompilerOptions>
       <Version Value="11"/>
       <SearchPaths>
-        <OtherUnitFiles Value="src"/>
+        <OtherUnitFiles Value="src;src/orm;src/orm/dialects;src/orm/drivers"/>
         <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
       </SearchPaths>
       <Parsing>
@@ -23,8 +23,8 @@
     </CompilerOptions>
     <Description Value="DeltaModel: Micro-ORM and Model framework for Free Pascal and Lazarus with JSON serialization, OpenAPI schema and multi-RDBMS support."/>
     <License Value="MIT"/>
-    <Version Minor="2" Release="0"/>
-    <Files Count="24">
+    <Version Minor="3" Release="0"/>
+    <Files Count="37">
       <Item1>
         <Filename Value="src/DeltaModel.pas"/>
         <UnitName Value="DeltaModel"/>
@@ -62,65 +62,117 @@
         <UnitName Value="DatabaseURLParser"/>
       </Item9>
       <Item10>
-        <Filename Value="src/DeltaModel.SQLBuilder.pas"/>
-        <UnitName Value="DeltaModel.SQLBuilder"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Types.pas"/>
+        <UnitName Value="DeltaModel.ORM.Types"/>
       </Item10>
       <Item11>
-        <Filename Value="src/DeltaModel.ORM.Types.pas"/>
-        <UnitName Value="DeltaModel.ORM.Types"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Interfaces.pas"/>
+        <UnitName Value="DeltaModel.ORM.Interfaces"/>
       </Item11>
       <Item12>
-        <Filename Value="src/DeltaModel.ORM.Interfaces.pas"/>
-        <UnitName Value="DeltaModel.ORM.Interfaces"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Registry.pas"/>
+        <UnitName Value="DeltaModel.ORM.Registry"/>
       </Item12>
       <Item13>
-        <Filename Value="src/DeltaModel.ORM.Connection.pas"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Connection.pas"/>
         <UnitName Value="DeltaModel.ORM.Connection"/>
       </Item13>
       <Item14>
-        <Filename Value="src/DeltaModel.ORM.DDL.pas"/>
-        <UnitName Value="DeltaModel.ORM.DDL"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Criteria.pas"/>
+        <UnitName Value="DeltaModel.ORM.Criteria"/>
       </Item14>
       <Item15>
-        <Filename Value="src/DeltaModel.ORM.DML.pas"/>
-        <UnitName Value="DeltaModel.ORM.DML"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Hydrator.pas"/>
+        <UnitName Value="DeltaModel.ORM.Hydrator"/>
       </Item15>
       <Item16>
-        <Filename Value="src/DeltaModel.ORM.Schema.pas"/>
-        <UnitName Value="DeltaModel.ORM.Schema"/>
+        <Filename Value="src/orm/DeltaModel.SQLBuilder.pas"/>
+        <UnitName Value="DeltaModel.SQLBuilder"/>
       </Item16>
       <Item17>
-        <Filename Value="src/DeltaModel.ORM.Pool.pas"/>
-        <UnitName Value="DeltaModel.ORM.Pool"/>
+        <Filename Value="src/orm/DeltaModel.ORM.DDL.pas"/>
+        <UnitName Value="DeltaModel.ORM.DDL"/>
       </Item17>
       <Item18>
-        <Filename Value="src/DeltaModel.Codec.pas"/>
-        <UnitName Value="DeltaModel.Codec"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Persister.pas"/>
+        <UnitName Value="DeltaModel.ORM.Persister"/>
       </Item18>
       <Item19>
-        <Filename Value="src/DeltaModel.Codec.Bson.pas"/>
-        <UnitName Value="DeltaModel.Codec.Bson"/>
+        <Filename Value="src/orm/DeltaModel.ORM.DML.pas"/>
+        <UnitName Value="DeltaModel.ORM.DML"/>
       </Item19>
       <Item20>
-        <Filename Value="src/DeltaModel.Codec.Cbor.pas"/>
-        <UnitName Value="DeltaModel.Codec.Cbor"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Schema.pas"/>
+        <UnitName Value="DeltaModel.ORM.Schema"/>
       </Item20>
       <Item21>
-        <Filename Value="src/DeltaModel.Codec.Xml.pas"/>
-        <UnitName Value="DeltaModel.Codec.Xml"/>
+        <Filename Value="src/orm/DeltaModel.ORM.Pool.pas"/>
+        <UnitName Value="DeltaModel.ORM.Pool"/>
       </Item21>
       <Item22>
-        <Filename Value="src/DeltaModel.Codec.Csv.pas"/>
-        <UnitName Value="DeltaModel.Codec.Csv"/>
+        <Filename Value="src/orm/DeltaModel.Generics.pas"/>
+        <UnitName Value="DeltaModel.Generics"/>
       </Item22>
       <Item23>
-        <Filename Value="src/DeltaModel.Constants.pas"/>
-        <UnitName Value="DeltaModel.Constants"/>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.Base.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.Base"/>
       </Item23>
       <Item24>
-        <Filename Value="src/DeltaModel.ApiDoc.pas"/>
-        <UnitName Value="DeltaModel.ApiDoc"/>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.PostgreSQL.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.PostgreSQL"/>
       </Item24>
+      <Item25>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.SQLite.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.SQLite"/>
+      </Item25>
+      <Item26>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.MySQL.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.MySQL"/>
+      </Item26>
+      <Item27>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.Firebird.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.Firebird"/>
+      </Item27>
+      <Item28>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.MSSQL.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.MSSQL"/>
+      </Item28>
+      <Item29>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialect.Oracle.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialect.Oracle"/>
+      </Item29>
+      <Item30>
+        <Filename Value="src/orm/dialects/DeltaModel.ORM.Dialects.pas"/>
+        <UnitName Value="DeltaModel.ORM.Dialects"/>
+      </Item30>
+      <Item31>
+        <Filename Value="src/orm/drivers/DeltaModel.ORM.Driver.SQLDB.pas"/>
+        <UnitName Value="DeltaModel.ORM.Driver.SQLDB"/>
+      </Item31>
+      <Item32>
+        <Filename Value="src/orm/drivers/DeltaModel.ORM.Driver.Mock.pas"/>
+        <UnitName Value="DeltaModel.ORM.Driver.Mock"/>
+      </Item32>
+      <Item33>
+        <Filename Value="src/DeltaModel.Codec.pas"/>
+        <UnitName Value="DeltaModel.Codec"/>
+      </Item33>
+      <Item34>
+        <Filename Value="src/DeltaModel.Codec.Bson.pas"/>
+        <UnitName Value="DeltaModel.Codec.Bson"/>
+      </Item34>
+      <Item35>
+        <Filename Value="src/DeltaModel.Codec.Cbor.pas"/>
+        <UnitName Value="DeltaModel.Codec.Cbor"/>
+      </Item35>
+      <Item36>
+        <Filename Value="src/DeltaModel.Codec.Xml.pas"/>
+        <UnitName Value="DeltaModel.Codec.Xml"/>
+      </Item36>
+      <Item37>
+        <Filename Value="src/DeltaModel.Codec.Csv.pas"/>
+        <UnitName Value="DeltaModel.Codec.Csv"/>
+      </Item37>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>

@@ -23,7 +23,7 @@ interface
 uses
   Classes, SysUtils, TypInfo, Variants, fpjson, jsonparser,
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.List,
-  DeltaModel.ORM.Types, DeltaModel.SQLBuilder;
+  DeltaModel.ORM.Interfaces, DeltaModel.SQLBuilder;
 
 type
   EDeltaMergePatchException = class(Exception);
@@ -45,8 +45,11 @@ type
     class function Apply(AModel: TDeltaModel; const APatchJsonStr: RawByteString;
       AOptions: TMergePatchOptions = []): Integer; static; overload;
     class function BuildPartialUpdateSQL(AModel: TDeltaModel;
-      ADialect: TDatabaseDialect; const AWhereClause: string = '';
-      AUseNamedParams: Boolean = True): string; static;
+      const ADialect: IDeltaSQLDialect; const AWhereClause: string = '';
+      AUseNamedParams: Boolean = True): string; static; overload;
+    class function BuildPartialUpdateSQL(AModel: TDeltaModel;
+      const ADialectName: string; const AWhereClause: string = '';
+      AUseNamedParams: Boolean = True): string; static; overload;
   end;
 
 { RFC 7396 Section 2 normative algorithm on arbitrary JSON values.
@@ -515,10 +518,17 @@ begin
 end;
 
 class function TDeltaMergePatch.BuildPartialUpdateSQL(AModel: TDeltaModel;
-  ADialect: TDatabaseDialect; const AWhereClause: string;
+  const ADialect: IDeltaSQLDialect; const AWhereClause: string;
   AUseNamedParams: Boolean): string;
 begin
   Result := TDMSQLBuilder.CreatePartialUpdate(AModel, ADialect, AWhereClause, AUseNamedParams);
+end;
+
+class function TDeltaMergePatch.BuildPartialUpdateSQL(AModel: TDeltaModel;
+  const ADialectName: string; const AWhereClause: string;
+  AUseNamedParams: Boolean): string;
+begin
+  Result := TDMSQLBuilder.CreatePartialUpdate(AModel, ADialectName, AWhereClause, AUseNamedParams);
 end;
 
 end.

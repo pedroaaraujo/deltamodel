@@ -6,10 +6,11 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
-  Classes, SysUtils, DateUtils, DB, SQLDB, sqlite3conn,
-  DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.ORM.Connection,
-  DeltaModel.ORM.Interfaces, DeltaModel.ORM.DML, DeltaModel.Generics,
-  DeltaModel.JsonStreamer, DeltaSerialization;
+  Classes, SysUtils, DateUtils, sqlite3conn,
+  DeltaModel, DeltaModel.Fields, DeltaModel.Metadata,
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry, DeltaModel.ORM.Dialects,
+  DeltaModel.ORM.Driver.SQLDB, DeltaModel.ORM.Persister, DeltaModel.ORM.DML,
+  DeltaModel.Generics, DeltaModel.JsonStreamer, DeltaSerialization;
 
 type
   { Legacy Model (TDF* wrappers with Variant boxing) }
@@ -90,7 +91,7 @@ end;
 const
   BENCH_DB = '/tmp/deltamodel_benchmark_real.db';
 
-procedure RunBenchmarkVolume(AVolume: Integer; Engine: TDeltaORMEngine);
+procedure RunBenchmarkVolume(AVolume: Integer; const Conn: IDeltaConnection);
 var
   T0, T1: TDateTime;
   ElapsedMs: Int64;
@@ -206,11 +207,11 @@ begin
   // 3. REAL SQLITE PERSISTENCE (BULK INSERT)
   // ---------------------------------------------------------------------------
   // Legado BulkInsert
-  Engine.ExecuteDirect('DELETE FROM legacy_products;');
-  if Engine.TransactionActive then Engine.Commit;
+  Conn.ExecuteDirect('DELETE FROM legacy_products;');
+  if Conn.TransactionActive then Conn.Commit;
 
   T0 := Now;
-  Engine.BulkInsert(LegList, 1000);
+  TDeltaPersister.BulkInsert(Conn, LegList, 1000);
   T1 := Now;
   LegInsertMs := MilliSecondsBetween(T1, T0);
   if LegInsertMs = 0 then LegInsertMs := 1;
@@ -218,10 +219,10 @@ begin
     [LegInsertMs, (AVolume / (LegInsertMs / 1000.0))]));
 
   // Moderno BulkInsert
-  ModQuery := TDeltaQuery<TModernProduct>.Create(Engine);
+  ModQuery := TDeltaQuery<TModernProduct>.Create(Conn);
   try
-    Engine.ExecuteDirect('DELETE FROM modern_products;');
-    if Engine.TransactionActive then Engine.Commit;
+    Conn.ExecuteDirect('DELETE FROM modern_products;');
+    if Conn.TransactionActive then Conn.Commit;
 
     T0 := Now;
     ModQuery.BulkInsert(ModList, 1000);
@@ -250,7 +251,7 @@ begin
   // 4. FULL DATABASE READ AND ORM HYDRATION (SELECT -> OBJECT LIST)
   // ---------------------------------------------------------------------------
   // Legado All
-  LegDmlQuery := TQuery.Create(Engine);
+  LegDmlQuery := TQuery.Create(Conn);
   try
     LegDmlQuery.SetModel(TLegacyProduct);
     MemBefore := GetAllocatedMemKB;
@@ -268,7 +269,7 @@ begin
   end;
 
   // Moderno All Tipado
-  ModQuery := TDeltaQuery<TModernProduct>.Create(Engine);
+  ModQuery := TDeltaQuery<TModernProduct>.Create(Conn);
   try
     MemBefore := GetAllocatedMemKB;
     T0 := Now;
@@ -291,7 +292,7 @@ begin
 end;
 
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
 begin
   WriteLn('=======================================================================================================');
   WriteLn('        BENCHMARK COMPARATIVO REAL: DELTAMODEL LEGADO (TDF*) vs ABORDAGEM B (NATIVA + GENERICS)        ');
@@ -301,9 +302,9 @@ begin
 
   if FileExists(BENCH_DB) then DeleteFile(BENCH_DB);
 
-  Engine := TDeltaORMEngine.Create('sqlite://' + BENCH_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + BENCH_DB);
   try
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE legacy_products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name VARCHAR(150) NOT NULL,' +
@@ -313,7 +314,7 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE modern_products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name VARCHAR(150) NOT NULL,' +
@@ -323,15 +324,15 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
 
     // Run for 1,000, 10,000, and 50,000 real records
-    RunBenchmarkVolume(1000, Engine);
-    RunBenchmarkVolume(10000, Engine);
-    RunBenchmarkVolume(50000, Engine);
+    RunBenchmarkVolume(1000, Conn);
+    RunBenchmarkVolume(10000, Conn);
+    RunBenchmarkVolume(50000, Conn);
 
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(BENCH_DB) then DeleteFile(BENCH_DB);
   end;
 

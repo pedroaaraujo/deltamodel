@@ -1,4 +1,37 @@
-# Auto incremento: validação com Podman
+# Refatoração ORM (`refactor/orm-interfaces`): validação com Podman
+
+Execução em 25/11/2026: **1.094 verificações distintas aprovadas, nenhuma falha**.
+O runner repete as 788 verificações unitárias/regressões na etapa legada (`legacy-tests.log`),
+totalizando 1.882 asserções aprovadas na execução completa. Saída final: código 0.
+
+| Suíte / banco | Versão real | Migrations / regressões | Auto incremento / Bulk |
+| --- | --- | ---: | ---: |
+| Suíte principal (`test_suite`) | FPC (container bookworm) | 718 | — |
+| Planejamento de migrations (`test_migrations`) | FPC (container bookworm) | 30 | — |
+| SQL unitário de auto incremento (`test_autoincrement`) | FPC (container bookworm) | — | 40 |
+| PostgreSQL | 15.6 | 38 | 26 |
+| MySQL (servidor MySQL real) | 8.4.11 | 38 | 26 |
+| Firebird moderno | 5.0.4 | 38 | 32 |
+| Firebird legado | 2.5.9 | 38 | 34 |
+| SQLite | 3.40.1 | 19 | 17 |
+
+IDs locais das imagens (execução `/tmp/deltamodel-podman.krsy1r`):
+
+- Runner: `0b794582a18c74df6f73d5839052188af14a29153c37b348df0bfa46d4e5fcb8`
+- PostgreSQL: `bacb8d141d0d811b9a424b11ee36c723aaccce05d81acbbe540d1b54113802ee`
+- MySQL: `8d132912e9d3c985237567595ec2aeae04936044eb1f9336e8e4da2326238b84`
+- Firebird 5: `c7aa0e38823d05ec16edbab768d0336ce96331769d4558aa6625ec0ea90f50d3`
+- Firebird 2.5: `b3d6bed7feda05bc69a313add5e10a3d8a46bac4bd86a97336936489cd24b2ea`
+
+Observações desta execução:
+
+- Firebird 3 e 4 permanecem cobertos por testes unitários de SQL gerado, não por servidores reais no Podman.
+- MSSQL e Oracle permanecem cobertos por testes unitários de geração SQL/DDL e `TMockDriver`, não por containers reais no Podman.
+- Normalização LF aplicada aos scripts `tests/podman/run.sh` e `tests/podman/run-inside.sh` para execução em Linux.
+
+---
+
+# Auto incremento: validação com Podman (histórico main)
 
 Execução em 29/09/2026: **536 verificações distintas aprovadas, nenhuma falha**.
 O runner repete as 270 verificações unitárias/regressões na etapa legada,

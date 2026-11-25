@@ -1,6 +1,6 @@
 # DeltaModel ORM — Example 03: Multi-Threaded Connection Pool Benchmark (`03-connection-pool`)
 
-An interactive Lazarus LCL benchmark utility demonstrating **`TDeltaConnectionPool`** (`DeltaModel.ORM.Pool`) under multi-threaded concurrency, comparing pooled connection leasing (`IDeltaPooledEngine`) against unpooled per-operation connections (`TDeltaORMEngine`).
+An interactive Lazarus LCL benchmark utility demonstrating **`TDeltaConnectionPool`** (`DeltaModel.ORM.Pool`) under multi-threaded concurrency, comparing pooled RAII connection leasing (`IDeltaConnection` from `Pool.Acquire`) against unpooled per-operation connections (`TDeltaORM.Connect`).
 
 ---
 
@@ -8,7 +8,7 @@ An interactive Lazarus LCL benchmark utility demonstrating **`TDeltaConnectionPo
 
 - **Thread-Safe Connection Leasing (`TDeltaConnectionPool`)**:
   - Configurable pool parameters via `TDeltaPoolConfig`: `MinConnections`, `MaxConnections`, `AcquireTimeoutMs`, and `HousekeeperIntervalSec`.
-  - Automatic reference-counted lease release via `IDeltaPooledEngine` (`Lease := FPool.Acquire`).
+  - Automatic reference-counted lease release via `IDeltaConnection` (`Lease := FPool.Acquire`).
 - **Real-Time Pool Telemetry (`TDeltaPoolStats`)**:
   - Reports `TotalAcquisitions`, `TotalReleases`, `ConnectionsCreated`, and `PeakActiveConnections`.
 - **Multi-Threaded Comparative Benchmark (`TPooledWorker` vs `TUnpooledWorker`)**:
@@ -33,6 +33,9 @@ fpc -MObjFPC -Scghi -O2 \
   -FE/tmp/deltamodel_ex03 \
   -FU/tmp/deltamodel_ex03 \
   -Fu../../src \
+  -Fu../../src/orm \
+  -Fu../../src/orm/dialects \
+  -Fu../../src/orm/drivers \
   -Fi../../src \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux/gtk2 \

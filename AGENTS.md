@@ -9,9 +9,13 @@ Código em Free Pascal, modo ObjFPC; fontes em `src`, programas de teste em `tes
 
 ## DDL e auto incremento
 
-- `DeltaModel.ORM.DDL` gera SQL puro; não consulta conexões nem usa estado global.
-- `DeltaModel.ORM.Schema.PrepareDB` consulta a versão do servidor Firebird e passa
-  explicitamente `FirebirdMajor` ao builder, inclusive para planejamento sem persistir.
+- `DeltaModel.ORM.DDL` e `src/orm/dialects/*` (`IDeltaDDLDialect`) geram SQL puro;
+  não consultam conexões nem usam estado global.
+- `DeltaModel.ORM.Schema.PrepareDB` consulta a versão do servidor via
+  `Dialect.Introspector.DetectServerInfo` e passa explicitamente `TDeltaServerInfo`
+  ao builder (`TDDLBuilder`), inclusive para planejamento sem persistir.
+- `DeltaModel.DataSetConverter` permanece opcional fora do núcleo ORM (em `src/`);
+  as units de `src/orm/` não dependem de `DB` nem `SQLDB` (exceto `Driver.SQLDB`).
 - Firebird 2.5 usa generator + trigger; 3+ usa identity com generator interno.
   Não confundir versão do servidor, biblioteca cliente e `DatabaseVersion`
   (que representa o histórico de migrations).
@@ -58,11 +62,21 @@ O DeltaModel é um microframework moderno para Lazarus / Free Pascal projetado c
 | `DeltaSerialization.pas` | Mecanismo de reflexão RTTI para serialização/desserialização JSON e CSV. |
 | `DeltaAPISchema.pas` | Gerador de schemas OpenAPI 3.0 / Swagger. |
 | `DeltaValidator.pas` | Motor de validação fluente (`TValidator`) com suporte a documentos e regras brasileiras. |
-| `DeltaModel.ORM.Connection.pas` | Engine central de conexão e execução SQL (`TDeltaORMEngine`). |
-| `DeltaModel.ORM.Pool.pas` | Pool de conexões multithread com suporte a empréstimo RAII (`IDeltaPooledEngine`). |
-| `DeltaModel.ORM.DDL.pas` | Geração de scripts DDL agnósticos para tabelas, colunas, constraints e índices. |
-| `DeltaModel.ORM.DML.pas` | Query builder fluente (`TQuery`) com operadores tipados e paginação nativa. |
-| `DeltaModel.ORM.Schema.pas` | Migrador e planejador de esquema de banco de dados (`TDeltaORMSchema`). |
+| `src/orm/DeltaModel.ORM.Types.pas` | Tipos puros de execução SQL (`TComparisonOp`, `TJoinType`, `TDeltaServerInfo`, `TDeltaParam`, `TDeltaParams`). |
+| `src/orm/DeltaModel.ORM.Interfaces.pas` | Contratos puros (`IDeltaConnection`, `IDeltaTransaction`, `IDeltaStatement`, `IDeltaResultSet`, `IDeltaDialect`, `IDeltaDriver`). |
+| `src/orm/DeltaModel.ORM.Registry.pas` | Registro extensível de drivers/dialetos (`TDeltaORMRegistry`) e fachada `TDeltaORM`. |
+| `src/orm/DeltaModel.ORM.Connection.pas` | Classes base de conexão, cursor e transação RAII (`TBaseDeltaConnection`, `TBaseDeltaResultSet`, `TDeltaTransactionScope`). |
+| `src/orm/DeltaModel.ORM.Criteria.pas` | Helper compartilhado de filtros/predicados parametrizados (`TSQLCriteriaHelper`). |
+| `src/orm/DeltaModel.ORM.Hydrator.pas` | Cache de mapeamento campo/coluna (`TResultBindingMap`) e hidratação via `IDeltaResultSet` (`TDeltaHydrator`). |
+| `src/orm/DeltaModel.SQLBuilder.pas` | Construtor SQL agnóstico de DML delegado a `IDeltaSQLDialect` (`TDMSQLBuilder`). |
+| `src/orm/DeltaModel.ORM.DDL.pas` | Geração de scripts DDL agnósticos delegada a `IDeltaDDLDialect` (`TDDLBuilder`). |
+| `src/orm/DeltaModel.ORM.Persister.pas` | Persistência tipada (`TDeltaPersister`, `TInsert`, `TUpdate`, `TDelete`, `TSave`). |
+| `src/orm/DeltaModel.ORM.DML.pas` | Query builder fluente (`TQuery`) com operadores tipados e paginação nativa. |
+| `src/orm/DeltaModel.ORM.Schema.pas` | Migrador e planejador de esquema de banco de dados (`TDeltaORMSchema`). |
+| `src/orm/DeltaModel.ORM.Pool.pas` | Pool de conexões multithread com empréstimo RAII via `IDeltaConnection` (`TDeltaConnectionPool`). |
+| `src/orm/DeltaModel.Generics.pas` | Consultas tipadas com `TDeltaQuery<T>` e cursor reusável zero-alloc. |
+| `src/orm/dialects/*.pas` | Implementações de `IDeltaDialect` por SGBD (`PostgreSQL`, `SQLite`, `MySQL`, `Firebird`, `MSSQL`, `Oracle`) + `DeltaModel.ORM.Dialects.pas`. |
+| `src/orm/drivers/*.pas` | Conectores plugáveis: `DeltaModel.ORM.Driver.SQLDB` (SQLDB) e `DeltaModel.ORM.Driver.Mock` (testes sem dependências externas). |
 
 ---
 
@@ -151,7 +165,7 @@ Agentes devem utilizar ou gerar código utilizando os novos métodos explícitos
 
 1. **Preservação de Binários**: Sempre compile testes apontando a `/tmp`:
    ```bash
-   fpc -FE/tmp -FU/tmp -Fu./src -Fisrc tests/test_suite.lpr
+   fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers -Fisrc tests/test_suite.lpr
    ```
 2. **Não deixar lixo no repositório**: Nunca comite nem crie arquivos `.ppu`, `.o`, `.a` ou binários executáveis na raiz ou em subpastas de código.
 3. **Validação Contínua**: Ao alterar `DeltaModel.pas`, `DeltaSerialization.pas` ou ORM, execute `/tmp/test_suite` e garanta que 100% dos testes permaneçam aprovados.

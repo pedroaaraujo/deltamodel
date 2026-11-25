@@ -22,11 +22,12 @@ unit test_deltamodel_merge_patch;
 interface
 
 uses
-  Classes, SysUtils, Variants, DB, SQLDB, sqlite3conn, fpjson, jsonparser,
+  Classes, SysUtils, Variants, sqlite3conn, fpjson, jsonparser,
   HTTPDefs, fpcunit, testregistry,
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.ORM.Types,
-  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Connection, DeltaModel.ORM.DDL,
-  DeltaModel.ORM.DML, DeltaModel.SQLBuilder, DeltaModel.MergePatch,
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry, DeltaModel.ORM.Dialects,
+  DeltaModel.ORM.Driver.SQLDB, DeltaModel.ORM.DML, DeltaModel.ORM.Persister,
+  DeltaModel.SQLBuilder, DeltaModel.MergePatch,
   Zenith.MergePatch, Zenith.Exceptions;
 
 type
@@ -560,7 +561,7 @@ begin
     AssertEquals('Updated price value', 199.50, Prod.price.AsFloat, 0.001);
     AssertEquals('Unchanged name value', 'Mechanical Keyboard', Prod.name.AsString);
 
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql');
     AssertEquals('Partial SQL must contain ONLY price column',
       'UPDATE products SET price = :price WHERE (id = 42)', SQL);
   finally
@@ -585,7 +586,7 @@ begin
     AssertTrue('notes must be dirty', Prod.notes.Dirty);
     AssertFalse('brand must remain clean', Prod.brand.Dirty);
 
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql');
     AssertEquals('Partial SQL must include dirty null columns with named params',
       'UPDATE products SET description = :description, notes = :notes WHERE (id = 42)', SQL);
   finally
@@ -608,7 +609,7 @@ begin
     AssertTrue('stock must be dirty', Prod.stock.Dirty);
     AssertEquals('stock updated to 80', 80, Prod.stock.AsInteger);
 
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, ddSQLite);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, 'sqlite');
     AssertEquals('Partial SQL must not contain PK in SET clause',
       'UPDATE products SET stock = :stock WHERE (id = 42)', SQL);
   finally
@@ -651,7 +652,7 @@ begin
     AssertEquals('internal_secret unchanged', 'SECRET-TOKEN', Prod.internal_secret.AsString);
     AssertFalse('Model must have no dirty fields', Prod.HasDirtyFields);
     AssertEquals('No SQL generated when 0 dirty fields', '',
-      TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL));
+      TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql'));
   finally
     Prod.Free;
   end;
@@ -691,9 +692,9 @@ begin
     AssertEquals('Empty patch returns 0', 0, ApplyMergePatch(Prod, '{}'));
     AssertFalse('HasDirtyFields must be False', Prod.HasDirtyFields);
     AssertEquals('CreatePartialUpdate must return empty string', '',
-      TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL));
+      TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql'));
     AssertEquals('CreatePartialUpdateReturning must return empty string', '',
-      TDMSQLBuilder.CreatePartialUpdateReturning(Prod, ddPostgreSQL));
+      TDMSQLBuilder.CreatePartialUpdateReturning(Prod, 'postgresql'));
   finally
     Prod.Free;
   end;
@@ -708,12 +709,12 @@ begin
   try
     ApplyMergePatch(Prod, '{"name": "Pro Keyboard", "stock": 95}');
 
-    SQLPg := TDMSQLBuilder.CreatePartialUpdateReturning(Prod, ddPostgreSQL);
+    SQLPg := TDMSQLBuilder.CreatePartialUpdateReturning(Prod, 'postgresql');
     AssertEquals('PostgreSQL partial UPDATE RETURNING',
       'UPDATE products SET name = :name, stock = :stock WHERE (id = 42)' + sLineBreak + 'RETURNING *',
       SQLPg);
 
-    SQLMssql := TDMSQLBuilder.CreatePartialUpdateReturning(Prod, ddMSSQL);
+    SQLMssql := TDMSQLBuilder.CreatePartialUpdateReturning(Prod, 'mssql');
     AssertEquals('MSSQL partial UPDATE OUTPUT INSERTED.*',
       'UPDATE products SET name = :name, stock = :stock OUTPUT INSERTED.* WHERE (id = 42)',
       SQLMssql);
@@ -730,7 +731,7 @@ begin
   Prod := CreatePopulatedProduct;
   try
     ApplyMergePatch(Prod, '{"description": null, "stock": 5}');
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, ddSQLite, '', False);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Prod, 'sqlite', '', False);
     AssertEquals('Inline SQL must emit description = NULL and stock = 5',
       'UPDATE products SET description = NULL, stock = 5 WHERE (id = 42)', SQL);
   finally
@@ -756,11 +757,11 @@ begin
     AssertFalse('email remains clean', Usr.IsDirty('email'));
     AssertFalse('username remains clean', Usr.IsDirty('username'));
 
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Usr, ddPostgreSQL);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Usr, 'postgresql');
     AssertEquals('Style B partial UPDATE SQL',
       'UPDATE users SET bio = :bio, city = :city WHERE (id = 7)', SQL);
 
-    SQL := TDMSQLBuilder.CreatePartialUpdate(Usr, ddPostgreSQL, '', False);
+    SQL := TDMSQLBuilder.CreatePartialUpdate(Usr, 'postgresql', '', False);
     AssertEquals('Style B inline partial UPDATE SQL with NULL',
       'UPDATE users SET bio = NULL, city = ''Denver'' WHERE (id = 7)', SQL);
   finally
@@ -818,14 +819,14 @@ end;
 
 procedure TTestDeltaModelMergePatch.TestEndToEndSQLitePatchObject;
 var
-  Engine: IDeltaORMEngine;
+  Conn: IDeltaConnection;
   Prod, Loaded: TProduct;
   Q: TQuery;
   Patched: Boolean;
 begin
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE products (' +
       'id INTEGER PRIMARY KEY AUTOINCREMENT, ' +
       'sku TEXT NOT NULL, ' +
@@ -851,24 +852,24 @@ begin
 
     Prod := CreatePopulatedProduct(False);
     try
-      AssertTrue('Initial INSERT must succeed', TInsert.InsertObject(Engine, Prod));
+      AssertTrue('Initial INSERT must succeed', TInsert.InsertObject(Conn, Prod));
       AssertTrue('AutoInc PK assigned', Prod.id.AsLargeInt > 0);
       Prod.ClearAllDirty;
 
       // 0 dirty fields -> PatchObject must be a no-op returning False
-      Patched := TUpdate.PatchObject(Engine, Prod);
+      Patched := TUpdate.PatchObject(Conn, Prod);
       AssertFalse('PatchObject with 0 dirty fields must return False', Patched);
 
       // Apply RFC 7396 Merge Patch: update price, clear description to NULL, attempt PK overwrite
       AssertEquals('2 fields patched', 2,
         ApplyMergePatch(Prod, '{"id": 9999, "price": 249.99, "description": null}'));
 
-      Patched := TUpdate.PatchObject(Engine, Prod);
+      Patched := TUpdate.PatchObject(Conn, Prod);
       AssertTrue('PatchObject with 2 dirty fields must return True', Patched);
       AssertFalse('Dirty flags cleared after PatchObject', Prod.HasDirtyFields);
 
       // Reload from SQLite and verify partial persistence
-      Q := TQuery.Create(Engine);
+      Q := TQuery.Create(Conn);
       try
         Q.SetModel(TProduct);
         Loaded := TProduct(Q.FindById(Prod.id.AsLargeInt));
@@ -890,7 +891,7 @@ begin
       Prod.Free;
     end;
   finally
-    Engine := nil;
+    Conn := nil;
   end;
 end;
 
@@ -957,7 +958,7 @@ begin
     AssertTrue('description cleared to null', Prod.description.IsNull);
     AssertEquals('Partial SQL from patched model',
       'UPDATE products SET description = :description, price = :price WHERE (id = 10)',
-      TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL));
+      TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql'));
   finally
     Prod.Free;
     Req.Free;
@@ -1055,9 +1056,9 @@ begin
 
     // Warm-up metadata cache
     ApplyMergePatch(Prod, PatchPayload, [mpoClearDirtyBeforeApply]);
-    SQLPatch := TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL);
+    SQLPatch := TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql');
     Prod.FromJson(FullPutPayload);
-    SQLPut := TDMSQLBuilder.CreateUpdate(Prod, ddPostgreSQL);
+    SQLPut := TDMSQLBuilder.CreateUpdate(Prod, 'postgresql');
 
     Result.PatchSQLBytes := Length(SQLPatch);
     Result.PutSQLBytes := Length(SQLPut);
@@ -1070,7 +1071,7 @@ begin
     for I := 1 to AIterations do
     begin
       ApplyMergePatch(Prod, PatchPayload, [mpoClearDirtyBeforeApply]);
-      SQLPatch := TDMSQLBuilder.CreatePartialUpdate(Prod, ddPostgreSQL);
+      SQLPatch := TDMSQLBuilder.CreatePartialUpdate(Prod, 'postgresql');
     end;
     EndTick := GetTickCount64;
     HeapAfter := GetFPCHeapStatus;
@@ -1085,7 +1086,7 @@ begin
     for I := 1 to AIterations do
     begin
       Prod.FromJson(FullPutPayload);
-      SQLPut := TDMSQLBuilder.CreateUpdate(Prod, ddPostgreSQL);
+      SQLPut := TDMSQLBuilder.CreateUpdate(Prod, 'postgresql');
     end;
     EndTick := GetTickCount64;
     HeapAfter := GetFPCHeapStatus;

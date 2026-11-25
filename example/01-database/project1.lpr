@@ -11,11 +11,12 @@ uses
   {$ENDIF}
   Interfaces, // this includes the LCL widgetset
   Forms, unit1, DeltaModel.ORM.Connection, DatabaseURLParser,
-  DeltaModel.DataSetConverter, DeltaValidator, DeltaSerialization,
+  DeltaValidator, DeltaSerialization,
   DeltaModelMessages, DeltaModel.Fields, DeltaAPISchema, DeltaModel.ORM.DML
   { you can add units after this },
   SQLite3Conn, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Types,
-  DeltaModel.ORM.DDL, DeltaModel.ORM.Schema,
+  DeltaModel.ORM.Registry, DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB,
+  DeltaModel.ORM.Persister, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema,
   IBConnection
   //PQConnection,
   ;

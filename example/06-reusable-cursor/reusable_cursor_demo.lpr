@@ -6,8 +6,10 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
-  Classes, SysUtils, DB, SQLDB, sqlite3conn,
-  DeltaModel, DeltaModel.Fields, DeltaModel.Generics, DeltaModel.ORM.Connection;
+  Classes, SysUtils, sqlite3conn,
+  DeltaModel, DeltaModel.Fields, DeltaModel.Generics,
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB;
 
 type
   {============================================================================}
@@ -66,7 +68,7 @@ const
   TOTAL_RECORDS = 1000;
 
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: TDeltaQuery<TMunicipio>;
   Processor: TMunicipioProcessor;
   M: TMunicipio;
@@ -93,10 +95,10 @@ begin
 
   if FileExists(DEMO_DB) then DeleteFile(DEMO_DB);
 
-  Engine := TDeltaORMEngine.Create('sqlite://' + DEMO_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + DEMO_DB);
   try
     // 2. Create database and seed 1,000 municipalities
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE municipios (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  nome VARCHAR(120) NOT NULL,' +
@@ -104,21 +106,21 @@ begin
       '  codigo_ibge INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
 
-    if not Engine.TransactionActive then Engine.StartTransaction;
+    if not Conn.TransactionActive then Conn.StartTransaction;
     for I := 1 to TOTAL_RECORDS do
     begin
-      Engine.ExecuteDirect(Format(
+      Conn.ExecuteDirect(Format(
         'INSERT INTO municipios (nome, uf, codigo_ibge) VALUES (''Municipio %d'', ''SP'', %d);',
         [I, 3500000 + I]
       ));
     end;
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
     WriteLn(Format('[2] Banco SQLite populado com %d municipios de teste.', [TOTAL_RECORDS]));
     WriteLn('');
 
-    Query := TDeltaQuery<TMunicipio>.Create(Engine);
+    Query := TDeltaQuery<TMunicipio>.Create(Conn);
     try
       // 3. Canonical Pascal Pattern: while Query.Next do
       WriteLn('[3] Padrão Canônico Pascal (while Query.Next do):');
@@ -196,7 +198,7 @@ begin
     end;
 
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(DEMO_DB) then DeleteFile(DEMO_DB);
   end;
 

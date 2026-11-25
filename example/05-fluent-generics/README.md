@@ -45,6 +45,9 @@ fpc -MDelphi -Scghi -O2 \
   -FE/tmp/deltamodel_ex05 \
   -FU/tmp/deltamodel_ex05 \
   -Fu../../src \
+  -Fu../../src/orm \
+  -Fu../../src/orm/dialects \
+  -Fu../../src/orm/drivers \
   -Fi../../src \
   fluent_generics_demo.lpr
 ```

@@ -8,7 +8,9 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ComCtrls,
   ExtCtrls, Variants,
   DeltaModel, DeltaModel.Fields, DeltaModel.SQLBuilder,
-  DeltaModel.ORM.Connection, DeltaModel.ORM.Types, DeltaModel.ORM.Schema,
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB,
+  DeltaModel.ORM.Persister, DeltaModel.ORM.Schema,
   DeltaModel.ORM.DDL, DeltaModel.ORM.DML;
 
 type
@@ -97,8 +99,8 @@ type
     procedure cmbDialectChange(Sender: TObject);
     procedure FormShow(Sender: TObject);
   private
-    function CurrentDialect: TDatabaseDialect;
-    procedure BuildSQL(ADialect: TDatabaseDialect);
+    function CurrentDialect: IDeltaDialect;
+    procedure BuildSQL(const ADialect: IDeltaDialect);
   public
 
   end;
@@ -150,17 +152,17 @@ end;
 
 { TForm1 }
 
-function TForm1.CurrentDialect: TDatabaseDialect;
+function TForm1.CurrentDialect: IDeltaDialect;
 begin
   case cmbDialect.ItemIndex of
-    0: Result := ddPostgreSQL;
-    1: Result := ddMySQL;
-    2: Result := ddSQLite;
-    3: Result := ddFirebird;
-    4: Result := ddMSSQL;
-    5: Result := ddOracle;
+    0: Result := TDeltaORM.Dialect('postgresql');
+    1: Result := TDeltaORM.Dialect('mysql');
+    2: Result := TDeltaORM.Dialect('sqlite');
+    3: Result := TDeltaORM.Dialect('firebird');
+    4: Result := TDeltaORM.Dialect('mssql');
+    5: Result := TDeltaORM.Dialect('oracle');
   else
-    Result := ddPostgreSQL;
+    Result := TDeltaORM.Dialect('postgresql');
   end;
 end;
 
@@ -176,7 +178,7 @@ begin
   BuildSQL(CurrentDialect);
 end;
 
-procedure TForm1.BuildSQL(ADialect: TDatabaseDialect);
+procedure TForm1.BuildSQL(const ADialect: IDeltaDialect);
 var
   Person: TPerson;
   Builder: TDMSQLBuilder;
@@ -214,7 +216,7 @@ begin
 
     mmoInsert.Lines.Text := TDMSQLBuilder.CreateInsertReturning(
       Person,
-      ADialect,
+      ADialect.SQL,
       True
     );
 
@@ -222,14 +224,14 @@ begin
     Person.id.Value := 42;
     mmoUpdate.Lines.Text := TDMSQLBuilder.CreateUpdate(
       Person,
-      ADialect
+      ADialect.SQL
     );
 
     // 4. DELETE
     Person.id.Value := 42;
     mmoDelete.Lines.Text := TDMSQLBuilder.CreateDelete(
       Person,
-      ADialect
+      ADialect.SQL
     );
 
     // 5. Generated DDL for dialect (Table, Constraints, and Indexes)
@@ -239,12 +241,14 @@ begin
       DDLText := TDDLBuilder.CreateTableAndFields(
         Person,
         ConstraintsList,
-        ADialect
+        ADialect.DDL,
+        True,
+        DefaultServerInfo
       );
       if ConstraintsList.Count > 0 then
         DDLText := DDLText + sLineBreak + ConstraintsList.Text;
 
-      TDDLBuilder.GetIndexes(Person, ADialect, IndexesList);
+      TDDLBuilder.GetIndexes(Person, ADialect.DDL, IndexesList);
       if IndexesList.Count > 0 then
         DDLText := DDLText + sLineBreak + IndexesList.Text;
 
@@ -260,17 +264,16 @@ end;
 
 procedure TForm1.Button2Click(Sender: TObject);
 var
-  Con: TDeltaORMEngine;
+  Con: IDeltaConnection;
   Schema: TDeltaORMSchema;
 begin
-  Con := TDeltaORMEngine.Create(Edit1.Text);
+  Con := TDeltaORM.Connect(Edit1.Text);
   try
     Schema := TDeltaORMSchema.Create(Con);
     try
       try
-        Con.Connection.Open;
-        mmoDDL.Lines.Add('=== Conectado com sucesso via: ' + Con.Connection.ConnectorType + ' ===');
-        mmoDDL.Lines.Add('Dialeto ativo: ' + TDatabaseDialectHelper.ToString(Con.Dialect));
+        mmoDDL.Lines.Add('=== Conectado com sucesso via driver: ' + Con.DriverName + ' ===');
+        mmoDDL.Lines.Add('Dialeto ativo: ' + Con.Dialect.Name);
 
         Schema.RegisterModel(TPerson.Create);
         Schema.RegisterModel(TProfile.Create);
@@ -287,16 +290,17 @@ begin
         ShowMessageFmt('Falha ao preparar schema:%s%s', [sLineBreak, E.Message]);
     end;
   finally
-    Con.Free;
+    Con := nil;
   end;
 end;
 
 procedure TForm1.btnTestCRUDClick(Sender: TObject);
 var
-  Con: TDeltaORMEngine;
+  Con: IDeltaConnection;
   Schema: TDeltaORMSchema;
   P, FoundP: TPerson;
   Prof: TProfile;
+  Q: TQuery;
   List: TDeltaModelList;
   I: Integer;
   Total: Int64;
@@ -304,11 +308,10 @@ begin
   mmoDDL.Clear;
   mmoDDL.Lines.Add('=== Iniciando Teste de Operações ORM ===');
 
-  Con := TDeltaORMEngine.Create(Edit1.Text);
+  Con := TDeltaORM.Connect(Edit1.Text);
   try
     try
-      Con.Connection.Open;
-      mmoDDL.Lines.Add('1. Conectado ao banco (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
+      mmoDDL.Lines.Add('1. Conectado ao banco (' + Con.Dialect.Name + ' via ' + Con.DriverName + ')');
 
       // 2. Prepare tables
       Schema := TDeltaORMSchema.Create(Con);
@@ -337,7 +340,7 @@ begin
         P.created.Value := Now;
         P.externalUuid.Value := '550e8400-e29b-41d4-a716-446655440000';
 
-        if Con.Save(P) then
+        if TDeltaPersister.Save(Con, P) then
         begin
           mmoDDL.Lines.Add('3. [SAVE - INSERT] Registro inserido com sucesso: ' + P.name.Value + ' (Id: ' + P.id.AsString + ')');
 
@@ -346,7 +349,7 @@ begin
           try
             Prof.personId.Value := P.id.Value;
             Prof.bio.Value := 'Especialista em Microsserviços e Banco de Dados';
-            Con.Save(Prof);
+            TDeltaPersister.Save(Con, Prof);
             mmoDDL.Lines.Add('   [1:1 HAS_ONE / FK] Profile criado para pessoa ' + P.id.AsString);
           finally
             Prof.Free;
@@ -372,33 +375,35 @@ begin
         P.created.Value := Now;
         P.externalUuid.Value := 'e7b0b230-6b3a-4f51-b84a-9ef8d5f308a2';
 
-        Con.Insert(P);
+        TDeltaPersister.Insert(Con, P);
         mmoDDL.Lines.Add('4. [INSERT] Segundo registro inserido: ' + P.name.Value + ' (Id: ' + P.id.AsString + ')');
       finally
         P.Free;
       end;
 
-      // 5. Row count via Con.Count
-      Total := Con.Count(TPerson);
-      mmoDDL.Lines.Add(Format('5. [COUNT] Total de pessoas no banco: %d', [Total]));
-
-      // 6. Fluent query with pagination
-      List := Con.Query(TPerson)
-        .OrderBy('name ASC')
-        .Page(1, 10)
-        .All;
+      // 5. Row count & Fluent query with pagination
+      Q := TQuery.Create(Con);
       try
-        mmoDDL.Lines.Add('6. [QUERY.ALL] Registros retornados com todos os tipos:');
-        for I := 0 to Pred(List.Records.Count) do
-        begin
-          FoundP := List.Records[I] as TPerson;
-          mmoDDL.Lines.Add(Format('   [%d] Nome: %s %s | Idade: %d | BigCode: %s | Score: %.2f | Limite: R$ %.2f | Nasc: %s | UUID: %s',
-            [I + 1, FoundP.name.Value, FoundP.surname.AsString, FoundP.age.AsInteger,
-             FoundP.bigCode.AsString, FoundP.score.AsFloat, FoundP.creditLimit.AsCurrency,
-             FoundP.birthDate.AsString, FoundP.externalUuid.AsString]));
+        Q.SetModel(TPerson);
+        Total := Q.Count;
+        mmoDDL.Lines.Add(Format('5. [COUNT] Total de pessoas no banco: %d', [Total]));
+
+        List := Q.OrderBy('name ASC').Page(1, 10).All;
+        try
+          mmoDDL.Lines.Add('6. [QUERY.ALL] Registros retornados com todos os tipos:');
+          for I := 0 to Pred(List.Records.Count) do
+          begin
+            FoundP := List.Records[I] as TPerson;
+            mmoDDL.Lines.Add(Format('   [%d] Nome: %s %s | Idade: %d | BigCode: %s | Score: %.2f | Limite: R$ %.2f | Nasc: %s | UUID: %s',
+              [I + 1, FoundP.name.Value, FoundP.surname.AsString, FoundP.age.AsInteger,
+               FoundP.bigCode.AsString, FoundP.score.AsFloat, FoundP.creditLimit.AsCurrency,
+               FoundP.birthDate.AsString, FoundP.externalUuid.AsString]));
+          end;
+        finally
+          List.Free;
         end;
       finally
-        List.Free;
+        Q.Free;
       end;
 
       ShowMessage('Teste de CRUD executado com sucesso! Veja os logs no memo.');
@@ -410,7 +415,7 @@ begin
       end;
     end;
   finally
-    Con.Free;
+    Con := nil;
   end;
 end;
 

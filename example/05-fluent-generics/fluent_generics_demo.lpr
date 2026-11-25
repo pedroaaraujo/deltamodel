@@ -6,8 +6,10 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
-  Classes, SysUtils, StrUtils, DB, SQLDB, sqlite3conn,
-  DeltaModel, DeltaModel.Fields, DeltaModel.Generics, DeltaModel.ORM.Connection;
+  Classes, SysUtils, StrUtils, sqlite3conn,
+  DeltaModel, DeltaModel.Fields, DeltaModel.Generics,
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB;
 
 type
   {============================================================================}
@@ -54,7 +56,7 @@ const
   DEMO_DB = '/tmp/deltamodel_fluent_demo.db';
 
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: TDeltaQuery<TProduct>;
   P, Found: TProduct;
   List, Lote: TGDeltaModelList<TProduct>;
@@ -70,10 +72,10 @@ begin
 
   if FileExists(DEMO_DB) then DeleteFile(DEMO_DB);
 
-  Engine := TDeltaORMEngine.Create('sqlite://' + DEMO_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + DEMO_DB);
   try
     // 1. Create sample table
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name VARCHAR(150) NOT NULL,' +
@@ -83,11 +85,11 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
     WriteLn('[1] Tabela "products" criada com sucesso.');
 
     // 2. Instantiate Typed Query
-    Query := TDeltaQuery<TProduct>.Create(Engine);
+    Query := TDeltaQuery<TProduct>.Create(Conn);
     try
       // Insert records
       P := TProduct.Create;
@@ -182,7 +184,7 @@ begin
     end;
 
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(DEMO_DB) then DeleteFile(DEMO_DB);
   end;
 

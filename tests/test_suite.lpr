@@ -7,11 +7,15 @@ uses
   cthreads,
   cwstring,
   {$ENDIF}
-  Classes, SysUtils, Variants, TypInfo, DB, SQLDB, sqlite3conn, fpjson, jsonparser,
+  Classes, SysUtils, Variants, TypInfo, sqlite3conn, fpjson, jsonparser,
   DeltaModel, DeltaModel.Fields, DeltaModel.List, DeltaModel.ORM.Connection,
   DeltaModel.ORM.DML, DeltaModel.ORM.DDL, DeltaModel.ORM.Schema, DeltaModel.SQLBuilder,
-  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DatabaseURLParser, DeltaValidator,
-  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata, DeltaModel.DataSetConverter,
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Criteria, DeltaModel.ORM.Hydrator, DeltaModel.ORM.Persister,
+  DeltaModel.ORM.Pool, DeltaModel.ORM.Dialects,
+  DeltaModel.ORM.Driver.SQLDB, DeltaModel.ORM.Driver.Mock,
+  DatabaseURLParser, DeltaValidator,
+  DeltaSerialization, DeltaAPISchema, DeltaModel.Metadata,
   DeltaModel.JsonStreamer, DeltaModel.Generics, DeltaModel.JsonParser, DeltaModel.Messages,
   DeltaModel.Codec, DeltaModel.Codec.Bson, DeltaModel.Codec.Cbor,
   DeltaModel.Codec.Xml, DeltaModel.Codec.Csv;
@@ -1000,7 +1004,7 @@ var
   Item, Loaded: TFluentTdfItem;
   Meta: TModelMetadata;
   F: PDeltaFieldMeta;
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: specialize TDeltaQuery<TFluentTdfItem>;
   Json: string;
   Raised: Boolean;
@@ -1038,18 +1042,17 @@ begin
     Item.Free;
   end;
 
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    Engine.Connection.Open;
-    Engine.ExecuteDirect('CREATE TABLE fluent_tdf_item (id INTEGER PRIMARY KEY AUTOINCREMENT, description VARCHAR(100) NOT NULL, done INTEGER NOT NULL)');
+    Conn.ExecuteDirect('CREATE TABLE fluent_tdf_item (id INTEGER PRIMARY KEY AUTOINCREMENT, description VARCHAR(100) NOT NULL, done INTEGER NOT NULL)');
     Item := TFluentTdfItem.Create;
     try
       Item.FromJson('{"description":"persistida","done":false}');
-      AssertTrue(Engine.Insert(Item), 'Insert de modelo com schema fluente sobre TDF');
+      AssertTrue(TDeltaPersister.Insert(Conn, Item), 'Insert de modelo com schema fluente sobre TDF');
     finally
       Item.Free;
     end;
-    Query := specialize TDeltaQuery<TFluentTdfItem>.Create(Engine);
+    Query := specialize TDeltaQuery<TFluentTdfItem>.Create(Conn);
     try
       Loaded := Query.First;
     finally
@@ -1063,7 +1066,7 @@ begin
       Loaded.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end;
 
@@ -1120,13 +1123,17 @@ begin
 end;
 
 procedure TestStringLiteralEscaping;
+var
+  PgSQL, MySQLDialect: IDeltaSQLDialect;
 begin
   Suite('4b. Escape de literais por dialeto');
-  AssertEquals('''a''''b''', TSQLCriteriaHelper.QuoteString('a''b', ddPostgreSQL), 'Aspa simples duplicada (PostgreSQL)');
-  AssertEquals('''a\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', ddPostgreSQL), 'Barra invertida preservada fora do MySQL');
-  AssertEquals('''a\\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', ddMySQL), 'Barra invertida duplicada no MySQL/MariaDB');
+  PgSQL := TDeltaORM.Dialect('postgresql').SQL;
+  MySQLDialect := TDeltaORM.Dialect('mysql').SQL;
+  AssertEquals('''a''''b''', TSQLCriteriaHelper.QuoteString('a''b', PgSQL), 'Aspa simples duplicada (PostgreSQL)');
+  AssertEquals('''a\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', PgSQL), 'Barra invertida preservada fora do MySQL');
+  AssertEquals('''a\\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', MySQLDialect), 'Barra invertida duplicada no MySQL/MariaDB');
   AssertEquals('name = ''x\\'''' OR 1=1 -- ''',
-    TSQLCriteriaHelper.BuildCondition('name', opEqual, 'x\'' OR 1=1 -- ', ddMySQL),
+    TSQLCriteriaHelper.BuildCondition('name', opEqual, 'x\'' OR 1=1 -- ', MySQLDialect),
     'Payload com barra invertida não encerra literal no MySQL');
 end;
 
@@ -1159,7 +1166,7 @@ begin
   end;
 
   M := TProductModel.Create;
-  B := TDMSQLBuilder.Create(M, ddMySQL);
+  B := TDMSQLBuilder.Create(M, 'mysql');
   try
     SQL := B.Select.Where('name', 'admin'' -- ').OrWhere('price', opLessThan, 50).Build;
     AssertTrue(Pos(':p1', SQL) > 0, 'TDMSQLBuilder gera :p1');
@@ -1182,29 +1189,29 @@ begin
   Prod := TProductModel.Create;
   try
     // SQLite
-    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, ddSQLite);
+    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, 'sqlite');
     AssertTrue(Pos('CREATE TABLE IF NOT EXISTS products', DDL) > 0, 'SQLite usa IF NOT EXISTS');
     AssertTrue(Pos('INTEGER PRIMARY KEY AUTOINCREMENT', DDL) > 0, 'SQLite usa AUTOINCREMENT para chave primária');
     AssertTrue(Pos('description TEXT', DDL) > 0, 'SQLite usa TEXT para TDFText');
 
     // PostgreSQL
-    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, ddPostgreSQL);
+    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, 'postgresql');
     AssertTrue(Pos('price DECIMAL(18,4)', DDL) > 0, 'PostgreSQL mapeia TDFCurrency para DECIMAL(18,4)');
     AssertTrue(Pos('active BOOLEAN', DDL) > 0, 'PostgreSQL mapeia TDFBool para BOOLEAN');
     AssertTrue(Pos('big_code BIGINT', DDL) > 0, 'PostgreSQL mapeia TDFInt64 para BIGINT');
 
     // Firebird
-    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, ddFirebird);
+    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, 'firebird');
     AssertTrue(Pos('price DECIMAL(18,4)', DDL) > 0, 'Firebird mapeia TDFCurrency para DECIMAL(18,4)');
     AssertTrue(Pos('description BLOB SUB_TYPE TEXT', DDL) > 0, 'Firebird mapeia TDFText para BLOB SUB_TYPE TEXT');
 
     // Oracle
-    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, ddOracle);
+    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, 'oracle');
     AssertTrue(Pos('description CLOB', DDL) > 0, 'Oracle mapeia TDFText para CLOB');
     AssertTrue(Pos('big_code NUMBER(19)', DDL) > 0, 'Oracle mapeia TDFInt64 para NUMBER(19)');
 
     // MSSQL
-    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, ddMSSQL);
+    DDL := TDDLBuilder.CreateTableAndFields(Prod, nil, 'mssql');
     AssertTrue(Pos('description VARCHAR(MAX)', DDL) > 0, 'MSSQL mapeia TDFText para VARCHAR(MAX)');
     AssertTrue(Pos('active BIT', DDL) > 0, 'MSSQL mapeia TDFBool para BIT');
   finally
@@ -1218,15 +1225,15 @@ end;
 
 procedure TestModelLifecycleHooks;
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Item: THookModel;
   Failed: Boolean;
 begin
   Suite('6. Model Lifecycle Hooks');
 
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE hook_items (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name TEXT NOT NULL' +
@@ -1239,7 +1246,7 @@ begin
 
       // 1. Insert test
       Item.HookLog.Clear;
-      Engine.Insert(Item);
+      TDeltaPersister.Insert(Conn, Item);
       AssertEqualsInt(2, Item.HookLog.Count, 'Insert deve disparar exatamente 2 hooks');
       AssertEquals('BeforeInsert', Item.HookLog[0], 'Primeiro hook deve ser BeforeInsert');
       AssertEquals('AfterInsert', Item.HookLog[1], 'Segundo hook deve ser AfterInsert');
@@ -1248,7 +1255,7 @@ begin
       // 2. Update test
       Item.HookLog.Clear;
       Item.Name.Value := 'Item Modificado';
-      Engine.Merge(Item);
+      TDeltaPersister.Update(Conn, Item);
       AssertEqualsInt(2, Item.HookLog.Count, 'Update deve disparar exatamente 2 hooks');
       AssertEquals('BeforeUpdate', Item.HookLog[0], 'Primeiro hook deve ser BeforeUpdate');
       AssertEquals('AfterUpdate', Item.HookLog[1], 'Segundo hook deve ser AfterUpdate');
@@ -1256,7 +1263,7 @@ begin
       // 3. Save with existing PK (performs Update internally)
       Item.HookLog.Clear;
       Item.Name.Value := 'Item Salvo Novamente';
-      Engine.Save(Item);
+      TDeltaPersister.Save(Conn, Item);
       AssertEqualsInt(4, Item.HookLog.Count, 'Save com PK deve disparar 4 hooks');
       AssertEquals('BeforeSave', Item.HookLog[0], 'Hook 0 deve ser BeforeSave');
       AssertEquals('BeforeUpdate', Item.HookLog[1], 'Hook 1 deve ser BeforeUpdate');
@@ -1265,7 +1272,7 @@ begin
 
       // 4. Delete test
       Item.HookLog.Clear;
-      Engine.Delete(Item);
+      TDeltaPersister.Delete(Conn, Item);
       AssertEqualsInt(2, Item.HookLog.Count, 'Delete deve disparar exatamente 2 hooks');
       AssertEquals('BeforeDelete', Item.HookLog[0], 'Primeiro hook deve ser BeforeDelete');
       AssertEquals('AfterDelete', Item.HookLog[1], 'Segundo hook deve ser AfterDelete');
@@ -1277,7 +1284,7 @@ begin
       Item.FailOnBeforeInsert := True;
       Failed := False;
       try
-        Engine.Insert(Item);
+        TDeltaPersister.Insert(Conn, Item);
       except
         Failed := True;
       end;
@@ -1288,27 +1295,42 @@ begin
       Item.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end;
 
 var
-  GTxEngine: TDeltaORMEngine;
+  GTxConn: IDeltaConnection;
 
 procedure TxSuccessProc;
 begin
-  GTxEngine.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Confirmado'', 20, 1)');
+  GTxConn.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Confirmado'', 20, 1)');
 end;
 
 procedure TxFailProc;
 begin
-  GTxEngine.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Erro'', 30, 1)');
+  GTxConn.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Erro'', 30, 1)');
   raise Exception.Create('Falha na transação forçada');
+end;
+
+function QueryCount(const AConn: IDeltaConnection; AModelClass: TDeltaModelClass; const AWhere: string = ''): Int64;
+var
+  Q: TQuery;
+begin
+  Q := TQuery.Create(AConn);
+  try
+    Q.SetModel(AModelClass);
+    if not AWhere.IsEmpty then
+      Q.Where(AWhere);
+    Result := Q.Count;
+  finally
+    Q.Free;
+  end;
 end;
 
 procedure TestORMCRUDAndQueries;
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   P: TProductModel;
   FoundP: TProductModel;
   List: TDeltaModelList;
@@ -1319,10 +1341,9 @@ var
 begin
   Suite('7. ORM CRUD, Advanced Query Builder & Transactions');
 
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    // Prepare table
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name TEXT NOT NULL,' +
@@ -1332,8 +1353,8 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then
-      Engine.Commit;
+    if Conn.TransactionActive then
+      Conn.Commit;
 
     // Individual inserts
     P := TProductModel.Create;
@@ -1342,7 +1363,7 @@ begin
       P.Price.Value := 8500.00;
       P.BigCode.Value := 1001;
       P.Active.Value := True;
-      AssertTrue(Engine.Insert(P), 'Insert de produto 1 deve retornar True');
+      AssertTrue(TDeltaPersister.Insert(Conn, P), 'Insert de produto 1 deve retornar True');
 
       P.Free;
       P := TProductModel.Create;
@@ -1350,7 +1371,7 @@ begin
       P.Price.Value := 150.00;
       P.BigCode.Value := 1002;
       P.Active.Value := True;
-      AssertTrue(Engine.Insert(P), 'Insert de produto 2 deve retornar True');
+      AssertTrue(TDeltaPersister.Insert(Conn, P), 'Insert de produto 2 deve retornar True');
 
       P.Free;
       P := TProductModel.Create;
@@ -1358,7 +1379,7 @@ begin
       P.Price.Value := 35.00;
       P.BigCode.Value := 1003;
       P.Active.Value := False;
-      AssertTrue(Engine.Insert(P), 'Insert de produto 3 deve retornar True');
+      AssertTrue(TDeltaPersister.Insert(Conn, P), 'Insert de produto 3 deve retornar True');
 
       P.Free;
       P := TProductModel.Create;
@@ -1366,20 +1387,25 @@ begin
       P.Price.Value := 1600.00;
       P.BigCode.Value := 1004;
       P.Active.Value := True;
-      AssertTrue(Engine.Insert(P), 'Insert de produto 4 deve retornar True');
+      AssertTrue(TDeltaPersister.Insert(Conn, P), 'Insert de produto 4 deve retornar True');
     finally
       P.Free;
     end;
 
-    // Total and filtered Count
-    TotalCount := Engine.Count(TProductModel);
+    TotalCount := QueryCount(Conn, TProductModel);
     AssertEqualsInt(4, TotalCount, 'Total de registros inseridos deve ser 4');
 
-    TotalCount := Engine.Count(TProductModel, 'active = 1');
+    TotalCount := QueryCount(Conn, TProductModel, 'active = 1');
     AssertEqualsInt(3, TotalCount, 'Total de produtos ativos deve ser 3');
 
     // FindById
-    FoundP := TProductModel(Engine.Find(TProductModel, 1));
+    Q := TQuery.Create(Conn);
+    try
+      Q.SetModel(TProductModel);
+      FoundP := TProductModel(Q.FindById(1));
+    finally
+      Q.Free;
+    end;
     try
       AssertTrue(Assigned(FoundP), 'Find com Id 1 deve retornar modelo');
       AssertEquals('Notebook Pro', FoundP.Name.AsString, 'Nome do produto 1 corresponde');
@@ -1388,8 +1414,9 @@ begin
       FoundP.Free;
     end;
 
-    // Chained Where with AND test (FFilter overwrite fix)
-    Q := Engine.Query(TProductModel);
+    // Chained Where with AND test
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
       Q.Where('active = 1').Where('price > 1000');
       List := Q.All;
@@ -1403,7 +1430,8 @@ begin
     end;
 
     // WhereBetween test
-    Q := Engine.Query(TProductModel);
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
       Q.WhereBetween('price', 100, 2000);
       List := Q.All;
@@ -1417,7 +1445,8 @@ begin
     end;
 
     // WhereIn test
-    Q := Engine.Query(TProductModel);
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
       Q.WhereIn('name', ['Notebook Pro', 'Mouse Gamer']);
       List := Q.All;
@@ -1431,13 +1460,13 @@ begin
     end;
 
     // OrderBy, Limit, and Offset test
-    Q := Engine.Query(TProductModel);
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
       Q.OrderBy('price DESC').Limit(2).Offset(1);
       List := Q.All;
       try
         AssertEqualsInt(2, List.Count, 'Limit 2 Offset 1 deve retornar 2 registros');
-        // Prices descending: 8500 (skipped by offset), 1600 (Monitor), 150 (Mouse)
         AssertEquals('Monitor 27 Polegadas', TProductModel(List[0]).Name.AsString, 'Primeiro item retornado com Offset 1 deve ser o Monitor');
         AssertEquals('Mouse Gamer', TProductModel(List[1]).Name.AsString, 'Segundo item retornado deve ser o Mouse Gamer');
       finally
@@ -1448,7 +1477,8 @@ begin
     end;
 
     // AsJsonString test
-    Q := Engine.Query(TProductModel);
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
       Q.Where('price < 50');
       JsonRes := Q.AsJsonString;
@@ -1457,42 +1487,43 @@ begin
       Q.Free;
     end;
 
-    // Transaction tests: Commit and Rollback
-    if Engine.TransactionActive then
-      Engine.Commit;
+    if Conn.TransactionActive then
+      Conn.Commit;
 
-    // Rollback must undo insert
-    Engine.StartTransaction;
-    Engine.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Cancelado'', 10, 1)');
-    Engine.Rollback;
+    Conn.StartTransaction;
+    Conn.ExecuteDirect('INSERT INTO products (name, price, active) VALUES (''Produto Cancelado'', 10, 1)');
+    Conn.Rollback;
 
-    TotalCount := Engine.Count(TProductModel, 'name = ''Produto Cancelado''');
+    TotalCount := QueryCount(Conn, TProductModel, 'name = ''Produto Cancelado''');
     AssertEqualsInt(0, TotalCount, 'Registro inserido em transação cancelada não deve persistir');
 
-    // Static InTransaction with automatic commit
-    GTxEngine := Engine;
-    Engine.InTransaction(@TxSuccessProc);
+    GTxConn := Conn;
+    Conn.InTransaction(@TxSuccessProc);
 
-    TotalCount := Engine.Count(TProductModel, 'name = ''Produto Confirmado''');
+    TotalCount := QueryCount(Conn, TProductModel, 'name = ''Produto Confirmado''');
     AssertEqualsInt(1, TotalCount, 'InTransaction com sucesso deve persistir registro');
 
-    // InTransaction on error must automatically Rollback
     InTxFailed := False;
     try
-      Engine.InTransaction(@TxFailProc);
+      Conn.InTransaction(@TxFailProc);
     except
       InTxFailed := True;
     end;
     AssertTrue(InTxFailed, 'InTransaction deve propagar exceção');
-    TotalCount := Engine.Count(TProductModel, 'name = ''Produto Erro''');
+    TotalCount := QueryCount(Conn, TProductModel, 'name = ''Produto Erro''');
     AssertEqualsInt(0, TotalCount, 'InTransaction deve reverter inserção ao lançar exceção');
 
-    // DeleteById
-    AssertTrue(Engine.DeleteById(TProductModel, 1), 'DeleteById(1) deve retornar True');
-    TotalCount := Engine.Count(TProductModel, 'id = 1');
+    Q := TQuery.Create(Conn);
+    try
+      Q.SetModel(TProductModel).Where('id', 1);
+      AssertTrue(Q.Delete, 'Delete(id=1) deve retornar True');
+    finally
+      Q.Free;
+    end;
+    TotalCount := QueryCount(Conn, TProductModel, 'id = 1');
     AssertEqualsInt(0, TotalCount, 'Produto 1 deve ter sido excluído');
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end;
 
@@ -1501,7 +1532,7 @@ var
   Item: TConstraintItem;
   DDL: string;
   ConstraintsList, IdxList: TStringList;
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Schema: TDeltaORMSchema;
   Item1, Item2, Item3, Item4: TConstraintItem;
   Failed: Boolean;
@@ -1515,8 +1546,7 @@ begin
   ConstraintsList := TStringList.Create;
   IdxList := TStringList.Create;
   try
-    // 1. DDL SQLite
-    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, ddSQLite);
+    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, 'sqlite');
     AssertTrue(Pos('CONSTRAINT UQ_constraint_items_email UNIQUE (email)', DDL) > 0,
       'SQLite deve conter constraint inline de coluna UNIQUE');
     AssertTrue(Pos('CONSTRAINT uq_tenant_code UNIQUE (tenant_id, code)', DDL) > 0,
@@ -1524,17 +1554,15 @@ begin
     AssertTrue(Pos('CONSTRAINT chk_score_pos CHECK (score >= 0)', DDL) > 0,
       'SQLite deve conter constraint inline CHECK');
 
-    // 2. SQLite indexes
     IdxList.Clear;
-    TDDLBuilder.GetIndexes(Item, ddSQLite, IdxList);
+    TDDLBuilder.GetIndexes(Item, 'sqlite', IdxList);
     AssertTrue(Pos('CREATE INDEX IF NOT EXISTS IX_constraint_items_created_at ON constraint_items (created_at);', IdxList.Text) > 0,
       'SQLite deve gerar CREATE INDEX para campo marcado com IsIndexed');
     AssertTrue(Pos('CREATE INDEX IF NOT EXISTS ix_tenant_created ON constraint_items (tenant_id, created_at);', IdxList.Text) > 0,
       'SQLite deve gerar CREATE INDEX para índice composto de tabela');
 
-    // 3. DDL PostgreSQL (Constraints out-of-line)
     ConstraintsList.Clear;
-    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, ddPostgreSQL);
+    DDL := TDDLBuilder.CreateTableAndFields(Item, ConstraintsList, 'postgresql');
     AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT UQ_constraint_items_email UNIQUE (email);', ConstraintsList.Text) > 0,
       'PostgreSQL deve gerar ADD CONSTRAINT UNIQUE para coluna');
     AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT uq_tenant_code UNIQUE (tenant_id, code);', ConstraintsList.Text) > 0,
@@ -1542,10 +1570,9 @@ begin
     AssertTrue(Pos('ALTER TABLE constraint_items ADD CONSTRAINT chk_score_pos CHECK (score >= 0);', ConstraintsList.Text) > 0,
       'PostgreSQL deve gerar ADD CONSTRAINT CHECK');
 
-    // 4. Long identifier sanitization for Oracle (30-char limit)
     LongIdx := TDeltaIndex.Create('IX_nome_muito_longo_que_ultrapassa_trinta_caracteres', ['score']);
     try
-      LongIdxDDL := TDDLBuilder.IndexDDL('constraint_items', LongIdx, ddOracle);
+      LongIdxDDL := TDDLBuilder.IndexDDL('constraint_items', LongIdx, 'oracle');
       AssertTrue(Pos('IX_nome_muito_longo_que_ultrap', LongIdxDDL) > 0,
         'Oracle deve truncar identificador de índice para no máximo 30 caracteres');
       AssertTrue(Length('IX_nome_muito_longo_que_ultrap') <= 30, 'Identificador truncado tem 30 caracteres ou menos');
@@ -1558,17 +1585,15 @@ begin
     IdxList.Free;
   end;
 
-  // 5. Runtime test with in-memory SQLite via TDeltaORMSchema
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    Schema := TDeltaORMSchema.Create(Engine);
+    Schema := TDeltaORMSchema.Create(Conn);
     try
       Schema.RegisterModel(TConstraintItem);
       Schema.PrepareDB(True);
 
       AssertTrue(Schema.SQL.Count > 0, 'PrepareDB gerou comandos DDL');
 
-      // Insert 1: Valid record
       Item1 := TConstraintItem.Create;
       try
         Item1.Email.Value := 'usuario1@empresa.com';
@@ -1576,21 +1601,20 @@ begin
         Item1.Code.Value := 'USR_A';
         Item1.Score.Value := 100;
         Item1.CreatedAt.Value := Now;
-        AssertTrue(Engine.Insert(Item1), 'Inserção inicial deve ter sucesso');
+        AssertTrue(TDeltaPersister.Insert(Conn, Item1), 'Inserção inicial deve ter sucesso');
       finally
         Item1.Free;
       end;
 
-      // Insert 2: Duplicate email (must be rejected by UNIQUE email constraint)
       Item2 := TConstraintItem.Create;
       try
-        Item2.Email.Value := 'usuario1@empresa.com'; // Duplicado!
+        Item2.Email.Value := 'usuario1@empresa.com';
         Item2.TenantId.Value := 20;
         Item2.Code.Value := 'USR_B';
         Item2.Score.Value := 200;
         Failed := False;
         try
-          Engine.Insert(Item2);
+          TDeltaPersister.Insert(Conn, Item2);
         except
           Failed := True;
         end;
@@ -1599,16 +1623,15 @@ begin
         Item2.Free;
       end;
 
-      // Insert 3: Different email, same (tenant_id, code) pair (must fail composite UNIQUE)
       Item3 := TConstraintItem.Create;
       try
         Item3.Email.Value := 'outro@empresa.com';
-        Item3.TenantId.Value := 10; // Same tenant
-        Item3.Code.Value := 'USR_A'; // Same code
+        Item3.TenantId.Value := 10;
+        Item3.Code.Value := 'USR_A';
         Item3.Score.Value := 300;
         Failed := False;
         try
-          Engine.Insert(Item3);
+          TDeltaPersister.Insert(Conn, Item3);
         except
           Failed := True;
         end;
@@ -1617,25 +1640,24 @@ begin
         Item3.Free;
       end;
 
-      // Insert 4: Same code in another tenant (must succeed!)
       Item4 := TConstraintItem.Create;
       try
         Item4.Email.Value := 'usuario2@empresa.com';
-        Item4.TenantId.Value := 20; // Different tenant
-        Item4.Code.Value := 'USR_A'; // Same code
+        Item4.TenantId.Value := 20;
+        Item4.Code.Value := 'USR_A';
         Item4.Score.Value := 400;
-        AssertTrue(Engine.Insert(Item4), 'Mesmo code em tenant diferente deve ser aceito');
+        AssertTrue(TDeltaPersister.Insert(Conn, Item4), 'Mesmo code em tenant diferente deve ser aceito');
       finally
         Item4.Free;
       end;
 
-      TotalCount := Engine.Count(TConstraintItem);
+      TotalCount := QueryCount(Conn, TConstraintItem);
       AssertEqualsInt(2, TotalCount, 'Total de registros aceitos no banco deve ser 2');
     finally
       Schema.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end;
 
@@ -1657,7 +1679,7 @@ begin
     AssertTrue(User1.Profile.IsNull, 'Profile recém-criado deve ser IsNull');
 
     // 2. DDL must not emit a column for TDFHasOne
-    DDL := TDDLBuilder.CreateTableAndFields(User1, nil, ddSQLite);
+    DDL := TDDLBuilder.CreateTableAndFields(User1, nil, 'sqlite');
     AssertTrue(Pos('username TEXT', DDL) > 0, 'DDL deve conter campo normal');
     AssertFalse(Pos('Profile', DDL) > 0, 'DDL NÃO deve criar coluna física para TDFHasOne');
 
@@ -1953,17 +1975,18 @@ end;
 
 procedure TestColumnBindingMap;
 var
-  Engine: TDeltaORMEngine;
-  DS: TSQLQuery;
+  Conn: IDeltaConnection;
+  RS: IDeltaResultSet;
   P, P2: TProductModel;
-  BindingMap: TColumnBindingMap;
+  BindingMap: TResultBindingMap;
+  Q: TQuery;
   List: TDeltaModelPaginatedList;
 begin
-  Suite('12. TColumnBindingMap & Direct Typed ORM Binding');
+  Suite('12. TResultBindingMap & Direct Typed ORM Binding');
 
-  Engine := TDeltaORMEngine.Create('sqlite:///:memory:');
+  Conn := TDeltaORM.Connect('sqlite:///:memory:');
   try
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name TEXT NOT NULL,' +
@@ -1973,35 +1996,30 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
 
-    // Insert test record
     P := TProductModel.Create;
     try
       P.Name.AsText := 'Monitor Ultrawide';
       P.Price.AsFloat := 2499.90;
       P.BigCode.AsLargeInt := 9876543210;
       P.Active.Value := True;
-      // Description left null
-      AssertTrue(Engine.Insert(P), 'Insert para teste de binding retornou True');
+      AssertTrue(TDeltaPersister.Insert(Conn, P), 'Insert para teste de binding retornou True');
     finally
       P.Free;
     end;
 
-    // Test 1: Direct TColumnBindingMap on TDataSet
-    DS := Engine.NewDataset;
+    RS := Conn.ExecuteQuery('SELECT id, name, price, description, big_code, active FROM products WHERE id = 1');
     try
-      DS.SQL.Text := 'SELECT id, name, price, description, big_code, active FROM products WHERE id = 1';
-      DS.Open;
-      AssertTrue(not DS.IsEmpty, 'Dataset retornou registro');
+      AssertTrue(RS.Next, 'ResultSet retornou registro');
 
-      BindingMap := TColumnBindingMap.Create(TProductModel, DS);
+      BindingMap := TResultBindingMap.Create(TProductModel, RS);
       try
         AssertEqualsInt(6, BindingMap.BindingCount, 'BindingMap vinculou 6 colunas');
 
         P := TProductModel.Create;
         try
-          BindingMap.BindRecord(P);
+          BindingMap.BindRecord(P, RS);
           AssertEqualsInt(1, P.Id.AsInteger, 'P.Id preenchido tipado');
           AssertEquals('Monitor Ultrawide', P.Name.AsString, 'P.Name preenchido tipado');
           AssertTrue(Abs(P.Price.AsFloat - 2499.90) < 0.01, 'P.Price preenchido tipado');
@@ -2012,40 +2030,41 @@ begin
           P.Free;
         end;
 
-        // Test 2: FromDataSet with TColumnBindingMap
         P2 := TProductModel.Create;
         try
-          FromDataSet(P2, BindingMap);
-          AssertEquals('Monitor Ultrawide', P2.Name.AsString, 'FromDataSet com BindingMap preencheu Name');
+          TDeltaHydrator.FromResultSet(P2, RS);
+          AssertEquals('Monitor Ultrawide', P2.Name.AsString, 'TDeltaHydrator.FromResultSet preencheu Name');
         finally
           P2.Free;
         end;
-
       finally
         BindingMap.Free;
       end;
-      DS.Close;
     finally
-      DS.Free;
+      RS.Close;
     end;
 
-    // Test 3: TQuery.All using TColumnBindingMap
-    List := Engine.Query(TProductModel).All;
+    Q := TQuery.Create(Conn);
+    Q.SetModel(TProductModel);
     try
-      AssertTrue(Assigned(List), 'TQuery.All retornou lista paginada');
-      AssertEqualsInt(1, List.Records.Count, 'TQuery.All retornou 1 registro');
-      if List.Records.Count > 0 then
-      begin
-        P := TProductModel(List.Records[0]);
-        AssertEquals('Monitor Ultrawide', P.Name.AsString, 'Registro lido por TQuery.All via binding');
-        AssertTrue(Abs(P.Price.AsFloat - 2499.90) < 0.01, 'Preço lido por TQuery.All via binding');
+      List := Q.All;
+      try
+        AssertTrue(Assigned(List), 'TQuery.All retornou lista paginada');
+        AssertEqualsInt(1, List.Records.Count, 'TQuery.All retornou 1 registro');
+        if List.Records.Count > 0 then
+        begin
+          P := TProductModel(List.Records[0]);
+          AssertEquals('Monitor Ultrawide', P.Name.AsString, 'Registro lido por TQuery.All via binding');
+          AssertTrue(Abs(P.Price.AsFloat - 2499.90) < 0.01, 'Preço lido por TQuery.All via binding');
+        end;
+      finally
+        List.Free;
       end;
     finally
-      List.Free;
+      Q.Free;
     end;
-
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end;
 
@@ -2217,7 +2236,7 @@ procedure TestApproachBFluentSchemaAndGenerics;
 const
   TEST_DB = '/tmp/deltamodel_test_approach_b.sqlite';
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: TFastProductQuery;
   Meta: TModelMetadata;
   P, Found: TFastProductModel;
@@ -2230,9 +2249,9 @@ begin
 
   if FileExists(TEST_DB) then DeleteFile(TEST_DB);
 
-  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + TEST_DB);
   try
-    Engine.ExecuteDirect(
+    Conn.ExecuteDirect(
       'CREATE TABLE fast_products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name VARCHAR(150) NOT NULL,' +
@@ -2242,7 +2261,7 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
-    if Engine.TransactionActive then Engine.Commit;
+    if Conn.TransactionActive then Conn.Commit;
 
     // 1. Class metadata validation
     Meta := TRTTICache.GetModelMetadata(TFastProductModel);
@@ -2274,7 +2293,7 @@ begin
     end;
 
     // 3. Typed insert and query via TDeltaQuery<T>
-    Query := TFastProductQuery.Create(Engine);
+    Query := TFastProductQuery.Create(Conn);
     try
       P := TFastProductModel.Create;
       P.Name := 'Monitor Gamer 240Hz';
@@ -2419,7 +2438,7 @@ begin
       Query.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(TEST_DB) then DeleteFile(TEST_DB);
   end;
 end;
@@ -2508,7 +2527,7 @@ end;
 
 procedure TestTransactionScopeRAII;
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Tx: IDeltaTransaction;
   CountVal: Int64;
 const
@@ -2517,43 +2536,42 @@ begin
   Suite('17. Safe Transaction Scope & RAII Rollback');
 
   if FileExists(TEST_DB) then DeleteFile(TEST_DB);
-  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + TEST_DB);
   try
-    Engine.Connection.Open;
-    Engine.ExecuteDirect('CREATE TABLE tx_records (id INTEGER PRIMARY KEY, title TEXT);');
+    Conn.ExecuteDirect('CREATE TABLE tx_records (id INTEGER PRIMARY KEY, title TEXT);');
 
-    Tx := Engine.BeginTransaction;
+    Tx := Conn.BeginTransaction;
     AssertTrue(Tx.IsActive, 'Tx.IsActive é True após BeginTransaction');
-    AssertTrue(Engine.TransactionActive, 'Engine.TransactionActive é True');
-    Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (1, ''Item Confirmado'');');
+    AssertTrue(Conn.TransactionActive, 'Conn.TransactionActive é True');
+    Conn.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (1, ''Item Confirmado'');');
     Tx.Commit;
     AssertFalse(Tx.IsActive, 'Tx.IsActive é False após Commit');
-    AssertFalse(Engine.TransactionActive, 'Engine.TransactionActive é False após Commit');
+    AssertFalse(Conn.TransactionActive, 'Conn.TransactionActive é False após Commit');
 
-    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    CountVal := Conn.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
     AssertEqualsInt(1, CountVal, 'Registro persistido após Commit');
 
     begin
-      Tx := Engine.BeginTransaction;
+      Tx := Conn.BeginTransaction;
       AssertTrue(Tx.IsActive, 'Tx.IsActive é True dentro do escopo RAII');
-      Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (2, ''Item Abandonado'');');
+      Conn.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (2, ''Item Abandonado'');');
       Tx := nil;
     end;
-    AssertFalse(Engine.TransactionActive, 'Engine.TransactionActive é False após auto-rollback de Tx');
+    AssertFalse(Conn.TransactionActive, 'Conn.TransactionActive é False após auto-rollback de Tx');
 
-    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    CountVal := Conn.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
     AssertEqualsInt(1, CountVal, 'Registro não persistido após auto-rollback automático');
 
-    Tx := Engine.BeginTransaction;
-    Engine.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (3, ''Item Revertido'');');
+    Tx := Conn.BeginTransaction;
+    Conn.ExecuteDirect('INSERT INTO tx_records (id, title) VALUES (3, ''Item Revertido'');');
     Tx.Rollback;
     AssertFalse(Tx.IsActive, 'Tx.IsActive é False após Rollback explícito');
     Tx := nil;
 
-    CountVal := Engine.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
+    CountVal := Conn.ExecuteScalar('SELECT COUNT(*) FROM tx_records;');
     AssertEqualsInt(1, CountVal, 'Total no banco permanece 1 após rollback explícito');
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(TEST_DB) then DeleteFile(TEST_DB);
   end;
 end;
@@ -2649,7 +2667,7 @@ end;
 
 procedure TestEagerLoadingAndStreaming;
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   OrderQuery: specialize TDeltaQuery<TTestOrder>;
   OrderList: specialize TGDeltaModelList<TTestOrder>;
   SingleOrder: TTestOrder;
@@ -2662,20 +2680,19 @@ begin
   Suite('20. 1:N Eager Loading (Include) & HTTP Chunked Streaming');
 
   if FileExists(TEST_DB) then DeleteFile(TEST_DB);
-  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + TEST_DB);
   try
-    Engine.Connection.Open;
-    Engine.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
-    Engine.ExecuteDirect('CREATE TABLE test_order_items (id INTEGER PRIMARY KEY, order_id INTEGER, product_name TEXT, quantity INTEGER);');
+    Conn.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
+    Conn.ExecuteDirect('CREATE TABLE test_order_items (id INTEGER PRIMARY KEY, order_id INTEGER, product_name TEXT, quantity INTEGER);');
 
-    Engine.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (1, ''Alpha Inc'');');
-    Engine.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (2, ''Beta Ltd'');');
+    Conn.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (1, ''Alpha Inc'');');
+    Conn.ExecuteDirect('INSERT INTO test_orders (id, customer_name) VALUES (2, ''Beta Ltd'');');
 
-    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (10, 1, ''Server Rack'', 1);');
-    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (11, 1, ''Ethernet Switch'', 4);');
-    Engine.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (12, 2, ''Fiber Cable'', 20);');
+    Conn.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (10, 1, ''Server Rack'', 1);');
+    Conn.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (11, 1, ''Ethernet Switch'', 4);');
+    Conn.ExecuteDirect('INSERT INTO test_order_items (id, order_id, product_name, quantity) VALUES (12, 2, ''Fiber Cable'', 20);');
 
-    OrderQuery := specialize TDeltaQuery<TTestOrder>.Create(Engine);
+    OrderQuery := specialize TDeltaQuery<TTestOrder>.Create(Conn);
     try
       OrderList := OrderQuery.Include('Items').All;
       try
@@ -2718,7 +2735,7 @@ begin
       OrderQuery.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(TEST_DB) then DeleteFile(TEST_DB);
   end;
 end;
@@ -3275,7 +3292,7 @@ procedure TestReusableCursorAndFlyweightSchema;
 var
   Schema1, Schema2: TDeltaModelSchema;
   FieldNome: TDeltaSchemaField;
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: specialize TDeltaQuery<TTestOrder>;
   FirstPtr, CurrPtr: Pointer;
   I, LoopCount: Integer;
@@ -3299,15 +3316,14 @@ begin
 
   // 2. Reusable Cursor
   if FileExists(TEST_DB) then DeleteFile(TEST_DB);
-  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
+  Conn := TDeltaORM.Connect('sqlite://' + TEST_DB);
   try
-    Engine.Connection.Open;
-    Engine.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
+    Conn.ExecuteDirect('CREATE TABLE test_orders (id INTEGER PRIMARY KEY, customer_name TEXT);');
 
     for I := 1 to 25 do
-      Engine.ExecuteDirect(Format('INSERT INTO test_orders (id, customer_name) VALUES (%d, ''Cliente %d'');', [I, I]));
+      Conn.ExecuteDirect(Format('INSERT INTO test_orders (id, customer_name) VALUES (%d, ''Cliente %d'');', [I, I]));
 
-    Query := specialize TDeltaQuery<TTestOrder>.Create(Engine);
+    Query := specialize TDeltaQuery<TTestOrder>.Create(Conn);
     try
       // Test with while Query.Next do
       Query.OrderBy('id ASC');
@@ -3350,8 +3366,69 @@ begin
       Query.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
     if FileExists(TEST_DB) then DeleteFile(TEST_DB);
+  end;
+end;
+
+procedure TestModularMockDriverAndRegistry;
+var
+  Conn: IDeltaConnection;
+  MockAccess: IMockConnectionAccess;
+  Tbl: TMockResultTable;
+  Q: specialize TDeltaQuery<TTestOrder>;
+  List: specialize TGDeltaModelList<TTestOrder>;
+  Pool: TDeltaConnectionPool;
+  PooledConn: IDeltaConnection;
+begin
+  Suite('27. Driver Mock, Interfaces Desacopladas & Registry Modular');
+
+  AssertTrue(TDeltaORMRegistry.FindDriver('sqldb') <> nil, 'Driver SQLDB registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDriver('mock') <> nil, 'Driver Mock registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('postgresql') <> nil, 'Dialeto PostgreSQL registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('sqlite') <> nil, 'Dialeto SQLite registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('mysql') <> nil, 'Dialeto MySQL registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('firebird') <> nil, 'Dialeto Firebird registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('mssql') <> nil, 'Dialeto MSSQL registrado no Registry');
+  AssertTrue(TDeltaORMRegistry.FindDialect('oracle') <> nil, 'Dialeto Oracle registrado no Registry');
+
+  Conn := TDeltaORM.Connect('postgresql://mock/testdb?driver=mock');
+  AssertEquals('mock', Conn.DriverName, 'URL ?driver=mock seleciona TMockDriver');
+  AssertEquals('PostgreSQL', Conn.Dialect.Name, 'Dialeto ativo é PostgreSQL');
+  AssertTrue(Supports(Conn, IMockConnectionAccess, MockAccess), 'Conn expõe IMockConnectionAccess');
+
+  Tbl := TMockResultTable.Create;
+  Tbl.AddColumn('id', dptLargeInt);
+  Tbl.AddColumn('customer_name', dptString);
+  Tbl.AddRow([101, 'Mock Customer A']);
+  Tbl.AddRow([102, 'Mock Customer B']);
+  MockAccess.QueueResult(Tbl);
+
+  Q := specialize TDeltaQuery<TTestOrder>.Create(Conn);
+  try
+    List := Q.Where('customer_name', opILike, '%Mock%').Limit(10).All;
+    try
+      AssertEqualsInt(2, List.Count, 'TDeltaQuery<T> hidratou 2 registros do MockDriver sem SQLDB');
+      AssertEqualsInt(101, List[0].Id, 'Primeiro registro hidratado com Id=101');
+      AssertEquals('Mock Customer B', List[1].CustomerName, 'Segundo registro hidratado corretamente');
+      AssertTrue(Pos('ILIKE :p1', MockAccess.ExecutedSQL[0]) > 0, 'SQL emitido usa operador ILIKE do PostgreSQL');
+      AssertEquals('%Mock%', MockAccess.LastParams.FindParam('p1').AsString, 'Parâmetro :p1 capturado no MockDriver');
+    finally
+      List.Free;
+    end;
+  finally
+    Q.Free;
+  end;
+
+  Pool := TDeltaConnectionPool.Create('postgresql://mock/testdb?driver=mock&pool_min=1&pool_max=2&pool_housekeeper=0');
+  try
+    PooledConn := Pool.Acquire;
+    PooledConn.StartTransaction;
+    PooledConn.ExecuteDirect('DELETE FROM test_orders');
+    PooledConn := nil;
+    AssertEqualsInt(1, Pool.IdleCount, 'Conexão Mock devolvida automaticamente ao pool via RAII');
+  finally
+    Pool.Free;
   end;
 end;
 
@@ -3395,6 +3472,7 @@ begin
     TestXmlCodec;
     TestCsvCodec;
     TestReusableCursorAndFlyweightSchema;
+    TestModularMockDriverAndRegistry;
   except
     on E: Exception do
     begin

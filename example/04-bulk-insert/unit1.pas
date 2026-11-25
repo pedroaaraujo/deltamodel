@@ -8,7 +8,9 @@ uses
   Classes, SysUtils, DateUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
   Spin, ExtCtrls, Variants,
   DeltaModel, DeltaModel.Fields, DeltaModel.SQLBuilder,
-  DeltaModel.ORM.Connection, DeltaModel.ORM.Types, DeltaModel.ORM.Schema,
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB,
+  DeltaModel.ORM.Persister, DeltaModel.ORM.Schema,
   DeltaModel.ORM.DDL, DeltaModel.ORM.DML;
 
 type
@@ -75,8 +77,9 @@ type
     procedure FormShow(Sender: TObject);
   private
     procedure Log(const AMsg: string);
-    procedure PrepareSchema(ACon: TDeltaORMEngine);
-    function CurrentDialect: TDatabaseDialect;
+    procedure PrepareSchema(const ACon: IDeltaConnection);
+    function CountProducts(const ACon: IDeltaConnection): Int64;
+    function CurrentDialect: IDeltaDialect;
   public
   end;
 
@@ -114,17 +117,17 @@ begin
   cmbDialect.ItemIndex := 2; // SQLite by default
 end;
 
-function TForm1.CurrentDialect: TDatabaseDialect;
+function TForm1.CurrentDialect: IDeltaDialect;
 begin
   case cmbDialect.ItemIndex of
-    0: Result := ddPostgreSQL;
-    1: Result := ddMySQL;
-    2: Result := ddSQLite;
-    3: Result := ddFirebird;
-    4: Result := ddMSSQL;
-    5: Result := ddOracle;
+    0: Result := TDeltaORM.Dialect('postgresql');
+    1: Result := TDeltaORM.Dialect('mysql');
+    2: Result := TDeltaORM.Dialect('sqlite');
+    3: Result := TDeltaORM.Dialect('firebird');
+    4: Result := TDeltaORM.Dialect('mssql');
+    5: Result := TDeltaORM.Dialect('oracle');
   else
-    Result := ddSQLite;
+    Result := TDeltaORM.Dialect('sqlite');
   end;
 end;
 
@@ -134,7 +137,20 @@ begin
   Application.ProcessMessages;
 end;
 
-procedure TForm1.PrepareSchema(ACon: TDeltaORMEngine);
+function TForm1.CountProducts(const ACon: IDeltaConnection): Int64;
+var
+  Q: TQuery;
+begin
+  Q := TQuery.Create(ACon);
+  try
+    Q.SetModel(TProduct);
+    Result := Q.Count;
+  finally
+    Q.Free;
+  end;
+end;
+
+procedure TForm1.PrepareSchema(const ACon: IDeltaConnection);
 var
   Schema: TDeltaORMSchema;
 begin
@@ -154,7 +170,7 @@ procedure TForm1.btnPreviewSQLClick(Sender: TObject);
 var
   Models: array of TDeltaModel;
   I, PreviewCount: Integer;
-  Dialect: TDatabaseDialect;
+  Dialect: IDeltaDialect;
 begin
   mmoSQL.Clear;
   Dialect := CurrentDialect;
@@ -179,7 +195,7 @@ begin
   end;
 
   try
-    mmoSQL.Lines.Text := TDMSQLBuilder.CreateBulkInsert(Models, Dialect);
+    mmoSQL.Lines.Text := TDMSQLBuilder.CreateBulkInsert(Models, Dialect.SQL);
   finally
     for I := 0 to PreviewCount - 1 do
       Models[I].Free;
@@ -190,7 +206,7 @@ end;
 
 procedure TForm1.btnBulkArrayClick(Sender: TObject);
 var
-  Con: TDeltaORMEngine;
+  Con: IDeltaConnection;
   Models: array of TDeltaModel;
   I, Total, RowsInserted: Integer;
   StartTime: TDateTime;
@@ -204,22 +220,18 @@ begin
   Log(Format('Quantidade: %d | BatchSize: %d', [Total, spnBatchSize.Value]));
   Log('');
 
-  Con := TDeltaORMEngine.Create(edtURL.Text);
+  Con := TDeltaORM.Connect(edtURL.Text);
   try
     try
-      Con.Connection.Open;
-      Log('1. Conectado (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
+      Log('1. Conectado (' + Con.Dialect.Name + ' via ' + Con.DriverName + ')');
 
       PrepareSchema(Con);
 
-      // Clear previous data for a fair comparison
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
-        // ignore if table is empty
       end;
 
-      // 2. Build model array with all data types
       Log(Format('2. Criando %d objetos TProduct...', [Total]));
       SetLength(Models, Total);
       for I := 0 to Total - 1 do
@@ -234,22 +246,21 @@ begin
         TProduct(Models[I]).manufacturingDate.Value := EncodeDate(2025, 1 + Random(12), 1 + Random(28));
         TProduct(Models[I]).description.Value := Format('Item catalogado no lote de bulk insert %d', [I + 1]);
         TProduct(Models[I]).productUuid.Value := Format('550e8400-e29b-41d4-a716-%012d', [I + 1]);
-        TProduct(Models[I]).active.Value := (Random(10) > 1); // 90% active
+        TProduct(Models[I]).active.Value := (Random(10) > 1);
         TProduct(Models[I]).created_at.Value := Now;
       end;
 
-      // 3. Execute BulkInsert with timing
-      Log(Format('3. Executando BulkInsert (batch=%d)...', [spnBatchSize.Value]));
+      Log(Format('3. Executando TDeltaPersister.BulkInsert (batch=%d)...', [spnBatchSize.Value]));
       StartTime := Now;
 
-      RowsInserted := Con.BulkInsert(Models, spnBatchSize.Value);
+      RowsInserted := TDeltaPersister.BulkInsert(Con, Models, spnBatchSize.Value);
 
       ElapsedMs := MilliSecondsBetween(Now, StartTime);
+      if ElapsedMs = 0 then ElapsedMs := 1;
 
       Log(Format('   ✅ %d registros inseridos em %d ms', [RowsInserted, ElapsedMs]));
 
-      // 4. Verification count
-      CountAfter := Con.Count(TProduct);
+      CountAfter := CountProducts(Con);
       Log(Format('4. Verificação: COUNT(*) = %d', [CountAfter]));
 
       Log('');
@@ -267,7 +278,7 @@ begin
   finally
     for I := 0 to Length(Models) - 1 do
       Models[I].Free;
-    Con.Free;
+    Con := nil;
   end;
 end;
 
@@ -275,7 +286,7 @@ end;
 
 procedure TForm1.btnBulkListClick(Sender: TObject);
 var
-  Con: TDeltaORMEngine;
+  Con: IDeltaConnection;
   List: TDeltaModelList;
   P: TProduct;
   I, Total, RowsInserted: Integer;
@@ -290,21 +301,18 @@ begin
   Log(Format('Quantidade: %d | BatchSize: %d', [Total, spnBatchSize.Value]));
   Log('');
 
-  Con := TDeltaORMEngine.Create(edtURL.Text);
+  Con := TDeltaORM.Connect(edtURL.Text);
   try
     try
-      Con.Connection.Open;
-      Log('1. Conectado (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
+      Log('1. Conectado (' + Con.Dialect.Name + ' via ' + Con.DriverName + ')');
 
       PrepareSchema(Con);
 
-      // Clear previous data
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
       end;
 
-      // 2. Build model list
       Log(Format('2. Criando lista com %d objetos TProduct...', [Total]));
       List := TDeltaModelList.Create;
       try
@@ -326,18 +334,17 @@ begin
           List.Add(P);
         end;
 
-        // 3. Execute BulkInsert via List
-        Log(Format('3. Executando BulkInsert(List, %d)...', [spnBatchSize.Value]));
+        Log(Format('3. Executando TDeltaPersister.BulkInsert(List, %d)...', [spnBatchSize.Value]));
         StartTime := Now;
 
-        RowsInserted := Con.BulkInsert(List, spnBatchSize.Value);
+        RowsInserted := TDeltaPersister.BulkInsert(Con, List, spnBatchSize.Value);
 
         ElapsedMs := MilliSecondsBetween(Now, StartTime);
+        if ElapsedMs = 0 then ElapsedMs := 1;
 
         Log(Format('   ✅ %d registros inseridos em %d ms', [RowsInserted, ElapsedMs]));
 
-        // 4. Count and sample
-        CountAfter := Con.Count(TProduct);
+        CountAfter := CountProducts(Con);
         Log(Format('4. Verificação: COUNT(*) = %d', [CountAfter]));
 
         Log('');
@@ -356,7 +363,7 @@ begin
       end;
     end;
   finally
-    Con.Free;
+    Con := nil;
   end;
 end;
 
@@ -364,7 +371,7 @@ end;
 
 procedure TForm1.btnSaveOneByOneClick(Sender: TObject);
 var
-  Con: TDeltaORMEngine;
+  Con: IDeltaConnection;
   P: TProduct;
   I, Total: Integer;
   StartTime: TDateTime;
@@ -378,22 +385,19 @@ begin
   Log(Format('Quantidade: %d', [Total]));
   Log('');
 
-  Con := TDeltaORMEngine.Create(edtURL.Text);
+  Con := TDeltaORM.Connect(edtURL.Text);
   try
     try
-      Con.Connection.Open;
-      Log('1. Conectado (' + TDatabaseDialectHelper.ToString(Con.Dialect) + ')');
+      Log('1. Conectado (' + Con.Dialect.Name + ' via ' + Con.DriverName + ')');
 
       PrepareSchema(Con);
 
-      // Clear previous data
       try
         Con.ExecuteDirect('DELETE FROM products');
       except
       end;
 
-      // 2. Insert one-by-one with timing
-      Log(Format('2. Inserindo %d registros com Save() individual...', [Total]));
+      Log(Format('2. Inserindo %d registros com TDeltaPersister.Save() individual...', [Total]));
       StartTime := Now;
 
       for I := 0 to Total - 1 do
@@ -412,7 +416,7 @@ begin
           P.active.Value := True;
           P.created_at.Value := Now;
 
-          Con.Save(P);
+          TDeltaPersister.Save(Con, P);
         finally
           P.Free;
         end;
@@ -422,7 +426,7 @@ begin
 
       Log(Format('   ✅ %d registros inseridos em %d ms', [Total, ElapsedMs]));
 
-      CountAfter := Con.Count(TProduct);
+      CountAfter := CountProducts(Con);
       Log(Format('3. Verificação: COUNT(*) = %d', [CountAfter]));
 
       Log('');
@@ -444,7 +448,7 @@ begin
       end;
     end;
   finally
-    Con.Free;
+    Con := nil;
   end;
 end;
 

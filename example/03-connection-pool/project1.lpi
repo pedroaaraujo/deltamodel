@@ -61,7 +61,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="../../src"/>
+      <OtherUnitFiles Value="../../src;../../src/orm;../../src/orm/dialects;../../src/orm/drivers"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Linking>

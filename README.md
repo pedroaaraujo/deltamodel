@@ -19,15 +19,16 @@ DeltaModel is a typed micro-ORM, data validation engine, and multi-format serial
 - **Compilers**: Free Pascal Compiler (FPC) >= 3.2.2.
 - **IDE / Tooling**: Lazarus >= 3.0 (`lazbuild`).
 - **Operating Systems**: Linux (x86_64, aarch64), Windows (x86_64, i386), macOS (x86_64, arm64).
-- **Supported Databases**:
-  - PostgreSQL (via `pqconnection`)
-  - MySQL / MariaDB (via `mysql57conn` / `mysql80conn`)
-  - SQLite3 (via `sqlite3conn`)
-  - Firebird 2.5 / 3.0+ (via `ibconnection`)
-  - Microsoft SQL Server (via `mssqlconn` / ODBC)
-  - Oracle Database (via `oracleconnection`)
+- **Supported Databases (via `DeltaModel.ORM.Dialects` + pluggable `IDeltaDriver`)**:
+  - PostgreSQL (`pqconnection` in SQLDB driver)
+  - MySQL / MariaDB (`mysql57conn` / `mysql80conn` in SQLDB driver)
+  - SQLite3 (`sqlite3conn` in SQLDB driver)
+  - Firebird 2.5 / 3.0+ (`ibconnection` in SQLDB driver)
+  - Microsoft SQL Server (`mssqlconn` / ODBC in SQLDB driver)
+  - Oracle Database (`oracleconnection` in SQLDB driver)
+  - Mock / In-Memory driver (`DeltaModel.ORM.Driver.Mock`) for zero-dependency unit tests
 - **Supported Serialization Formats**: JSON, CBOR (RFC 8949), BSON (v1.1), XML, CSV (RFC 4180).
-- **Core Units**: `DeltaModel`, `DeltaModel.Generics`, `DeltaModel.ORM.Connection`, `DeltaModel.ORM.Pool`, `DeltaModel.Codec`, `DeltaModel.Codec.Cbor`, `DeltaModel.Codec.Bson`, `DeltaModel.Codec.Xml`, `DeltaModel.Codec.Csv`, `DeltaModel.JsonStreamer`, `DeltaValidator`.
+- **Core Units**: `DeltaModel`, `DeltaModel.Generics`, `DeltaModel.ORM.Interfaces`, `DeltaModel.ORM.Registry`, `DeltaModel.ORM.Connection`, `DeltaModel.ORM.Persister`, `DeltaModel.ORM.Pool`, `DeltaModel.ORM.Dialects`, `DeltaModel.ORM.Driver.SQLDB`, `DeltaModel.ORM.Driver.Mock`, `DeltaModel.Codec`, `DeltaModel.Codec.Cbor`, `DeltaModel.Codec.Bson`, `DeltaModel.Codec.Xml`, `DeltaModel.Codec.Csv`, `DeltaModel.JsonStreamer`, `DeltaValidator`.
 
 ---
 
@@ -39,9 +40,9 @@ DeltaModel is a typed micro-ORM, data validation engine, and multi-format serial
 3. Click `Compile` and `Use` -> `Install`.
 
 ### Method 2: Manual Unit Path
-Add the `src/` directory to your project unit search path:
+Add `src/` and the modular ORM directories (`src/orm/`, `src/orm/dialects/`, `src/orm/drivers/`) to your project unit search path:
 ```bash
-fpc -Fusrc my_application.pas
+fpc -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers my_application.pas
 ```
 
 ---
@@ -57,9 +58,10 @@ program QuickstartDeltaModel;
 
 uses
   {$IFDEF UNIX}cthreads, cmem,{$ENDIF}
-  SysUtils, Classes,
-  DeltaModel, DeltaModel.Generics, DeltaModel.ORM.Connection,
-  DeltaModel.Codec;
+  SysUtils, Classes, sqlite3conn,
+  DeltaModel, DeltaModel.Generics, DeltaModel.ORM.Interfaces,
+  DeltaModel.ORM.Registry, DeltaModel.ORM.Dialects,
+  DeltaModel.ORM.Driver.SQLDB, DeltaModel.Codec;
 
 type
   { Model declaration with native primitive properties }
@@ -88,16 +90,17 @@ begin
 end;
 
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
   Query: TDeltaQuery<TProduct>;
   P: TProduct;
   List: TGDeltaModelList<TProduct>;
   CsvOutput: string;
 begin
-  // Initialize SQLite in-memory database
-  Engine := TDeltaORMEngine.Create('sqlite://:memory:');
+  // Initialize SQLite in-memory database via modular IDeltaConnection
+  Conn := TDeltaORM.Connect('sqlite://:memory:');
   try
-    Engine.ExecuteDirect(
+    Conn.StartTransaction;
+    Conn.ExecuteDirect(
       'CREATE TABLE products (' +
       '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
       '  name VARCHAR(120) NOT NULL,' +
@@ -105,9 +108,10 @@ begin
       '  active INTEGER NOT NULL' +
       ');'
     );
+    Conn.Commit;
 
     // Initialize typed query builder
-    Query := TDeltaQuery<TProduct>.Create(Engine);
+    Query := TDeltaQuery<TProduct>.Create(Conn);
     try
       // Insert record
       P := TProduct.Create;
@@ -146,7 +150,7 @@ begin
       Query.Free;
     end;
   finally
-    Engine.Free;
+    Conn := nil;
   end;
 end.
 ```
@@ -206,46 +210,56 @@ if Account.IsNull('Limit') then
 
 ## Database Connections & Connection Pool
 
-### Standard Connection URLs
-Engines are initialized via uniform connection strings:
+### Standard Connection URLs & Pluggable Drivers
+Connections are created via `TDeltaORM.Connect` (returning `IDeltaConnection`) backed by registered `IDeltaDriver` and `IDeltaDialect` providers in `TDeltaORMRegistry`:
 
 ```pascal
+uses
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB;
+
 // SQLite (file or in-memory)
-Engine := TDeltaORMEngine.Create('sqlite://:memory:');
-Engine := TDeltaORMEngine.Create('sqlite:///var/lib/app.db');
+Conn := TDeltaORM.Connect('sqlite://:memory:');
+Conn := TDeltaORM.Connect('sqlite:///var/lib/app.db');
 
 // PostgreSQL
-Engine := TDeltaORMEngine.Create('postgres://user:pass@localhost:5432/mydb?charset=UTF8');
+Conn := TDeltaORM.Connect('postgres://user:pass@localhost:5432/mydb?charset=UTF8');
 
 // MySQL / MariaDB
-Engine := TDeltaORMEngine.Create('mysql://root:pass@127.0.0.1:3306/mydb');
+Conn := TDeltaORM.Connect('mysql://root:pass@127.0.0.1:3306/mydb');
 
 // Firebird
-Engine := TDeltaORMEngine.Create('firebird://sysdba:masterkey@localhost:3050//var/db/app.fdb');
+Conn := TDeltaORM.Connect('firebird://sysdba:masterkey@localhost:3050//var/db/app.fdb');
 
 // Microsoft SQL Server
-Engine := TDeltaORMEngine.Create('mssql://sa:pass@127.0.0.1:1433/mydb');
+Conn := TDeltaORM.Connect('mssql://sa:pass@127.0.0.1:1433/mydb');
 
 // Oracle Database
-Engine := TDeltaORMEngine.Create('oracle://system:pass@localhost:1521/XE');
+Conn := TDeltaORM.Connect('oracle://system:pass@localhost:1521/XE');
+
+// Zero-dependency Mock driver for unit testing (uses DeltaModel.ORM.Driver.Mock)
+Conn := TDeltaORM.Connect('postgres://localhost/test', 'mock');
 ```
 
 ### Thread-Safe Connection Pool
-For multi-threaded services and web APIs, `TDeltaConnectionPool` manages pre-warmed connection lifecycles:
+For multi-threaded services and web APIs, `TDeltaConnectionPool` manages pre-warmed connection lifecycles returning `IDeltaConnection` leases:
 
 ```pascal
-uses DeltaModel.ORM.Pool;
+uses
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Pool,
+  DeltaModel.ORM.Registry, DeltaModel.ORM.Dialects,
+  DeltaModel.ORM.Driver.SQLDB;
 
 var
   Pool: TDeltaConnectionPool;
-  Lease: IDeltaPooledEngine;
+  Lease: IDeltaConnection;
   Query: TDeltaQuery<TProduct>;
 begin
   Pool := TDeltaConnectionPool.Create(
     'postgres://user:pass@localhost:5432/mydb?pool_min=5&pool_max=20&pool_timeout=5000'
   );
   try
-    // Acquire a thread-safe connection lease with RAII auto-release
+    // Acquire a thread-safe connection lease with RAII auto-release & rollback
     Lease := Pool.Acquire;
 
     Query := TDeltaQuery<TProduct>.Create(Lease);
@@ -325,7 +339,7 @@ When processing large datasets (e.g., 5,000+ records), traditional ORM patterns 
    A single model instance (`Query.Current`) is reused across every row during cursor iteration. 5,000 rows consume **EXACTLY 1 OBJECT** on the heap (>99% memory reduction and 2.4x faster):
 
 ```pascal
-Query := TDeltaQuery<TMunicipio>.Create(Engine);
+Query := TDeltaQuery<TMunicipio>.Create(Conn);
 try
   Query.OrderBy('id ASC').Open;
   while Query.Next do
@@ -506,13 +520,13 @@ end;
 
 ### Manual Transaction Control
 ```pascal
-Engine.BeginTransaction;
+Conn.StartTransaction;
 try
   Query.Insert(Order);
   Query.Insert(OrderItem);
-  Engine.Commit;
+  Conn.Commit;
 except
-  Engine.Rollback;
+  Conn.Rollback;
   raise;
 end;
 ```
@@ -524,7 +538,7 @@ When using `IDeltaTransaction`, transactions automatically roll back if an unhan
 var
   Tx: IDeltaTransaction;
 begin
-  Tx := Engine.BeginTransaction;
+  Tx := Conn.BeginTransaction;
   Query.Insert(Order);
   Query.Insert(OrderItem);
   Tx.Commit; // If an exception occurs before Commit, auto-rollback is triggered
@@ -580,13 +594,18 @@ end;
 DeltaModel includes an automated test suite covering all ORM operations, connection pool concurrency, and all 5 codecs (JSON, CBOR, BSON, XML, CSV):
 
 ```bash
-# Compile and run test suite (540 automated tests)
-fpc -B -FE/tmp -FU/tmp -Fusrc -Fi../../src tests/test_suite.lpr
+# Compile and run core test suite
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers -Fisrc tests/test_suite.lpr
 /tmp/test_suite
 
 # Run pool concurrency test
-fpc -B -FE/tmp -FU/tmp -Fusrc tests/test_pool.lpr
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers tests/test_pool.lpr
 /tmp/test_pool
+
+# Run DDL, autoincrement, and bulk insert suites
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers tests/test_autoincrement.lpr && /tmp/test_autoincrement
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers tests/test_migrations.lpr && /tmp/test_migrations
+fpc -B -FE/tmp -FU/tmp -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers tests/test_bulk_insert.lpr && /tmp/test_bulk_insert
 ```
 
 ---

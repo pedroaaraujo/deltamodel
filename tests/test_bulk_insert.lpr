@@ -6,13 +6,14 @@ uses
   {$IFDEF UNIX}
   cthreads,
   {$ENDIF}
-  Classes, SysUtils, DB, SQLDB, sqlite3conn,
-  DeltaModel, DeltaModel.Fields, DeltaModel.ORM.Connection,
-  DeltaModel.ORM.DML, DeltaModel.SQLBuilder, DeltaModel.ORM.Types,
+  Classes, SysUtils, sqlite3conn,
+  DeltaModel, DeltaModel.Fields,
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB,
+  DeltaModel.ORM.DML, DeltaModel.ORM.Persister, DeltaModel.SQLBuilder,
   DeltaModel.ORM.Pool, DeltaValidator;
 
 type
-  { Test model for customers }
   TCustomer = class(TDeltaModel)
   private
     FId: TDFIntRequired;
@@ -25,7 +26,6 @@ type
     property Email: TDFStringNull read FEmail write FEmail;
     property Score: TDFIntNull read FScore write FScore;
   public
-
     procedure AfterConstruction; override;
     procedure Validate; override;
   end;
@@ -66,10 +66,23 @@ begin
   end;
 end;
 
-procedure SetupTestDatabase(Engine: TDeltaORMEngine);
+function CountCustomers(const AConn: IDeltaConnection): Int64;
+var
+  Q: TQuery;
 begin
-  Engine.ExecuteDirect('DROP TABLE IF EXISTS customers;');
-  Engine.ExecuteDirect(
+  Q := TQuery.Create(AConn);
+  try
+    Q.SetModel(TCustomer);
+    Result := Q.Count;
+  finally
+    Q.Free;
+  end;
+end;
+
+procedure SetupTestDatabase(const AConn: IDeltaConnection);
+begin
+  AConn.ExecuteDirect('DROP TABLE IF EXISTS customers;');
+  AConn.ExecuteDirect(
     'CREATE TABLE customers (' +
     '  id INTEGER PRIMARY KEY AUTOINCREMENT,' +
     '  name TEXT NOT NULL,' +
@@ -77,11 +90,10 @@ begin
     '  score INTEGER' +
     ');'
   );
-  if Engine.TransactionActive then
-    Engine.Commit;
+  if AConn.TransactionActive then
+    AConn.Commit;
 end;
 
-{ Test 1: SQLBuilder - SQL Generation per Dialect }
 procedure TestSQLBuilderDialects;
 var
   C1, C2: TCustomer;
@@ -95,22 +107,19 @@ begin
     C1.Name.Value := 'Alice';
     C2.Name.Value := 'Bob';
 
-    // SQLite / Postgres / MySQL / MSSQL dialect (default)
-    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], ddSQLite);
+    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], 'sqlite');
     AssertTrue(SQL.StartsWith('INSERT INTO customers (name, email, score) VALUES'), 'SQLite deve iniciar com INSERT INTO ... VALUES');
     AssertTrue(SQL.Contains('(:name_0, :email_0, :score_0)'), 'Tupla 0 deve ter sufixo _0');
     AssertTrue(SQL.Contains('(:name_1, :email_1, :score_1)'), 'Tupla 1 deve ter sufixo _1');
-    AssertTrue(not SQL.Contains('id'), 'AutoInc Id não preenchido não deve estar nas colunas');
+    AssertTrue(not SQL.Contains('id'), 'AutoInc Id nao preenchido nao deve estar nas colunas');
 
-    // Dialeto Firebird (EXECUTE BLOCK)
-    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], ddFirebird);
+    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], 'firebird');
     AssertTrue(SQL.StartsWith('EXECUTE BLOCK AS'), 'Firebird deve usar EXECUTE BLOCK');
-    AssertTrue(SQL.Contains('INSERT INTO customers (name, email, score) VALUES (:name_0, :email_0, :score_0);'), 'Firebird deve conter inserção da linha 0');
-    AssertTrue(SQL.Contains('INSERT INTO customers (name, email, score) VALUES (:name_1, :email_1, :score_1);'), 'Firebird deve conter inserção da linha 1');
+    AssertTrue(SQL.Contains('INSERT INTO customers (name, email, score) VALUES (:name_0, :email_0, :score_0);'), 'Firebird deve conter insercao da linha 0');
+    AssertTrue(SQL.Contains('INSERT INTO customers (name, email, score) VALUES (:name_1, :email_1, :score_1);'), 'Firebird deve conter insercao da linha 1');
     AssertTrue(SQL.EndsWith('END'), 'Firebird deve encerrar com END');
 
-    // Dialeto Oracle (INSERT ALL)
-    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], ddOracle);
+    SQL := TDMSQLBuilder.CreateBulkInsert([C1, C2], 'oracle');
     AssertTrue(SQL.StartsWith('INSERT ALL'), 'Oracle deve usar INSERT ALL');
     AssertTrue(SQL.Contains('INTO customers (name, email, score) VALUES (:name_0, :email_0, :score_0)'), 'Oracle deve conter INTO ... VALUES para linha 0');
     AssertTrue(SQL.Contains('INTO customers (name, email, score) VALUES (:name_1, :email_1, :score_1)'), 'Oracle deve conter INTO ... VALUES para linha 1');
@@ -123,16 +132,15 @@ begin
   end;
 end;
 
-{ Test 2: Basic BulkInsert with TDeltaModel array }
-procedure TestBulkInsertArray(Engine: TDeltaORMEngine);
+procedure TestBulkInsertArray(const AConn: IDeltaConnection);
 var
   Models: array of TDeltaModel;
   I, Inserted: Integer;
   Count: Int64;
   Cust: TCustomer;
 begin
-  Write('Teste 2: Engine.BulkInsert com array of TDeltaModel... ');
-  SetupTestDatabase(Engine);
+  Write('Teste 2: TDeltaPersister.BulkInsert com array of TDeltaModel... ');
+  SetupTestDatabase(AConn);
 
   SetLength(Models, 10);
   for I := 0 to 9 do
@@ -145,10 +153,10 @@ begin
   end;
 
   try
-    Inserted := Engine.BulkInsert(Models);
+    Inserted := TDeltaPersister.BulkInsert(AConn, Models);
     AssertTrue(Inserted = 10, 'Deve ter retornado 10 registros inseridos');
 
-    Count := Engine.Count(TCustomer);
+    Count := CountCustomers(AConn);
     AssertTrue(Count = 10, 'Count deve ser 10');
     WriteLn('OK! (' + IntToStr(Inserted) + ' inseridos)');
   finally
@@ -157,16 +165,15 @@ begin
   end;
 end;
 
-{ Test 3: BulkInsert with TDeltaModelList }
-procedure TestBulkInsertList(Engine: TDeltaORMEngine);
+procedure TestBulkInsertList(const AConn: IDeltaConnection);
 var
   List: TDeltaModelList;
   I, Inserted: Integer;
   Cust: TCustomer;
   Count: Int64;
 begin
-  Write('Teste 3: Engine.BulkInsert com TDeltaModelList... ');
-  SetupTestDatabase(Engine);
+  Write('Teste 3: TDeltaPersister.BulkInsert com TDeltaModelList... ');
+  SetupTestDatabase(AConn);
 
   List := TDeltaModelList.Create;
   try
@@ -180,10 +187,10 @@ begin
       List.Add(Cust);
     end;
 
-    Inserted := Engine.BulkInsert(List);
+    Inserted := TDeltaPersister.BulkInsert(AConn, List);
     AssertTrue(Inserted = 15, 'Deve retornar 15');
 
-    Count := Engine.Count(TCustomer);
+    Count := CountCustomers(AConn);
     AssertTrue(Count = 15, 'Count deve ser 15');
     WriteLn('OK! (' + IntToStr(Inserted) + ' inseridos)');
   finally
@@ -191,8 +198,7 @@ begin
   end;
 end;
 
-{ Test 4: BulkInsert with batch chunking / partitioning }
-procedure TestBulkInsertChunking(Engine: TDeltaORMEngine);
+procedure TestBulkInsertChunking(const AConn: IDeltaConnection);
 var
   Models: array of TDeltaModel;
   I, Inserted: Integer;
@@ -200,7 +206,7 @@ var
   Count: Int64;
 begin
   Write('Teste 4: BulkInsert com particionamento (25 itens, batch_size=7)... ');
-  SetupTestDatabase(Engine);
+  SetupTestDatabase(AConn);
 
   SetLength(Models, 25);
   for I := 0 to 24 do
@@ -210,17 +216,16 @@ begin
     if I mod 2 = 0 then
       Cust.Email.Value := 'lote' + IntToStr(I + 1) + '@mail.com'
     else
-      Cust.Email.Clear; // test interleaved null values
+      Cust.Email.Clear;
     Cust.Score.Value := I;
     Models[I] := Cust;
   end;
 
   try
-    // Small batch size (7) to force 4 iterations (7 + 7 + 7 + 4)
-    Inserted := Engine.BulkInsert(Models, 7);
+    Inserted := TDeltaPersister.BulkInsert(AConn, Models, 7);
     AssertTrue(Inserted = 25, 'Total inserido deve ser 25');
 
-    Count := Engine.Count(TCustomer);
+    Count := CountCustomers(AConn);
     AssertTrue(Count = 25, 'Count no banco deve ser 25');
     WriteLn('OK! (25 itens em 4 batches de 7)');
   finally
@@ -229,8 +234,7 @@ begin
   end;
 end;
 
-{ Test 5: Transactionality and Rollback on validation failure }
-procedure TestBulkInsertValidationRollback(Engine: TDeltaORMEngine);
+procedure TestBulkInsertValidationRollback(const AConn: IDeltaConnection);
 var
   Models: array of TDeltaModel;
   I: Integer;
@@ -238,15 +242,15 @@ var
   Count: Int64;
   Failed: Boolean;
 begin
-  Write('Teste 5: Validação prévia e atomicidade (Rollback em falha)... ');
-  SetupTestDatabase(Engine);
+  Write('Teste 5: Validacao previa e atomicidade (Rollback em falha)... ');
+  SetupTestDatabase(AConn);
 
   SetLength(Models, 5);
   for I := 0 to 4 do
   begin
     Cust := TCustomer.Create;
     if I = 3 then
-      Cust.Name.Value := '' // Invalid! Required non-empty field
+      Cust.Name.Value := ''
     else
       Cust.Name.Value := 'Valido ' + IntToStr(I);
     Models[I] := Cust;
@@ -255,16 +259,16 @@ begin
   Failed := False;
   try
     try
-      Engine.BulkInsert(Models);
+      TDeltaPersister.BulkInsert(AConn, Models);
     except
       on E: EDeltaValidation do
         Failed := True;
     end;
 
-    AssertTrue(Failed, 'Deveria ter lançado EDeltaValidation');
+    AssertTrue(Failed, 'Deveria ter lancado EDeltaValidation');
 
-    Count := Engine.Count(TCustomer);
-    AssertTrue(Count = 0, 'Nenhum registro deve ter sido gravado após falha');
+    Count := CountCustomers(AConn);
+    AssertTrue(Count = 0, 'Nenhum registro deve ter sido gravado apos falha');
     WriteLn('OK! (Rollback confirmado, nenhum registro inserido)');
   finally
     for I := 0 to 4 do
@@ -272,28 +276,23 @@ begin
   end;
 end;
 
-{ Test 6: BulkInsert through Connection Pool }
 procedure TestBulkInsertWithPool;
 var
   Pool: TDeltaConnectionPool;
-  Lease: IDeltaPooledEngine;
+  Lease: IDeltaConnection;
   Models: array of TDeltaModel;
   I, Inserted: Integer;
   Cust: TCustomer;
-  Engine: TDeltaORMEngine;
   Count: Int64;
 begin
   Write('Teste 6: BulkInsert via Connection Pool (Direct & Lease)... ');
-  
+
   Pool := TDeltaConnectionPool.Create('sqlite://' + TEST_DB + '?pool_min=2&pool_max=5');
   try
-    // Prepare table
     Lease := Pool.Acquire;
-    Engine := Lease.Engine;
-    SetupTestDatabase(Engine);
-    Lease := nil; // Return connection to pool
+    SetupTestDatabase(Lease);
+    Lease := nil;
 
-    // Insert via direct Pool.BulkInsert
     SetLength(Models, 8);
     for I := 0 to 7 do
     begin
@@ -311,7 +310,6 @@ begin
         Models[I].Free;
     end;
 
-    // Insert via Lease.BulkInsert
     Lease := Pool.Acquire;
     try
       SetLength(Models, 4);
@@ -323,14 +321,14 @@ begin
       end;
 
       try
-        Inserted := Lease.BulkInsert(Models);
-        AssertTrue(Inserted = 4, 'Lease.BulkInsert deve inserir 4');
+        Inserted := TDeltaPersister.BulkInsert(Lease, Models);
+        AssertTrue(Inserted = 4, 'Lease BulkInsert deve inserir 4');
       finally
         for I := 0 to 3 do
           Models[I].Free;
       end;
 
-      Count := Lease.Count(TCustomer);
+      Count := CountCustomers(Lease);
       AssertTrue(Count = 12, 'Total no banco deve ser 12 (8 + 4)');
     finally
       Lease := nil;
@@ -342,31 +340,34 @@ begin
   end;
 end;
 
+procedure RunDirectTests;
 var
-  Engine: TDeltaORMEngine;
+  Conn: IDeltaConnection;
+begin
+  Conn := TDeltaORM.Connect('sqlite://' + TEST_DB);
+  try
+    TestBulkInsertArray(Conn);
+    TestBulkInsertList(Conn);
+    TestBulkInsertChunking(Conn);
+    TestBulkInsertValidationRollback(Conn);
+  finally
+    Conn.Disconnect;
+    Conn := nil;
+  end;
+end;
+
 begin
   WriteLn('====================================================');
   WriteLn('      Iniciando Testes de Bulk Insert DeltaModel    ');
   WriteLn('====================================================');
 
-  // SQL tests
+  if FileExists(TEST_DB) then
+    DeleteFile(TEST_DB);
+
   TestSQLBuilderDialects;
-
-  // Initialize test SQLite engine
-  Engine := TDeltaORMEngine.Create('sqlite://' + TEST_DB);
-  try
-    TestBulkInsertArray(Engine);
-    TestBulkInsertList(Engine);
-    TestBulkInsertChunking(Engine);
-    TestBulkInsertValidationRollback(Engine);
-  finally
-    Engine.Free;
-  end;
-
-  // Pool test
+  RunDirectTests;
   TestBulkInsertWithPool;
 
-  // Clean up test database
   if FileExists(TEST_DB) then
     DeleteFile(TEST_DB);
 

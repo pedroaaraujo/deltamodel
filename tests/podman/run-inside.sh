@@ -2,7 +2,7 @@
 set -eu
 mkdir -p /tmp/deltamodel-build
 for suite in test_suite test_migrations test_migrations_integration test_autoincrement test_autoincrement_integration; do
-  if ! fpc -B -FE/tmp/deltamodel-build -FU/tmp/deltamodel-build -Fusrc "tests/$suite.lpr" > "/tmp/$suite-build.log" 2>&1; then
+  if ! fpc -B -FE/tmp/deltamodel-build -FU/tmp/deltamodel-build -Fusrc -Fusrc/orm -Fusrc/orm/dialects -Fusrc/orm/drivers "tests/$suite.lpr" > "/tmp/$suite-build.log" 2>&1; then
     cat "/tmp/$suite-build.log"
     exit 1
   fi

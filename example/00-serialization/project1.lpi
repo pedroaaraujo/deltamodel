@@ -51,7 +51,7 @@
         <UnitName Value="DeltaModelMessages"/>
       </Unit>
       <Unit>
-        <Filename Value="../../src/DeltaModel.SQLBuilder.pas"/>
+        <Filename Value="../../src/orm/DeltaModel.SQLBuilder.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
     </Units>
@@ -63,7 +63,7 @@
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <OtherUnitFiles Value="../../src"/>
+      <OtherUnitFiles Value="../../src;../../src/orm"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Linking>

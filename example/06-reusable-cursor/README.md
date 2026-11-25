@@ -21,7 +21,7 @@ DeltaModel eliminates per-row heap allocations through two architectural mechani
 
 ### 1. Canonical Pascal Cursor Loop (`while Query.Next do`)
 ```pascal
-Query := TDeltaQuery<TMunicipio>.Create(Engine);
+Query := TDeltaQuery<TMunicipio>.Create(Conn);
 try
   Query.OrderBy('id ASC').Open;
   while Query.Next do
@@ -71,6 +71,9 @@ fpc -MDelphi -Scghi -O2 \
   -FE/tmp/deltamodel_ex06 \
   -FU/tmp/deltamodel_ex06 \
   -Fu../../src \
+  -Fu../../src/orm \
+  -Fu../../src/orm/dialects \
+  -Fu../../src/orm/drivers \
   -Fi../../src \
   reusable_cursor_demo.lpr
 ```

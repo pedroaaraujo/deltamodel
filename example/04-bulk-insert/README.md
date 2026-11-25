@@ -1,19 +1,19 @@
 # DeltaModel ORM — Example 04: High-Performance Bulk Insert (`04-bulk-insert`)
 
-An interactive Lazarus LCL benchmark and SQL preview application demonstrating **`TDeltaORMEngine.BulkInsert`** and **`TDMSQLBuilder.CreateBulkInsert`** across multiple database dialects.
+An interactive Lazarus LCL benchmark and SQL preview application demonstrating **`TDeltaPersister.BulkInsert`** (`DeltaModel.ORM.Persister`) and **`TDMSQLBuilder.CreateBulkInsert`** across multiple database dialects.
 
 ---
 
 ## 🚀 Key Features Demonstrated
 
 - **Multi-Dialect Bulk Insert SQL Generation (`TDMSQLBuilder.CreateBulkInsert`)**:
-  - Generates multi-row batch `INSERT` statements tailored to **PostgreSQL**, **MySQL / MariaDB**, **SQLite**, **Firebird** (`INSERT INTO ... SELECT ... FROM RDB$DATABASE UNION ALL`), **MSSQL**, and **Oracle** (`INSERT ALL INTO ... SELECT 1 FROM DUAL`).
-- **Batch Execution Modes (`TDeltaORMEngine.BulkInsert`)**:
-  - **Open Array Mode**: `Con.BulkInsert(Models, BatchSize)` accepting an array of `TDeltaModel` instances.
-  - **Model List Mode**: `Con.BulkInsert(List, BatchSize)` accepting a `TDeltaModelList`.
+  - Generates multi-row batch `INSERT` statements tailored to **PostgreSQL**, **MySQL / MariaDB**, **SQLite**, **Firebird** (`EXECUTE BLOCK`), **MSSQL**, and **Oracle** (`INSERT ALL ... SELECT 1 FROM DUAL`).
+- **Batch Execution Modes (`TDeltaPersister.BulkInsert`)**:
+  - **Open Array Mode**: `TDeltaPersister.BulkInsert(Con, Models, BatchSize)` accepting an array of `TDeltaModel` instances.
+  - **Model List Mode**: `TDeltaPersister.BulkInsert(Con, List, BatchSize)` accepting a `TDeltaModelList`.
   - Automatically chunks large datasets into configurable `BatchSize` packets inside an atomic transaction.
 - **Performance Comparison Benchmark**:
-  - Compares batch `BulkInsert` throughput (records/second) against traditional row-by-row `Con.Save(P)` execution.
+  - Compares batch `BulkInsert` throughput (records/second) against traditional row-by-row `TDeltaPersister.Save(Con, P)` execution.
 
 ---
 
@@ -33,6 +33,9 @@ fpc -MObjFPC -Scghi -O2 \
   -FE/tmp/deltamodel_ex04 \
   -FU/tmp/deltamodel_ex04 \
   -Fu../../src \
+  -Fu../../src/orm \
+  -Fu../../src/orm/dialects \
+  -Fu../../src/orm/drivers \
   -Fi../../src \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux/gtk2 \

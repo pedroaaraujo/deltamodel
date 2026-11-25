@@ -6,8 +6,10 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls,
-  ExtCtrls, Spin, DB, SQLDB,
-  DeltaModel.ORM.Pool, DeltaModel.ORM.Connection;
+  ExtCtrls, Spin,
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Registry,
+  DeltaModel.ORM.Dialects, DeltaModel.ORM.Driver.SQLDB,
+  DeltaModel.ORM.Pool;
 
 type
 
@@ -104,8 +106,8 @@ end;
 
 procedure TPooledWorker.Execute;
 var
-  Lease: IDeltaPooledEngine;
-  DS: TDataSet;
+  Lease: IDeltaConnection;
+  RS: IDeltaResultSet;
   I: Integer;
 begin
   try
@@ -120,14 +122,14 @@ begin
           [FWorkerId, I, Random(10000)]));
         Lease.Commit;
 
-        DS := Lease.ExecuteQuery(Format(
+        RS := Lease.ExecuteQuery(Format(
           'SELECT COUNT(*) FROM bench_log WHERE worker_id = %d',
           [FWorkerId]));
         try
-          if (not DS.IsEmpty) and (DS.Fields[0].AsInteger < I) then
+          if RS.Next and (RS.AsInteger(0) < I) then
             raise Exception.Create('Contagem divergente.');
         finally
-          DS.Free;
+          RS.Close;
         end;
       finally
         Lease := nil;
@@ -153,35 +155,34 @@ end;
 
 procedure TUnpooledWorker.Execute;
 var
-  Engine: TDeltaORMEngine;
-  DS: TDataSet;
+  Conn: IDeltaConnection;
+  RS: IDeltaResultSet;
   I: Integer;
 begin
   try
     for I := 1 to FOperations do
     begin
-      // Create, connect, operate, disconnect, and destroy every time (no pool)
-      Engine := TDeltaORMEngine.Create(FDbURL);
+      // Create, connect, operate, disconnect every time (no pool)
+      Conn := TDeltaORM.Connect(FDbURL);
       try
-        Engine.Connection.Open;
-        Engine.ExecuteDirect('PRAGMA busy_timeout = 5000');
-        Engine.StartTransaction;
-        Engine.ExecuteDirect(Format(
+        Conn.ExecuteDirect('PRAGMA busy_timeout = 5000');
+        Conn.StartTransaction;
+        Conn.ExecuteDirect(Format(
           'INSERT INTO bench_log (worker_id, iter, val) VALUES (%d, %d, %d)',
           [FWorkerId, I, Random(10000)]));
-        Engine.Commit;
+        Conn.Commit;
 
-        DS := Engine.ExecuteQuery(Format(
+        RS := Conn.ExecuteQuery(Format(
           'SELECT COUNT(*) FROM bench_log WHERE worker_id = %d',
           [FWorkerId]));
         try
-          if (not DS.IsEmpty) and (DS.Fields[0].AsInteger < I) then
+          if RS.Next and (RS.AsInteger(0) < I) then
             raise Exception.Create('Contagem divergente.');
         finally
-          DS.Free;
+          RS.Close;
         end;
       finally
-        Engine.Free;
+        Conn := nil;
       end;
     end;
     FSuccess := True;
@@ -198,21 +199,20 @@ end;
 
 procedure TForm1.PrepareDatabase;
 var
-  Eng: TDeltaORMEngine;
+  Conn: IDeltaConnection;
 begin
-  Eng := TDeltaORMEngine.Create(edtURL.Text);
+  Conn := TDeltaORM.Connect(edtURL.Text);
   try
-    Eng.Connection.Open;
     try
-      Eng.ExecuteDirect('PRAGMA busy_timeout = 5000');
-      Eng.ExecuteDirect('CREATE TABLE IF NOT EXISTS bench_log (id INTEGER PRIMARY KEY AUTOINCREMENT, worker_id INTEGER, iter INTEGER, val INTEGER)');
-      Eng.StartTransaction;
-      Eng.ExecuteDirect('DELETE FROM bench_log');
-      Eng.Commit;
+      Conn.ExecuteDirect('PRAGMA busy_timeout = 5000');
+      Conn.ExecuteDirect('CREATE TABLE IF NOT EXISTS bench_log (id INTEGER PRIMARY KEY AUTOINCREMENT, worker_id INTEGER, iter INTEGER, val INTEGER)');
+      Conn.StartTransaction;
+      Conn.ExecuteDirect('DELETE FROM bench_log');
+      Conn.Commit;
     except
     end;
   finally
-    Eng.Free;
+    Conn := nil;
   end;
 end;
 

@@ -7,9 +7,10 @@ unit DeltaModel.Generics;
 interface
 
 uses
-  Classes, SysUtils, DB, Variants, TypInfo,
+  Classes, SysUtils, Variants, TypInfo,
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.JsonStreamer,
-  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Types, DeltaModel.ORM.DML;
+  DeltaModel.ORM.Types, DeltaModel.ORM.Interfaces,
+  DeltaModel.ORM.Persister, DeltaModel.ORM.DML;
 
 procedure RegisterSchemaFlyweight(AModel: TDeltaModel);
 procedure UnregisterSchemaFlyweight(AModel: TDeltaModel);
@@ -49,7 +50,7 @@ type
   TDeltaQuery<T: TDeltaModel> = class
   private
     FQuery: TQuery;
-    FEngine: IDeltaORMEngine;
+    FConn: IDeltaConnection;
     FIncludes: TStringList;
     FCurrent: T;
     FCursor: TDeltaQueryCursor<T>;
@@ -62,7 +63,7 @@ type
     type
       TEnumerator = TDeltaQueryEnumerator<T>;
       TCursor = TDeltaQueryCursor<T>;
-    constructor Create(AEngine: IDeltaORMEngine = nil);
+    constructor Create(const AConn: IDeltaConnection = nil);
     destructor Destroy; override;
 
     // Reusable Cursor (Zero-Alloc Loop)
@@ -76,7 +77,7 @@ type
     function GetEnumerator: TEnumerator;
     procedure Each(AProc: TDeltaModelProc<T>);
 
-    // Schema Flyweight Singleton (Zero Heap Churn na montagem de queries)
+    // Schema Flyweight Singleton
     property Schema: T read GetSchema;
     property M: T read GetSchema;
     class property SchemaModel: T read GetSchemaSingleton;
@@ -111,7 +112,7 @@ type
     function Page(APageNumber, APageSize: Integer): TDeltaQuery<T>;
     function Select(const AColumns: string): TDeltaQuery<T>;
     function Param(const AName: string; const AValue: Variant): TDeltaQuery<T>;
-    function Params: TParams;
+    function Params: TDeltaParams;
     function Clear: TDeltaQuery<T>;
 
     function ToSQL: string;
@@ -208,48 +209,6 @@ begin
   end;
 end;
 
-{ TDeltaQuery<T> }
-
-class function TDeltaQuery<T>.GetSchemaSingleton: T;
-begin
-  Result := T(GetOrRegisterFlyweight(T));
-end;
-
-function TDeltaQuery<T>.GetSchema: T;
-begin
-  Result := GetSchemaSingleton;
-end;
-
-class function TDeltaQuery<T>.ModelSchema: T;
-begin
-  Result := GetSchemaSingleton;
-end;
-
-class procedure TDeltaQuery<T>.FreeSchema;
-begin
-  RemoveFlyweight(T);
-end;
-
-class function TDeltaQuery<T>.GetModelPropertyValue(AModel: TObject; const APropName: string): Variant;
-var
-  PropInfo: PPropInfo;
-  PropObj: TObject;
-begin
-  Result := Null;
-  if AModel = nil then Exit;
-  PropInfo := GetPropInfo(AModel.ClassType, APropName);
-  if PropInfo = nil then Exit;
-
-  if PropInfo^.PropType^.Kind = tkClass then
-  begin
-    PropObj := GetObjectProp(AModel, PropInfo);
-    if PropObj is TDeltaField then
-      Result := TDeltaField(PropObj).Value;
-  end
-  else
-    Result := GetPropValue(AModel, APropName);
-end;
-
 { TDeltaQueryEnumerator<T> }
 
 constructor TDeltaQueryEnumerator<T>.Create(AQuery: TQuery; ACurrent: T);
@@ -301,11 +260,51 @@ end;
 
 { TDeltaQuery<T> }
 
-constructor TDeltaQuery<T>.Create(AEngine: IDeltaORMEngine);
+class function TDeltaQuery<T>.GetSchemaSingleton: T;
+begin
+  Result := T(GetOrRegisterFlyweight(T));
+end;
+
+function TDeltaQuery<T>.GetSchema: T;
+begin
+  Result := GetSchemaSingleton;
+end;
+
+class function TDeltaQuery<T>.ModelSchema: T;
+begin
+  Result := GetSchemaSingleton;
+end;
+
+class procedure TDeltaQuery<T>.FreeSchema;
+begin
+  RemoveFlyweight(T);
+end;
+
+class function TDeltaQuery<T>.GetModelPropertyValue(AModel: TObject; const APropName: string): Variant;
+var
+  PropInfo: PPropInfo;
+  PropObj: TObject;
+begin
+  Result := Null;
+  if AModel = nil then Exit;
+  PropInfo := GetPropInfo(AModel.ClassType, APropName);
+  if PropInfo = nil then Exit;
+
+  if PropInfo^.PropType^.Kind = tkClass then
+  begin
+    PropObj := GetObjectProp(AModel, PropInfo);
+    if PropObj is TDeltaField then
+      Result := TDeltaField(PropObj).Value;
+  end
+  else
+    Result := GetPropValue(AModel, APropName);
+end;
+
+constructor TDeltaQuery<T>.Create(const AConn: IDeltaConnection);
 begin
   inherited Create;
-  FEngine := AEngine;
-  FQuery := TQuery.Create(AEngine);
+  FConn := AConn;
+  FQuery := TQuery.Create(AConn);
   FQuery.SetModel(T);
   FCurrent := T.Create;
   FQuery.SetCursorModel(FCurrent, False);
@@ -568,7 +567,7 @@ begin
   Result := Self;
 end;
 
-function TDeltaQuery<T>.Params: TParams;
+function TDeltaQuery<T>.Params: TDeltaParams;
 begin
   Result := FQuery.Params;
 end;
@@ -684,7 +683,6 @@ begin
         if FKName.IsEmpty then
           FKName := LowerCase(Meta.TableName) + '_id';
 
-        // Collect unique parent IDs as parameterized values
         SetLength(IdValues, 0);
         for I := 0 to Result.Count - 1 do
         begin
@@ -700,8 +698,7 @@ begin
 
         if Length(IdValues) > 0 then
         begin
-          // Execute batched secondary query (WHERE fk_field IN (:p1, :p2, ...))
-          ChildQuery := TQuery.Create(FEngine);
+          ChildQuery := TQuery.Create(FConn);
           try
             ChildQuery.SetModel(ChildClass);
             ChildQuery.WhereIn(FKName, IdValues);
@@ -819,22 +816,22 @@ end;
 
 function TDeltaQuery<T>.Save(AModel: T): Boolean;
 begin
-  Result := TSave.SaveObject(FEngine, AModel);
+  Result := TDeltaPersister.Save(FConn, AModel);
 end;
 
 function TDeltaQuery<T>.Insert(AModel: T): Boolean;
 begin
-  Result := TInsert.InsertObject(FEngine, AModel);
+  Result := TDeltaPersister.Insert(FConn, AModel);
 end;
 
 function TDeltaQuery<T>.Update(AModel: T): Boolean;
 begin
-  Result := TUpdate.UpdateObject(FEngine, AModel);
+  Result := TDeltaPersister.Update(FConn, AModel);
 end;
 
 function TDeltaQuery<T>.BulkInsert(AList: TGDeltaModelList<T>; ABatchSize: Integer): Integer;
 begin
-  Result := TInsert.BulkInsertObjects(FEngine, AList, ABatchSize);
+  Result := TDeltaPersister.BulkInsert(FConn, AList, ABatchSize);
 end;
 
 finalization

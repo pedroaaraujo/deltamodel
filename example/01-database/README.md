@@ -1,6 +1,6 @@
 # DeltaModel ORM — Example 01: Multi-Dialect SQL Builder, Schema DDL & Live CRUD (`01-database`)
 
-An interactive Lazarus LCL application showcasing **DeltaModel ORM** multi-dialect SQL generation (`TDMSQLBuilder` and `TDDLBuilder`), automatic database schema migrations (`TDeltaORMSchema.PrepareDB`), 1:1 foreign-key relations (`TDFForeignKey` / `TDFHasOne`), and live database CRUD operations (`TDeltaORMEngine`).
+An interactive Lazarus LCL application showcasing **DeltaModel ORM** multi-dialect SQL generation (`TDMSQLBuilder` and `TDDLBuilder`), automatic database schema migrations (`TDeltaORMSchema.PrepareDB`), 1:1 foreign-key relations (`TDFForeignKey` / `TDFHasOne`), and live database CRUD operations via decoupled interfaces (`IDeltaConnection`, `TDeltaORM.Connect`, `TDeltaPersister`).
 
 ---
 
@@ -8,22 +8,22 @@ An interactive Lazarus LCL application showcasing **DeltaModel ORM** multi-diale
 
 - **Multi-Dialect SQL & DDL Generation**:
   - Instant preview of paginated `SELECT`, `INSERT ... RETURNING`, `UPDATE`, `DELETE`, and full `CREATE TABLE` + constraints + indexes DDL across 6 SQL dialects:
-    - **PostgreSQL** (`ddPostgreSQL`)
-    - **MySQL / MariaDB** (`ddMySQL`)
-    - **SQLite** (`ddSQLite`)
-    - **Firebird** (`ddFirebird`)
-    - **Microsoft SQL Server** (`ddMSSQL`)
-    - **Oracle** (`ddOracle`)
+    - **PostgreSQL** (`postgresql`)
+    - **MySQL / MariaDB** (`mysql`)
+    - **SQLite** (`sqlite`)
+    - **Firebird** (`firebird`)
+    - **Microsoft SQL Server** (`mssql`)
+    - **Oracle** (`oracle`)
 - **Rich Schema Metadata (`TPerson` & `TProfile`)**:
   - Auto-increment primary keys (`[dboPrimaryKey, dboAutoInc]`).
   - Secondary single-column index (`active.IsIndexed := True`).
   - Composite unique constraint (`AddUniqueConstraint('uq_person_name_surname', ['name', 'surname'])`).
   - Composite performance index (`AddIndex('ix_person_created_age', ['created', 'age'])`).
   - 1:1 relational mapping between `TPerson` and `TProfile` via `TDFForeignKey` (`personId.References(TPerson, 'id')`).
-- **Live Database Execution (`TDeltaORMEngine`)**:
-  - Connects via URI connection string (e.g., `sqlite:///tmp/deltamodel_test.db` or PostgreSQL/MySQL URLs).
+- **Live Database Execution (`TDeltaORM.Connect` / `IDeltaConnection`)**:
+  - Connects via URI connection string (e.g., `sqlite:///tmp/deltamodel_test.db` or PostgreSQL/MySQL URLs) using the `TSQLDBDriver` plugin (`DeltaModel.ORM.Driver.SQLDB`).
   - Automatic schema provisioning (`Schema.PrepareDB(True)`).
-  - Live `Save`, `Insert`, `Count`, and paginated `Query(TPerson).OrderBy('name ASC').Page(1, 10).All`.
+  - Live `TDeltaPersister.Save`, `TDeltaPersister.Insert`, and paginated `TQuery` (`OrderBy('name ASC').Page(1, 10).All`).
 
 ---
 
@@ -43,6 +43,9 @@ fpc -MObjFPC -Scghi -O2 \
   -FE/tmp/deltamodel_ex01 \
   -FU/tmp/deltamodel_ex01 \
   -Fu../../src \
+  -Fu../../src/orm \
+  -Fu../../src/orm/dialects \
+  -Fu../../src/orm/drivers \
   -Fi../../src \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux \
   -Fu/usr/lib64/lazarus/lcl/units/x86_64-linux/gtk2 \
