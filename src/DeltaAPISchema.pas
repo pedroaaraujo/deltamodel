@@ -23,7 +23,89 @@ function GeneratePaginatedSchemaRefStr(const AModelName: string): string;
 implementation
 
 uses
-  DeltaModel;
+  DeltaModel, DeltaModel.ApiDoc;
+
+{ Emits the example with the JSON type declared for the field, so numbers and
+  booleans are not rendered as strings (e.g. "example": 12.5, not "12.5"). }
+procedure AddDeltaFieldExample(ASchemaObj: TJSONObject; AField: TDeltaField);
+var
+  DataType: string;
+begin
+  DataType := AField.SwaggerDataType;
+  try
+    if DataType = 'integer' then
+      ASchemaObj.Add('example', AField.AsLargeInt)
+    else if DataType = 'number' then
+      ASchemaObj.Add('example', AField.AsFloat)
+    else if DataType = 'boolean' then
+      ASchemaObj.Add('example', AField.AsBoolean)
+    else
+      ASchemaObj.Add('example', AField.AsString);
+  except
+    on EConvertError do
+      ASchemaObj.Add('example', AField.AsString);
+    on EVariantError do
+      ASchemaObj.Add('example', AField.AsString);
+  end;
+end;
+
+{ Applies TDeltaModel.DescribeApiSchema to an object schema built by GenerateSchema. }
+procedure ApplyApiDoc(Obj: TObject; ASchema: TJSONObject);
+var
+  Doc: TDeltaApiDoc;
+  FieldDoc: TDeltaApiFieldDoc;
+  Props: TJSONObject;
+  PropSchema: TJSONData;
+  EnumArr: TJSONArray;
+  I, J, K: Integer;
+begin
+  if not (Obj is TDeltaModel) then
+    Exit;
+
+  Doc := TDeltaApiDoc.Create;
+  try
+    TDeltaModelClass(Obj.ClassType).DescribeApiSchema(Doc);
+
+    if Doc.DescriptionText <> '' then
+    begin
+      ASchema.Delete('description');
+      ASchema.Add('description', Doc.DescriptionText);
+    end;
+
+    if Doc.FieldCount = 0 then
+      Exit;
+
+    Props := ASchema.Objects['properties'];
+    for I := 0 to Doc.FieldCount - 1 do
+    begin
+      FieldDoc := Doc[I];
+      J := Props.IndexOfName(FieldDoc.PropName, True);
+      if J < 0 then
+        Continue; { unknown or hidden property: documentation never breaks the schema }
+
+      PropSchema := Props.Items[J];
+      if PropSchema.JSONType <> jtObject then
+        Continue;
+
+      if FieldDoc.DescriptionText <> '' then
+      begin
+        TJSONObject(PropSchema).Delete('description');
+        TJSONObject(PropSchema).Add('description', FieldDoc.DescriptionText);
+      end;
+
+      if Length(FieldDoc.EnumValues) > 0 then
+      begin
+        TJSONObject(PropSchema).Delete('enum');
+        EnumArr := TJSONArray.Create;
+        for K := 0 to High(FieldDoc.EnumValues) do
+          EnumArr.Add(FieldDoc.EnumValues[K]);
+        TJSONObject(PropSchema).Add('enum', EnumArr);
+      end;
+    end;
+  finally
+    Doc.Free;
+  end;
+end;
 
 function CreateModelInstance(AClass: TClass): TObject;
 begin
@@ -171,14 +253,19 @@ begin
                   end;
 
                   if AddExamples and not (NestedObj as TDeltaField).IsNull then
-                    SchemaObj.Add('example', (NestedObj as TDeltaField).AsString);
+                    AddDeltaFieldExample(SchemaObj, NestedObj as TDeltaField);
                 end;
               end
               else
               if NestedObj is TCustomDeltaModelList then
               begin
                 SchemaObj.Add('type', 'array');
-                if (NestedObj as TCustomDeltaModelList).GetModelClass <> nil then
+                if ((NestedObj as TCustomDeltaModelList).Count > 0) and
+                   Assigned((NestedObj as TCustomDeltaModelList).GetItemObj(0)) then
+                begin
+                  SchemaObj.Add('items', GenerateSchema((NestedObj as TCustomDeltaModelList).GetItemObj(0), AddExamples, False));
+                end
+                else if (NestedObj as TCustomDeltaModelList).GetModelClass <> nil then
                 begin
                   FirstItem := CreateModelInstance((NestedObj as TCustomDeltaModelList).GetModelClass);
                   try
@@ -228,6 +315,7 @@ begin
 
       TJSONObject(JsonData.Objects['properties']).Add(PropName, SchemaObj);
     end;
+    ApplyApiDoc(Obj, JsonData);
     Result := JsonData;
 
     if IsArray then

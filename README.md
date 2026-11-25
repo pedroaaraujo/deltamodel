@@ -556,6 +556,25 @@ When a rule fails, DeltaModel raises an `EDeltaValidation` exception containing 
 
 ---
 
+## OpenAPI Documentation (`DescribeApiSchema`)
+
+`GenerateSchema` (unit `DeltaAPISchema`) reads documentation-only metadata declared by the model. Override `DescribeApiSchema` to add a model description and per-property `description` / `enum`. It is separate from `ConfigureSchema`, so it never changes ORM, validation or serialization, and it works with both `TDF*` fields and primitive properties.
+
+```pascal
+uses DeltaModel.ApiDoc;
+
+class procedure TInstallment.DescribeApiSchema(ADoc: TDeltaApiDoc);
+begin
+  ADoc.Description('Accounts payable installment');
+  ADoc.Field('status').Description('P = paid, O = open').Enum(['P', 'O']);
+  ADoc.Field('dueDate').Description('Due date (dd/mm/yyyy)');
+end;
+```
+
+- Nested models apply their own `DescribeApiSchema`; the parent can still describe the nested property itself.
+- Unknown property names are ignored, so documentation never breaks schema generation.
+- Examples of `TDF*` fields are emitted with their JSON type (`"example": 12.5`, not `"12.5"`).
+
 ## Test Suite
 
 DeltaModel includes an automated test suite covering all ORM operations, connection pool concurrency, and all 5 codecs (JSON, CBOR, BSON, XML, CSV):

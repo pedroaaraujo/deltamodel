@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, fgl, fpjson, TypInfo,
   DeltaAPISchema, DeltaSerialization, DeltaModelMessages, DeltaValidator,
-  DeltaModel.Fields, DeltaModel.List;
+  DeltaModel.Fields, DeltaModel.List, DeltaModel.ApiDoc;
 
 type
 
@@ -78,6 +78,9 @@ type
     class function Schema: TDeltaModelSchema;
     class function GetSchema: TDeltaModelSchema; inline;
     class procedure ConfigureSchema(ASchema: TDeltaModelSchema); virtual;
+    { Documentation-only metadata for OpenAPI (descriptions and enums).
+      Read by GenerateSchema; does not affect ORM, validation or serialization. }
+    class procedure DescribeApiSchema(ADoc: TDeltaApiDoc); virtual;
 
     function IsNull(const APropName: string): Boolean; overload;
     function IsNull(APropIndex: Integer): Boolean; overload; inline;
@@ -472,6 +475,11 @@ begin
 end;
 
 class procedure TDeltaModel.ConfigureSchema(ASchema: TDeltaModelSchema);
+begin
+
+end;
+
+class procedure TDeltaModel.DescribeApiSchema(ADoc: TDeltaApiDoc);
 begin
 
 end;

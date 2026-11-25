@@ -15,7 +15,7 @@ uses
   DeltaModel.ORM.DDL, DeltaModel.ORM.DML, DeltaModel.ORM.Schema, 
   DeltaModel.ORM.Pool, DeltaModel.Codec, DeltaModel.Codec.Bson, 
   DeltaModel.Codec.Cbor, DeltaModel.Codec.Xml, DeltaModel.Codec.Csv, 
-  DeltaModel.Constants, LazarusPackageIntf;
+  DeltaModel.Constants, DeltaModel.ApiDoc, LazarusPackageIntf;
 
 implementation
 

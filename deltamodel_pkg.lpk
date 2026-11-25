@@ -24,7 +24,7 @@
     <Description Value="DeltaModel: Micro-ORM and Model framework for Free Pascal and Lazarus with JSON serialization, OpenAPI schema and multi-RDBMS support."/>
     <License Value="MIT"/>
     <Version Minor="2" Release="0"/>
-    <Files Count="23">
+    <Files Count="24">
       <Item1>
         <Filename Value="src/DeltaModel.pas"/>
         <UnitName Value="DeltaModel"/>
@@ -117,6 +117,10 @@
         <Filename Value="src/DeltaModel.Constants.pas"/>
         <UnitName Value="DeltaModel.Constants"/>
       </Item23>
+      <Item24>
+        <Filename Value="src/DeltaModel.ApiDoc.pas"/>
+        <UnitName Value="DeltaModel.ApiDoc"/>
+      </Item24>
     </Files>
     <RequiredPkgs Count="2">
       <Item1>

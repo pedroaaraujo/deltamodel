@@ -556,6 +556,25 @@ Si una regla falla, DeltaModel lanza una excepción `EDeltaValidation` con el de
 
 ---
 
+## Documentación OpenAPI (`DescribeApiSchema`)
+
+`GenerateSchema` (unit `DeltaAPISchema`) lee metadatos exclusivos de documentación declarados por el modelo. Sobrescriba `DescribeApiSchema` para añadir la descripción del modelo y `description` / `enum` por propiedad. Es independiente de `ConfigureSchema`: no altera el ORM, la validación ni la serialización, y funciona con campos `TDF*` y con propiedades primitivas.
+
+```pascal
+uses DeltaModel.ApiDoc;
+
+class procedure TCuota.DescribeApiSchema(ADoc: TDeltaApiDoc);
+begin
+  ADoc.Description('Cuota de cuentas por pagar');
+  ADoc.Field('estado').Description('P = pagada, A = abierta').Enum(['P', 'A']);
+  ADoc.Field('vencimiento').Description('Fecha de vencimiento (dd/mm/aaaa)');
+end;
+```
+
+- Los modelos anidados aplican su propio `DescribeApiSchema`; el modelo padre aún puede describir la propiedad anidada.
+- Los nombres de propiedad inexistentes se ignoran, así la documentación nunca rompe la generación del schema.
+- Los ejemplos de campos `TDF*` se emiten con su tipo JSON (`"example": 12.5`, no `"12.5"`).
+
 ## Batería de Pruebas Automatizadas
 
 DeltaModel cuenta con una suite completa de pruebas que valida operaciones ORM, concurrencia del pool y los 5 códecs (JSON, CBOR, BSON, XML, CSV):
