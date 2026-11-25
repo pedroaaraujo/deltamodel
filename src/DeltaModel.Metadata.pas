@@ -60,9 +60,22 @@ type
   end;
   TDeltaFieldMetaArray = array of TDeltaFieldMeta;
 
+  { Plano pré-calculado para TDeltaModel.CreateFields: evita GetPropList,
+    alocação e busca por nome no schema a cada instância. }
+  TDeltaCreateFieldItem = record
+    PropInfo: PPropInfo;
+    PropName: string;
+    FieldClass: TClass;
+    SchemaField: TDeltaSchemaField;
+  end;
+  TDeltaCreateFieldPlan = array of TDeltaCreateFieldItem;
+
   { Persistence metadata for a TDeltaModel }
   TModelMetadata = class
   private
+    FCreatePlan: TDeltaCreateFieldPlan;
+    FCreatePlanReady: Boolean;
+    FDefaultTableName: string;
     FModelClass: TClass;
     FTableName: string;
     FPKFieldName: string;
@@ -72,6 +85,7 @@ type
     FFieldCount: Integer;
     FRTTIInfo: TRTTIClassInfo;
     FSchema: TDeltaModelSchema;
+    procedure BuildCreatePlan;
   public
     constructor Create(AModelClass: TClass; ARTTIInfo: TRTTIClassInfo);
     destructor Destroy; override;
@@ -86,6 +100,11 @@ type
     property FieldCount: Integer read FFieldCount;
     property RTTIInfo: TRTTIClassInfo read FRTTIInfo;
     property Schema: TDeltaModelSchema read FSchema;
+    { Plano de criação dos TDF*: pronto ao final de ExtractMetadata. Durante a
+      própria extração (instância temporária) CreateFields usa o caminho completo. }
+    property CreatePlan: TDeltaCreateFieldPlan read FCreatePlan;
+    property CreatePlanReady: Boolean read FCreatePlanReady;
+    property DefaultTableName: string read FDefaultTableName;
     procedure ExtractMetadata;
   end;
 
@@ -97,7 +116,10 @@ type
     class var FClassInfoList: TFPList;
     class var FModelMetaClassMap: TFPList;
     class var FModelMetaList: TFPList;
+    class function GetClassPropsLocked(AClass: TClass): TRTTIClassInfo;
   public
+    { Leituras usam cache por thread sem lock; a primeira consulta de cada
+      classe (por thread) passa pelo lock global. }
     class function GetClassProps(AClass: TClass): TRTTIClassInfo;
     class function GetModelMetadata(AClass: TClass): TModelMetadata;
     class procedure Clear;
@@ -107,6 +129,39 @@ implementation
 
 uses
   DeltaModel, DeltaModel.List;
+
+const
+  TL_CACHE_SLOTS = 8;
+
+var
+  { Incrementada em TRTTICache.Clear: invalida os caches por thread. }
+  GCacheGeneration: Cardinal = 1;
+
+threadvar
+  { Cache por thread (sem lock) das últimas classes consultadas. Os objetos
+    só são liberados em TRTTICache.Clear, que muda a geração. }
+  TLGeneration: Cardinal;
+  TLNextSlot: Integer;
+  TLMetaClass: array[0..TL_CACHE_SLOTS - 1] of TClass;
+  TLMetaValue: array[0..TL_CACHE_SLOTS - 1] of TModelMetadata;
+  TLPropsClass: array[0..TL_CACHE_SLOTS - 1] of TClass;
+  TLPropsValue: array[0..TL_CACHE_SLOTS - 1] of TRTTIClassInfo;
+
+procedure EnsureThreadCacheGeneration; inline;
+var
+  Gen: Cardinal;
+begin
+  Gen := GCacheGeneration;
+  if TLGeneration <> Gen then
+  begin
+    FillChar(TLMetaClass, SizeOf(TLMetaClass), 0);
+    FillChar(TLMetaValue, SizeOf(TLMetaValue), 0);
+    FillChar(TLPropsClass, SizeOf(TLPropsClass), 0);
+    FillChar(TLPropsValue, SizeOf(TLPropsValue), 0);
+    TLNextSlot := 0;
+    TLGeneration := Gen;
+  end;
+end;
 
 { TRTTIClassInfo }
 
@@ -395,6 +450,51 @@ begin
     if Assigned(PropItem) then
       FPKPropInfo := PropItem^.PropInfo;
   end;
+
+  BuildCreatePlan;
+end;
+
+procedure TModelMetadata.BuildCreatePlan;
+var
+  PropList: PPropList;
+  PropCount, I, N: Integer;
+  PInfo: PPropInfo;
+  PClass: TClass;
+begin
+  SetLength(FCreatePlan, 0);
+  FDefaultTableName := AnsiLowerCase(Copy(FModelClass.ClassName, 2, MaxInt));
+  PropCount := GetPropList(FModelClass.ClassInfo, tkProperties, nil);
+  if PropCount > 0 then
+  begin
+    GetMem(PropList, PropCount * SizeOf(Pointer));
+    try
+      { Mesma ordem (ordenada) usada historicamente por CreateFields. }
+      GetPropList(FModelClass.ClassInfo, tkProperties, PropList);
+      N := 0;
+      SetLength(FCreatePlan, PropCount);
+      for I := 0 to PropCount - 1 do
+      begin
+        PInfo := PropList^[I];
+        if (PInfo^.SetProc = nil) or (PInfo^.PropType^.Kind <> tkClass) then
+          Continue;
+        PClass := GetTypeData(PInfo^.PropType)^.ClassType;
+        if (PClass = nil) or not PClass.InheritsFrom(TDeltaField) then
+          Continue;
+        FCreatePlan[N].PropInfo := PInfo;
+        FCreatePlan[N].PropName := PInfo^.Name;
+        FCreatePlan[N].FieldClass := PClass;
+        if Assigned(FSchema) then
+          FCreatePlan[N].SchemaField := FSchema.FindField(PInfo^.Name)
+        else
+          FCreatePlan[N].SchemaField := nil;
+        Inc(N);
+      end;
+      SetLength(FCreatePlan, N);
+    finally
+      FreeMem(PropList, PropCount * SizeOf(Pointer));
+    end;
+  end;
+  FCreatePlanReady := True;
 end;
 
 function TModelMetadata.FindField(const AFieldName: string): PDeltaFieldMeta;
@@ -426,11 +526,26 @@ end;
 class function TRTTICache.GetClassProps(AClass: TClass): TRTTIClassInfo;
 var
   Idx: Integer;
-  Info: TRTTIClassInfo;
 begin
   if not Assigned(AClass) then
     Exit(nil);
 
+  EnsureThreadCacheGeneration;
+  for Idx := 0 to TL_CACHE_SLOTS - 1 do
+    if TLPropsClass[Idx] = AClass then
+      Exit(TLPropsValue[Idx]);
+
+  Result := GetClassPropsLocked(AClass);
+  TLPropsClass[TLNextSlot] := AClass;
+  TLPropsValue[TLNextSlot] := Result;
+  TLNextSlot := (TLNextSlot + 1) mod TL_CACHE_SLOTS;
+end;
+
+class function TRTTICache.GetClassPropsLocked(AClass: TClass): TRTTIClassInfo;
+var
+  Idx: Integer;
+  Info: TRTTIClassInfo;
+begin
   FLock.Enter;
   try
     Idx := FClassMap.IndexOf(Pointer(AClass));
@@ -455,20 +570,36 @@ begin
   if not Assigned(AClass) then
     Exit(nil);
 
+  EnsureThreadCacheGeneration;
+  for Idx := 0 to TL_CACHE_SLOTS - 1 do
+    if TLMetaClass[Idx] = AClass then
+      Exit(TLMetaValue[Idx]);
+
   FLock.Enter;
   try
     Idx := FModelMetaClassMap.IndexOf(Pointer(AClass));
     if Idx >= 0 then
-      Exit(TModelMetadata(FModelMetaList[Idx]));
-
-    RttiInfo := GetClassProps(AClass);
-    Meta := TModelMetadata.Create(AClass, RttiInfo);
-    FModelMetaClassMap.Add(Pointer(AClass));
-    FModelMetaList.Add(Meta);
-    Meta.ExtractMetadata;
-    Result := Meta;
+      Result := TModelMetadata(FModelMetaList[Idx])
+    else
+    begin
+      RttiInfo := GetClassPropsLocked(AClass);
+      Meta := TModelMetadata.Create(AClass, RttiInfo);
+      FModelMetaClassMap.Add(Pointer(AClass));
+      FModelMetaList.Add(Meta);
+      Meta.ExtractMetadata;
+      Result := Meta;
+    end;
   finally
     FLock.Leave;
+  end;
+
+  { Metadados ainda em extração (chamada reentrante da instância temporária)
+    não entram no cache por thread: só objetos completos. }
+  if Result.CreatePlanReady then
+  begin
+    TLMetaClass[TLNextSlot] := AClass;
+    TLMetaValue[TLNextSlot] := Result;
+    TLNextSlot := (TLNextSlot + 1) mod TL_CACHE_SLOTS;
   end;
 end;
 
@@ -480,6 +611,7 @@ begin
 
   FLock.Enter;
   try
+    InterLockedIncrement(LongInt(GCacheGeneration));
     if Assigned(FModelMetaList) then
     begin
       for I := 0 to FModelMetaList.Count - 1 do

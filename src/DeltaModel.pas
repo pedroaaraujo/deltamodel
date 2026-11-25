@@ -71,6 +71,9 @@ type
     FIndexes: TIndexList;
     FNullMask: UInt64;
     FDirtyMask: UInt64;
+    function GetValidator: TValidator;
+    function GetConstraints: TConstraintList;
+    function GetIndexes: TIndexList;
     procedure CreateFields;
     function GetTableName: string;
     procedure SetTableName(AValue: string);
@@ -103,8 +106,8 @@ type
 
     property TableName: string read GetTableName write SetTableName;
     property FieldList: TFieldList read FFieldList;
-    property Constraints: TConstraintList read FConstraints;
-    property Indexes: TIndexList read FIndexes;
+    property Constraints: TConstraintList read GetConstraints;
+    property Indexes: TIndexList read GetIndexes;
     procedure FromJson(JsonStr: string); virtual;
     procedure Validate; virtual;
     procedure BeforeDestruction; override;
@@ -145,7 +148,7 @@ type
     procedure BeforeSave; virtual;
     procedure AfterSave; virtual;
   public
-    property Validator: TValidator read FValidator;
+    property Validator: TValidator read GetValidator;
   end;
 
   TDeltaModelClass = class of TDeltaModel;
@@ -383,6 +386,28 @@ end;
 
 { TDeltaModel }
 
+function TDeltaModel.GetValidator: TValidator;
+begin
+  { Criado sob demanda: a maioria das instâncias (listas, respostas) nunca valida. }
+  if FValidator = nil then
+    FValidator := TValidator.Create;
+  Result := FValidator;
+end;
+
+function TDeltaModel.GetConstraints: TConstraintList;
+begin
+  if FConstraints = nil then
+    FConstraints := TConstraintList.Create();
+  Result := FConstraints;
+end;
+
+function TDeltaModel.GetIndexes: TIndexList;
+begin
+  if FIndexes = nil then
+    FIndexes := TIndexList.Create();
+  Result := FIndexes;
+end;
+
 procedure TDeltaModel.CreateFields;
 var
   PropList: PPropList;
@@ -393,7 +418,36 @@ var
   PropClass: TClass;
   DeltaField: TDeltaField;
   ASchema: TDeltaModelSchema;
+  Meta: TModelMetadata;
 begin
+  { Caminho rápido: plano por classe calculado uma vez em ExtractMetadata. }
+  Meta := TRTTICache.GetModelMetadata(Self.ClassType);
+  if (Meta <> nil) and Meta.CreatePlanReady then
+  begin
+    for I := 0 to High(Meta.CreatePlan) do
+    begin
+      PropInfo := Meta.CreatePlan[I].PropInfo;
+      PropObj := GetObjectProp(Self, PropInfo);
+      if PropObj = nil then
+      begin
+        DeltaField := TDeltaFieldClass(Meta.CreatePlan[I].FieldClass).Create;
+        DeltaField.SchemaField := Meta.CreatePlan[I].SchemaField;
+        DeltaField.FieldName := Meta.CreatePlan[I].PropName;
+        DeltaField.Visible := True;
+        SetObjectProp(Self, PropInfo, DeltaField);
+        FFieldList.Add(DeltaField);
+      end
+      else
+      begin
+        DeltaField := TDeltaField(PropObj);
+        DeltaField.SchemaField := Meta.CreatePlan[I].SchemaField;
+        if FFieldList.IndexOf(DeltaField) < 0 then
+          FFieldList.Add(DeltaField);
+      end;
+    end;
+    Exit;
+  end;
+
   PropCount := GetPropList(Self.ClassInfo, tkProperties, nil);
 
   if PropCount = 0 then Exit;
@@ -1103,17 +1157,20 @@ begin
 end;
 
 constructor TDeltaModel.Create;
+var
+  Meta: TModelMetadata;
 begin
-  FValidator := TValidator.Create;
   FFieldList := TFieldList.Create();
-  FConstraints := TConstraintList.Create();
-  FIndexes := TIndexList.Create();
   FNullMask := 0;
   FDirtyMask := 0;
 
   CreateFields();
 
-  FTableName := AnsiLowerCase(Copy(Self.ClassName, 2, MaxInt));
+  Meta := TRTTICache.GetModelMetadata(Self.ClassType);
+  if (Meta <> nil) and Meta.CreatePlanReady then
+    FTableName := Meta.DefaultTableName
+  else
+    FTableName := AnsiLowerCase(Copy(Self.ClassName, 2, MaxInt));
 
   Configure();
 end;
@@ -1122,7 +1179,7 @@ function TDeltaModel.AddUniqueConstraint(const AName: string;
   const AFields: array of string): TDeltaConstraint;
 begin
   Result := TDeltaConstraint.CreateUnique(AName, AFields);
-  FConstraints.Add(Result);
+  Constraints.Add(Result);
 end;
 
 function TDeltaModel.AddUniqueConstraint(
@@ -1135,14 +1192,14 @@ function TDeltaModel.AddCheckConstraint(const AName: string;
   const AExpression: string): TDeltaConstraint;
 begin
   Result := TDeltaConstraint.CreateCheck(AName, AExpression);
-  FConstraints.Add(Result);
+  Constraints.Add(Result);
 end;
 
 function TDeltaModel.AddIndex(const AName: string;
   const AFields: array of string; AIsUnique: Boolean): TDeltaIndex;
 begin
   Result := TDeltaIndex.Create(AName, AFields, AIsUnique);
-  FIndexes.Add(Result);
+  Indexes.Add(Result);
 end;
 
 function TDeltaModel.AddIndex(const AFields: array of string;
