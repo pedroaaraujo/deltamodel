@@ -1130,6 +1130,48 @@ begin
     'Payload com barra invertida não encerra literal no MySQL');
 end;
 
+procedure TestParameterizedSQLCriteria;
+var
+  Q: TQuery;
+  B: TDMSQLBuilder;
+  M: TProductModel;
+  SQL: string;
+begin
+  Suite('4b2. Parametrização SQL (:p1) em TQuery e TDMSQLBuilder');
+  Q := TQuery.Create(nil);
+  try
+    Q.SetModel(TProductModel);
+    Q.Where('name', 'x\'' OR 1=1 -- ')
+     .AndWhere('price', opGreaterThan, 100)
+     .WhereIn('id', [1, 2, 3])
+     .WhereBetween('price', 10, 500);
+    SQL := Q.ToSQL;
+    AssertTrue(Pos(':p1', SQL) > 0, 'TQuery.Where gera placeholder :p1');
+    AssertTrue(Pos(':p2', SQL) > 0, 'TQuery.AndWhere gera placeholder :p2');
+    AssertTrue(Pos('IN (:p3, :p4, :p5)', SQL) > 0, 'TQuery.WhereIn gera placeholders :p3..:p5');
+    AssertTrue(Pos('BETWEEN :p6 AND :p7', SQL) > 0, 'TQuery.WhereBetween gera placeholders :p6..:p7');
+    AssertTrue(Pos('OR 1=1', SQL) = 0, 'Payload malicioso não aparece literal no SQL');
+    AssertEqualsInt(7, Q.Params.Count, 'TQuery.Params armazena 7 parâmetros');
+    AssertEquals('x\'' OR 1=1 -- ', Q.Params[0].AsString, 'Valor literal preservado em :p1');
+    AssertEqualsInt(100, Q.Params[1].AsLargeInt, 'Valor numérico preservado em :p2');
+  finally
+    Q.Free;
+  end;
+
+  M := TProductModel.Create;
+  B := TDMSQLBuilder.Create(M, ddMySQL);
+  try
+    SQL := B.Select.Where('name', 'admin'' -- ').OrWhere('price', opLessThan, 50).Build;
+    AssertTrue(Pos(':p1', SQL) > 0, 'TDMSQLBuilder gera :p1');
+    AssertTrue(Pos(':p2', SQL) > 0, 'TDMSQLBuilder gera :p2');
+    AssertTrue(Pos('admin''', SQL) = 0, 'Payload não entra como literal em TDMSQLBuilder');
+    AssertEqualsInt(2, B.Params.Count, 'TDMSQLBuilder.Params contém 2 parâmetros');
+  finally
+    B.Free;
+    M.Free;
+  end;
+end;
+
 procedure TestDDLGenerator;
 var
   Prod: TProductModel;
@@ -3328,6 +3370,7 @@ begin
     TestSerialization;
     TestSwaggerSchema;
     TestStringLiteralEscaping;
+    TestParameterizedSQLCriteria;
     TestFluentSchemaOnTdfFields;
     TestConcurrentModelCreation;
     TestDDLGenerator;

@@ -55,8 +55,7 @@ end;
 function TDeltaFastJsonParser.ReadString(out AStr: string): Boolean;
 var
   StartP: PAnsiChar;
-  C: AnsiChar;
-  Res: string;
+  Res, Chunk: string;
 begin
   AStr := '';
   if (FPtr >= FEnd) or (FPtr^ <> '"') then
@@ -70,11 +69,14 @@ begin
   begin
     if FPtr^ = '\' then
     begin
-      // Copy accumulated slice before escape sequence
       if FPtr > StartP then
-        Res := Res + Copy(string(StartP), 1, FPtr - StartP);
+      begin
+        SetString(Chunk, StartP, FPtr - StartP);
+        Res := Res + Chunk;
+      end;
       Inc(FPtr);
-      if FPtr >= FEnd then Break;
+      if FPtr >= FEnd then
+        Exit(False);
       case FPtr^ of
         '"': Res := Res + '"';
         '\': Res := Res + '\';
@@ -86,7 +88,8 @@ begin
         't': Res := Res + #9;
         'u':
         begin
-          // Simple \uXXXX Unicode escape
+          if FEnd - FPtr < 5 then
+            Exit(False);
           Inc(FPtr, 4); // consume 4 hex digits
           Res := Res + '?'; // basic safe representation
         end;
@@ -100,13 +103,22 @@ begin
       Inc(FPtr);
   end;
 
-  if FPtr > StartP then
-    Res := Res + Copy(string(StartP), 1, FPtr - StartP);
+  if (FPtr >= FEnd) or (FPtr^ <> '"') then
+    Exit(False);
 
-  if (FPtr < FEnd) and (FPtr^ = '"') then
-    Inc(FPtr); // consome aspas de fechamento
+  if Res = '' then
+    SetString(AStr, StartP, FPtr - StartP)
+  else
+  begin
+    if FPtr > StartP then
+    begin
+      SetString(Chunk, StartP, FPtr - StartP);
+      Res := Res + Chunk;
+    end;
+    AStr := Res;
+  end;
 
-  AStr := Res;
+  Inc(FPtr); // consome aspas de fechamento
   Result := True;
 end;
 
@@ -250,17 +262,18 @@ procedure TDeltaFastJsonParser.ParseObject(AModel: TDeltaModel; AMeta: TModelMet
 var
   KeyName: string;
   FMeta: PDeltaFieldMeta;
-  PropItem: PDeltaPropItem;
   NestedObj, ChildObj: TObject;
   StrVal: string;
-  IsFloat: Boolean;
+  IsFloat, Closed: Boolean;
   IntVal: Int64;
   FloatVal: Double;
   BoolVal: Boolean;
 begin
   SkipWhitespace;
-  if (FPtr >= FEnd) or (FPtr^ <> '{') then Exit;
+  if (FPtr >= FEnd) or (FPtr^ <> '{') then
+    raise Exception.Create('Invalid JSON object: expected "{"');
   Inc(FPtr); // consome '{'
+  Closed := False;
 
   while FPtr < FEnd do
   begin
@@ -268,16 +281,21 @@ begin
     if (FPtr < FEnd) and (FPtr^ = '}') then
     begin
       Inc(FPtr);
+      Closed := True;
       Break;
     end;
 
     // Read key (property name)
-    if not ReadString(KeyName) then Break;
+    if not ReadString(KeyName) then
+      raise Exception.Create('Invalid JSON object: expected key');
 
     SkipWhitespace;
-    if (FPtr < FEnd) and (FPtr^ = ':') then
-      Inc(FPtr); // consome ':'
+    if (FPtr >= FEnd) or (FPtr^ <> ':') then
+      raise Exception.Create('Invalid JSON object: expected ":"');
+    Inc(FPtr); // consome ':'
     SkipWhitespace;
+    if FPtr >= FEnd then
+      raise Exception.Create('Invalid JSON object: unexpected end of input');
 
     FMeta := AMeta.FindFieldByProp(KeyName);
     if FMeta = nil then
@@ -290,7 +308,7 @@ begin
         if FMeta^.IsDeltaField then
         begin
           NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-          if NestedObj is TDeltaField then
+          if (NestedObj is TDeltaField) and TDeltaField(NestedObj).Visible then
             TDeltaField(NestedObj).Clear;
         end
         else
@@ -299,13 +317,14 @@ begin
     end
     else if FPtr^ = '"' then
     begin
-      ReadString(StrVal);
+      if not ReadString(StrVal) then
+        raise Exception.Create('Invalid JSON string');
       if FMeta <> nil then
       begin
         if FMeta^.IsDeltaField then
         begin
           NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-          if NestedObj is TDeltaField then
+          if (NestedObj is TDeltaField) and TDeltaField(NestedObj).Visible then
             TDeltaField(NestedObj).SetAsString(StrVal);
         end
         else
@@ -317,13 +336,14 @@ begin
     end
     else if FPtr^ in ['t', 'f'] then
     begin
-      ReadBoolean(BoolVal);
+      if not ReadBoolean(BoolVal) then
+        raise Exception.Create('Invalid JSON boolean');
       if FMeta <> nil then
       begin
         if FMeta^.IsDeltaField then
         begin
           NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-          if NestedObj is TDeltaField then
+          if (NestedObj is TDeltaField) and TDeltaField(NestedObj).Visible then
             TDeltaField(NestedObj).AsBoolean := BoolVal;
         end
         else
@@ -335,13 +355,14 @@ begin
     end
     else if FPtr^ in ['-', '0'..'9'] then
     begin
-      ReadNumber(IsFloat, IntVal, FloatVal);
+      if not ReadNumber(IsFloat, IntVal, FloatVal) then
+        raise Exception.Create('Invalid JSON number');
       if FMeta <> nil then
       begin
         if FMeta^.IsDeltaField then
         begin
           NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-          if NestedObj is TDeltaField then
+          if (NestedObj is TDeltaField) and TDeltaField(NestedObj).Visible then
           begin
             if IsFloat then
               TDeltaField(NestedObj).AsFloat := FloatVal
@@ -365,7 +386,7 @@ begin
       if (FMeta <> nil) and FMeta^.IsDeltaField then
       begin
         NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-        if (NestedObj is TDFHasOne) then
+        if (NestedObj is TDFHasOne) and TDeltaField(NestedObj).Visible then
         begin
           if (TDFHasOne(NestedObj).Model = nil) and (TDFHasOne(NestedObj).RelationClass <> nil) then
             TDFHasOne(NestedObj).Model := TDeltaModelClass(TDFHasOne(NestedObj).RelationClass).Create;
@@ -386,7 +407,7 @@ begin
       if (FMeta <> nil) and FMeta^.IsDeltaField then
       begin
         NestedObj := GetObjectProp(AModel, FMeta^.PropInfo);
-        if NestedObj is TDFHasMany then
+        if (NestedObj is TDFHasMany) and TDeltaField(NestedObj).Visible then
         begin
           TDFHasMany(NestedObj).Clear;
           Inc(FPtr); // pula '['
@@ -423,12 +444,15 @@ begin
         SkipValue;
     end
     else
-      SkipValue;
+      raise Exception.Create('Invalid JSON value');
 
     SkipWhitespace;
     if (FPtr < FEnd) and (FPtr^ = ',') then
       Inc(FPtr);
   end;
+
+  if not Closed then
+    raise Exception.Create('Invalid JSON object: expected "}"');
 end;
 
 procedure TDeltaFastJsonParser.ParseIntoModel(AModel: TDeltaModel);

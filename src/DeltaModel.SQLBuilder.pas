@@ -5,7 +5,7 @@ unit DeltaModel.SQLBuilder;
 interface
 
 uses
-  Classes, SysUtils, TypInfo, Variants, DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, StrUtils,
+  Classes, SysUtils, TypInfo, Variants, DB, DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, StrUtils,
   DeltaModel.ORM.Types;
 
 type
@@ -29,6 +29,7 @@ type
     FOnlyDirty: Boolean;
     FTableAlias: string;
     FJoins: TStringList;
+    FParams: TParams;
 
     function FieldAndValuesToSQL: string;
     function GetTableName: string;
@@ -84,8 +85,11 @@ type
     function UseQuotes(AValue: Boolean): TDMSQLBuilder;
     function Clear: TDMSQLBuilder;
     function Build: string;
+    procedure BindParams(AParams: TParams);
+    property Params: TParams read FParams;
 
-    class function WhereClausePK(AModel: TDeltaModel): string;
+    class function WhereClausePK(AModel: TDeltaModel): string; overload;
+    class function WhereClausePK(AModel: TDeltaModel; UseNamedParams: Boolean): string; overload;
 
     class function CreateInsert(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
     class function CreateInsertReturning(AModel: TDeltaModel; ADialect: TDatabaseDialect; UseNamedParams: Boolean = True): string; static;
@@ -125,6 +129,7 @@ begin
   FUseQuotes := False;
   FIsCount := False;
   FOnlyDirty := False;
+  FParams := TParams.Create(nil);
 end;
 
 destructor TDMSQLBuilder.Destroy;
@@ -133,6 +138,7 @@ begin
   FValues.Free;
   FWhereConditions.Free;
   FJoins.Free;
+  FParams.Free;
   inherited Destroy;
 end;
 
@@ -244,7 +250,7 @@ begin
         if VarIsNumeric(Obj.Value) then
           FValues.Add(Obj.AsString.Replace(',', '', [rfReplaceAll]))
         else
-          FValues.Add(Obj.AsString.QuotedString);
+          FValues.Add(TSQLCriteriaHelper.QuoteString(Obj.AsString, FDialect));
       end
       else
       begin
@@ -278,7 +284,7 @@ begin
             dfkDateTime:
               FValues.Add(QuotedStr(FormatDateTime('yyyy-mm-dd hh:nn:ss', GetFloatProp(FModel, FieldMeta^.PropInfo))));
           else
-            FValues.Add(QuotedStr(GetStrProp(FModel, FieldMeta^.PropInfo)));
+            FValues.Add(TSQLCriteriaHelper.QuoteString(GetStrProp(FModel, FieldMeta^.PropInfo), FDialect));
           end;
         end;
       end;
@@ -441,6 +447,11 @@ begin
 end;
 
 class function TDMSQLBuilder.WhereClausePK(AModel: TDeltaModel): string;
+begin
+  Result := WhereClausePK(AModel, False);
+end;
+
+class function TDMSQLBuilder.WhereClausePK(AModel: TDeltaModel; UseNamedParams: Boolean): string;
 var
   Meta: TModelMetadata;
   FieldMeta: PDeltaFieldMeta;
@@ -460,9 +471,11 @@ begin
     FieldMeta := Meta.FindFieldByProp(Meta.PKPropName);
     if (FieldMeta <> nil) and (not FieldMeta^.IsDeltaField) then
     begin
+      if UseNamedParams then
+        Exit('(' + Meta.PKFieldName + ' = :' + Meta.PKFieldName + ')');
       PKVal := GetPropValue(AModel, Meta.PKPropName);
       if VarIsStr(PKVal) then
-        Exit('(' + Meta.PKFieldName + ' = ' + QuotedStr(VarToStr(PKVal)) + ')')
+        Exit('(' + Meta.PKFieldName + ' = ' + TSQLCriteriaHelper.QuoteString(VarToStr(PKVal)) + ')')
       else
         Exit('(' + Meta.PKFieldName + ' = ' + VarToStr(PKVal) + ')');
     end;
@@ -491,8 +504,15 @@ begin
           if Obj.IsNull or not (dboPrimaryKey in Obj.DBOptions) then
             Continue;
 
-          if VarIsStr(Obj.Value) then
-            SL.Add('(' + Obj.FieldName + ' = ' + QuotedStr(Obj.AsString) + ')')
+          if UseNamedParams then
+          begin
+            if not Obj.FieldName.IsEmpty then
+              SL.Add('(' + Obj.FieldName + ' = :' + Obj.FieldName + ')')
+            else
+              SL.Add('(' + LowerCase(PropInfo^.Name) + ' = :' + LowerCase(PropInfo^.Name) + ')');
+          end
+          else if VarIsStr(Obj.Value) then
+            SL.Add('(' + Obj.FieldName + ' = ' + TSQLCriteriaHelper.QuoteString(Obj.AsString) + ')')
           else
             SL.Add('(' + Obj.FieldName + ' = ' + VarToStr(Obj.Value) + ')');
         end;
@@ -638,17 +658,17 @@ end;
 
 function TDMSQLBuilder.Where(const AField: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.Where(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
+  Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.AndWhere(const ACondition: string): TDMSQLBuilder;
@@ -658,17 +678,17 @@ end;
 
 function TDMSQLBuilder.AndWhere(const AField: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.OrWhere(const ACondition: string): TDMSQLBuilder;
@@ -692,32 +712,32 @@ end;
 
 function TDMSQLBuilder.OrWhere(const AField: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FDialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FDialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDMSQLBuilder;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FDialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.WhereBetween(const AField: string; const AVal1, AVal2: Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FDialect));
+  Result := Where(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FParams, FDialect));
 end;
 
 function TDMSQLBuilder.WhereIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FDialect, False));
+  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, FDialect, False));
 end;
 
 function TDMSQLBuilder.WhereNotIn(const AField: string; const AValues: array of Variant): TDMSQLBuilder;
 begin
-  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FDialect, True));
+  Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, FDialect, True));
 end;
 
 function TDMSQLBuilder.WhereNull(const AField: string): TDMSQLBuilder;
@@ -736,6 +756,7 @@ begin
   FValues.Clear;
   FWhereConditions.Clear;
   FJoins.Clear;
+  FParams.Clear;
   FTableAlias := '';
   FLimit := -1;
   FOffset := -1;
@@ -744,6 +765,25 @@ begin
   FIsCount := False;
   FOnlyDirty := False;
   Result := Self;
+end;
+
+procedure TDMSQLBuilder.BindParams(AParams: TParams);
+var
+  I: Integer;
+  TargetParam: TParam;
+begin
+  if AParams = nil then Exit;
+  for I := 0 to FParams.Count - 1 do
+  begin
+    TargetParam := AParams.FindParam(FParams[I].Name);
+    if TargetParam <> nil then
+    begin
+      if FParams[I].IsNull then
+        TargetParam.Clear
+      else
+        TSQLCriteriaHelper.AssignParamVariant(TargetParam, FParams[I].Value);
+    end;
+  end;
 end;
 
 function TDMSQLBuilder.OrderBy(const AField: string): TDMSQLBuilder;

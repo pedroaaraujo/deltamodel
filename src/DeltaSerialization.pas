@@ -46,12 +46,49 @@ begin
     Result := AClass.Create;
 end;
 
+function CanUseFastJsonParser(Obj: TObject; const JsonString: string): Boolean;
+var
+  Meta: TModelMetadata;
+  ClassProps: TRTTIClassInfo;
+  I: Integer;
+begin
+  if not (Obj is TDeltaModel) then
+    Exit(False);
+  if Pos('\u', JsonString) > 0 then
+    Exit(False);
+
+  Meta := TRTTICache.GetModelMetadata(Obj.ClassType);
+  if (Meta = nil) or (Meta.FieldCount = 0) then
+    Exit(False);
+
+  ClassProps := TRTTICache.GetClassProps(Obj.ClassType);
+  if ClassProps.PropCount <> Meta.FieldCount then
+  begin
+    for I := 0 to ClassProps.PropCount - 1 do
+      if ClassProps.Props[I].HasSetProc and ClassProps.Props[I].IsClass and
+         (not ClassProps.Props[I].IsDeltaField) then
+        Exit(False);
+  end;
+
+  for I := 0 to Meta.FieldCount - 1 do
+    if not (Meta.Fields[I].FieldKind in [dfkInteger, dfkFloat, dfkString, dfkBoolean]) then
+      Exit(False);
+
+  Result := True;
+end;
+
 procedure Deserialize(Obj: TObject; JsonString: string);
 var
   RawData: TJSONData;
 begin
   if JsonString.Trim.IsEmpty then
     Exit;
+
+  if CanUseFastJsonParser(Obj, JsonString) then
+  begin
+    TDeltaFastJsonParser.DeserializeModel(TDeltaModel(Obj), RawByteString(JsonString));
+    Exit;
+  end;
 
   RawData := GetJSON(JsonString, False);
   try

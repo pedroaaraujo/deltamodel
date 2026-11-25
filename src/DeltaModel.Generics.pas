@@ -85,13 +85,25 @@ type
 
     function Include(const ARelationName: string): TDeltaQuery<T>;
     function Where(const ACondition: string): TDeltaQuery<T>; overload;
+    function Where(const AField: string; const AValue: Variant): TDeltaQuery<T>; overload;
+    function Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>; overload;
+    function Where(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>; overload;
     function Where(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
     function AndWhere(const ACondition: string): TDeltaQuery<T>; overload;
     function AndWhere(const AField: string; const AValue: Variant): TDeltaQuery<T>; overload;
+    function AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>; overload;
+    function AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>; overload;
     function AndWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
     function OrWhere(const ACondition: string): TDeltaQuery<T>; overload;
     function OrWhere(const AField: string; const AValue: Variant): TDeltaQuery<T>; overload;
+    function OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>; overload;
+    function OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>; overload;
     function OrWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>; overload;
+    function WhereBetween(const AField: string; const AVal1, AVal2: Variant): TDeltaQuery<T>;
+    function WhereIn(const AField: string; const AValues: array of Variant): TDeltaQuery<T>;
+    function WhereNotIn(const AField: string; const AValues: array of Variant): TDeltaQuery<T>;
+    function WhereNull(const AField: string): TDeltaQuery<T>;
+    function WhereNotNull(const AField: string): TDeltaQuery<T>;
     function OrderBy(const AOrderBy: string): TDeltaQuery<T>; overload;
     function OrderBy(AField: TDeltaField; ADirection: TDeltaOrderDirection = odAsc): TDeltaQuery<T>; overload;
     function Limit(ALimit: Integer): TDeltaQuery<T>;
@@ -99,6 +111,7 @@ type
     function Page(APageNumber, APageSize: Integer): TDeltaQuery<T>;
     function Select(const AColumns: string): TDeltaQuery<T>;
     function Param(const AName: string; const AValue: Variant): TDeltaQuery<T>;
+    function Params: TParams;
     function Clear: TDeltaQuery<T>;
 
     function ToSQL: string;
@@ -379,6 +392,24 @@ begin
   Result := Self;
 end;
 
+function TDeltaQuery<T>.Where(const AField: string; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.Where(AField, AValue);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.Where(AField, AOp, AValue);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.Where(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.Where(AField, AOpStr, AValue);
+  Result := Self;
+end;
+
 function TDeltaQuery<T>.Where(const ACondition: TDeltaCondition): TDeltaQuery<T>;
 begin
   FQuery.Where(ACondition);
@@ -394,6 +425,18 @@ end;
 function TDeltaQuery<T>.AndWhere(const AField: string; const AValue: Variant): TDeltaQuery<T>;
 begin
   FQuery.AndWhere(AField, AValue);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.AndWhere(AField, AOp, AValue);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.AndWhere(AField, AOpStr, AValue);
   Result := Self;
 end;
 
@@ -415,9 +458,51 @@ begin
   Result := Self;
 end;
 
+function TDeltaQuery<T>.OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.OrWhere(AField, AOp, AValue);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TDeltaQuery<T>;
+begin
+  FQuery.OrWhere(AField, AOpStr, AValue);
+  Result := Self;
+end;
+
 function TDeltaQuery<T>.OrWhere(const ACondition: TDeltaCondition): TDeltaQuery<T>;
 begin
   FQuery.OrWhere(ACondition);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.WhereBetween(const AField: string; const AVal1, AVal2: Variant): TDeltaQuery<T>;
+begin
+  FQuery.WhereBetween(AField, AVal1, AVal2);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.WhereIn(const AField: string; const AValues: array of Variant): TDeltaQuery<T>;
+begin
+  FQuery.WhereIn(AField, AValues);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.WhereNotIn(const AField: string; const AValues: array of Variant): TDeltaQuery<T>;
+begin
+  FQuery.WhereNotIn(AField, AValues);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.WhereNull(const AField: string): TDeltaQuery<T>;
+begin
+  FQuery.WhereNull(AField);
+  Result := Self;
+end;
+
+function TDeltaQuery<T>.WhereNotNull(const AField: string): TDeltaQuery<T>;
+begin
+  FQuery.WhereNotNull(AField);
   Result := Self;
 end;
 
@@ -483,6 +568,11 @@ begin
   Result := Self;
 end;
 
+function TDeltaQuery<T>.Params: TParams;
+begin
+  Result := FQuery.Params;
+end;
+
 function TDeltaQuery<T>.Clear: TDeltaQuery<T>;
 begin
   FQuery.Clear;
@@ -525,7 +615,7 @@ begin
     PK := Meta.PKFieldName;
     if PK.IsEmpty then PK := 'id';
     FQuery.Clear;
-    Where(PK + ' = ' + VarToStr(AId));
+    Where(PK, AId);
     List := All(1, 0);
     try
       if List.Count > 0 then
@@ -550,7 +640,8 @@ var
   ParentModel: T;
   Meta: TModelMetadata;
   Rel: TDeltaModelRelation;
-  RelName, FKName, PKProp, IdListStr: string;
+  RelName, FKName, PKProp: string;
+  IdValues: array of Variant;
   ParentPKVal, ChildFKVal: Variant;
   ParentPropObj, ChildObj: TObject;
   ChildQuery: TQuery;
@@ -593,8 +684,8 @@ begin
         if FKName.IsEmpty then
           FKName := LowerCase(Meta.TableName) + '_id';
 
-        // Collect unique parent IDs
-        IdListStr := '';
+        // Collect unique parent IDs as parameterized values
+        SetLength(IdValues, 0);
         for I := 0 to Result.Count - 1 do
         begin
           ParentModel := Result[I];
@@ -602,22 +693,18 @@ begin
 
           if not VarIsNull(ParentPKVal) and not VarIsEmpty(ParentPKVal) then
           begin
-            if not IdListStr.IsEmpty then
-              IdListStr := IdListStr + ',';
-            if VarIsNumeric(ParentPKVal) then
-              IdListStr := IdListStr + VarToStr(ParentPKVal)
-            else
-              IdListStr := IdListStr + TSQLCriteriaHelper.QuoteString(VarToStr(ParentPKVal), FEngine.Dialect);
+            SetLength(IdValues, Length(IdValues) + 1);
+            IdValues[High(IdValues)] := ParentPKVal;
           end;
         end;
 
-        if not IdListStr.IsEmpty then
+        if Length(IdValues) > 0 then
         begin
-          // Execute batched secondary query (WHERE fk_field IN (...))
+          // Execute batched secondary query (WHERE fk_field IN (:p1, :p2, ...))
           ChildQuery := TQuery.Create(FEngine);
           try
             ChildQuery.SetModel(ChildClass);
-            ChildQuery.Where(FKName + ' IN (' + IdListStr + ')');
+            ChildQuery.WhereIn(FKName, IdValues);
             ChildList := ChildQuery.All(-1, -1);
             try
               for J := 0 to ChildList.Count - 1 do

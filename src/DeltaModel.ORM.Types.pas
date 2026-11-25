@@ -5,7 +5,7 @@ unit DeltaModel.ORM.Types;
 interface
 
 uses
-  Classes, SysUtils, Variants, StrUtils, DeltaModel.Fields;
+  Classes, SysUtils, Variants, StrUtils, DB, DeltaModel.Fields;
 
 type
   TDatabaseDialect = (
@@ -60,13 +60,21 @@ type
     class function JoinTypeToString(AJoinType: TJoinType): string; static;
     class function QuoteString(const AValue: string; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
     class function FormatValue(const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
+    class procedure AssignParamVariant(AParam: TParam; const AValue: Variant); static;
+    class function AddParam(AParams: TParams; const AValue: Variant): string; static;
     class function BuildCondition(const AField: string; AOp: TComparisonOp; const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
     class function BuildCondition(const AField: string; const AOpStr: string; const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
     class function BuildCondition(const AField: string; const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
-    class function BuildBetween(const AField: string; const AVal1, AVal2: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
-    class function BuildIn(const AField: string; const AValues: array of Variant; ADialect: TDatabaseDialect = ddPostgreSQL; ANotIn: Boolean = False): string; static;
+    class function BuildCondition(const AField: string; AOp: TComparisonOp; const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function BuildCondition(const AField: string; const AOpStr: string; const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function BuildCondition(const AField: string; const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function BuildBetween(const AField: string; const AVal1, AVal2: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function BuildBetween(const AField: string; const AVal1, AVal2: Variant; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function BuildIn(const AField: string; const AValues: array of Variant; ADialect: TDatabaseDialect = ddPostgreSQL; ANotIn: Boolean = False): string; static; overload;
+    class function BuildIn(const AField: string; const AValues: array of Variant; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL; ANotIn: Boolean = False): string; static; overload;
     class function BuildNullCondition(const AField: string; AIsNull: Boolean = True): string; static;
-    class function ConditionToSQL(const ACond: TDeltaCondition; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
+    class function ConditionToSQL(const ACond: TDeltaCondition; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
+    class function ConditionToSQL(const ACond: TDeltaCondition; AParams: TParams; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
   end;
 
 implementation
@@ -292,6 +300,43 @@ begin
   Result := QuoteString(VarToStr(AValue), ADialect);
 end;
 
+class procedure TSQLCriteriaHelper.AssignParamVariant(AParam: TParam; const AValue: Variant);
+var
+  VType: TVarType;
+begin
+  if AParam = nil then Exit;
+  if VarIsNull(AValue) or VarIsEmpty(AValue) then
+  begin
+    AParam.Clear;
+    Exit;
+  end;
+
+  VType := VarType(AValue);
+  if VType = varBoolean then
+    AParam.AsBoolean := Boolean(AValue)
+  else if VType in [varSmallInt, varInteger, varShortInt, varByte, varWord, varLongWord, varInt64, varQWord] then
+    AParam.AsLargeInt := AValue
+  else if VType in [varSingle, varDouble, varCurrency] then
+    AParam.AsFloat := Double(AValue)
+  else if VType = varDate then
+    AParam.AsDateTime := VarToDateTime(AValue)
+  else
+    AParam.AsString := VarToStr(AValue);
+end;
+
+class function TSQLCriteriaHelper.AddParam(AParams: TParams; const AValue: Variant): string;
+var
+  Idx: Integer;
+  P: TParam;
+begin
+  Idx := AParams.Count + 1;
+  while AParams.FindParam('p' + IntToStr(Idx)) <> nil do
+    Inc(Idx);
+  Result := 'p' + IntToStr(Idx);
+  P := AParams.CreateParam(ftUnknown, Result, ptInput);
+  AssignParamVariant(P, AValue);
+end;
+
 class function TSQLCriteriaHelper.BuildCondition(const AField: string;
   AOp: TComparisonOp; const AValue: Variant; ADialect: TDatabaseDialect): string;
 begin
@@ -331,11 +376,65 @@ begin
   Result := BuildCondition(AField, opEqual, AValue, ADialect);
 end;
 
+class function TSQLCriteriaHelper.BuildCondition(const AField: string;
+  AOp: TComparisonOp; const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect): string;
+begin
+  if AParams = nil then
+    Exit(BuildCondition(AField, AOp, AValue, ADialect));
+
+  case AOp of
+    opIsNull:
+      Result := Format('%s IS NULL', [AField]);
+    opIsNotNull:
+      Result := Format('%s IS NOT NULL', [AField]);
+    opEqual:
+      begin
+        if VarIsNull(AValue) or VarIsEmpty(AValue) then
+          Result := Format('%s IS NULL', [AField])
+        else
+          Result := Format('%s = :%s', [AField, AddParam(AParams, AValue)]);
+      end;
+    opNotEqual:
+      begin
+        if VarIsNull(AValue) or VarIsEmpty(AValue) then
+          Result := Format('%s IS NOT NULL', [AField])
+        else
+          Result := Format('%s <> :%s', [AField, AddParam(AParams, AValue)]);
+      end;
+  else
+    Result := Format('%s %s :%s', [AField, OpToString(AOp, ADialect), AddParam(AParams, AValue)]);
+  end;
+end;
+
+class function TSQLCriteriaHelper.BuildCondition(const AField: string;
+  const AOpStr: string; const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect): string;
+begin
+  Result := BuildCondition(AField, StringToOp(AOpStr), AValue, AParams, ADialect);
+end;
+
+class function TSQLCriteriaHelper.BuildCondition(const AField: string;
+  const AValue: Variant; AParams: TParams; ADialect: TDatabaseDialect): string;
+begin
+  Result := BuildCondition(AField, opEqual, AValue, AParams, ADialect);
+end;
+
 class function TSQLCriteriaHelper.BuildBetween(const AField: string;
   const AVal1, AVal2: Variant; ADialect: TDatabaseDialect): string;
 begin
   Result := Format('%s BETWEEN %s AND %s',
     [AField, FormatValue(AVal1, ADialect), FormatValue(AVal2, ADialect)]);
+end;
+
+class function TSQLCriteriaHelper.BuildBetween(const AField: string;
+  const AVal1, AVal2: Variant; AParams: TParams; ADialect: TDatabaseDialect): string;
+var
+  P1, P2: string;
+begin
+  if AParams = nil then
+    Exit(BuildBetween(AField, AVal1, AVal2, ADialect));
+  P1 := AddParam(AParams, AVal1);
+  P2 := AddParam(AParams, AVal2);
+  Result := Format('%s BETWEEN :%s AND :%s', [AField, P1, P2]);
 end;
 
 class function TSQLCriteriaHelper.BuildIn(const AField: string;
@@ -368,6 +467,39 @@ begin
   Result := Result + ')';
 end;
 
+class function TSQLCriteriaHelper.BuildIn(const AField: string;
+  const AValues: array of Variant; AParams: TParams; ADialect: TDatabaseDialect;
+  ANotIn: Boolean): string;
+var
+  I: Integer;
+  OpStr: string;
+begin
+  if AParams = nil then
+    Exit(BuildIn(AField, AValues, ADialect, ANotIn));
+
+  if Length(AValues) = 0 then
+  begin
+    if ANotIn then
+      Exit('1 = 1')
+    else
+      Exit('1 = 0');
+  end;
+
+  if ANotIn then
+    OpStr := 'NOT IN'
+  else
+    OpStr := 'IN';
+
+  Result := AField + ' ' + OpStr + ' (';
+  for I := Low(AValues) to High(AValues) do
+  begin
+    if I > Low(AValues) then
+      Result := Result + ', ';
+    Result := Result + ':' + AddParam(AParams, AValues[I]);
+  end;
+  Result := Result + ')';
+end;
+
 class function TSQLCriteriaHelper.BuildNullCondition(const AField: string;
   AIsNull: Boolean): string;
 begin
@@ -379,6 +511,12 @@ end;
 
 class function TSQLCriteriaHelper.ConditionToSQL(const ACond: TDeltaCondition;
   ADialect: TDatabaseDialect): string;
+begin
+  Result := ConditionToSQL(ACond, nil, ADialect);
+end;
+
+class function TSQLCriteriaHelper.ConditionToSQL(const ACond: TDeltaCondition;
+  AParams: TParams; ADialect: TDatabaseDialect): string;
 var
   FName: string;
 begin
@@ -391,29 +529,29 @@ begin
 
   case ACond.&Operator of
     doEq:
-      Result := BuildCondition(FName, opEqual, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opEqual, ACond.Value, AParams, ADialect);
     doNotEq:
-      Result := BuildCondition(FName, opNotEqual, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opNotEqual, ACond.Value, AParams, ADialect);
     doGt:
-      Result := BuildCondition(FName, opGreaterThan, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opGreaterThan, ACond.Value, AParams, ADialect);
     doGte:
-      Result := BuildCondition(FName, opGreaterThanOrEqual, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opGreaterThanOrEqual, ACond.Value, AParams, ADialect);
     doLt:
-      Result := BuildCondition(FName, opLessThan, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opLessThan, ACond.Value, AParams, ADialect);
     doLte:
-      Result := BuildCondition(FName, opLessThanOrEqual, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opLessThanOrEqual, ACond.Value, AParams, ADialect);
     doLike:
-      Result := BuildCondition(FName, opLike, ACond.Value, ADialect);
+      Result := BuildCondition(FName, opLike, ACond.Value, AParams, ADialect);
     doBetween:
-      Result := BuildBetween(FName, ACond.Value, ACond.SecondaryValue, ADialect);
+      Result := BuildBetween(FName, ACond.Value, ACond.SecondaryValue, AParams, ADialect);
     doIn:
-      Result := BuildIn(FName, ACond.Values, ADialect, False);
+      Result := BuildIn(FName, ACond.Values, AParams, ADialect, False);
     doIsNull:
       Result := BuildNullCondition(FName, True);
     doIsNotNull:
       Result := BuildNullCondition(FName, False);
   else
-    Result := BuildCondition(FName, opEqual, ACond.Value, ADialect);
+    Result := BuildCondition(FName, opEqual, ACond.Value, AParams, ADialect);
   end;
 end;
 

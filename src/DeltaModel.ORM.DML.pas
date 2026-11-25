@@ -34,6 +34,7 @@ type
     FIsOpen: Boolean;
     FBOF: Boolean;
     FEOF: Boolean;
+    function CurrentDialect: TDatabaseDialect;
     procedure BindParams(AQuery: TSQLQuery);
   public
     constructor Create(AConn: IDeltaORMEngine);
@@ -78,6 +79,7 @@ type
     function SetModel(AModel: TDeltaModelClass): TQuery;
 
     function ToSQL: string;
+    property Params: TParams read FParams;
     property WhereClause: string read FFilter;
     property FilterText: string read FFilter;
     property OrderByClause: string read FOrderBy;
@@ -174,6 +176,14 @@ begin
   inherited Destroy;
 end;
 
+function TQuery.CurrentDialect: TDatabaseDialect;
+begin
+  if FConn <> nil then
+    Result := FConn.Dialect
+  else
+    Result := ddPostgreSQL;
+end;
+
 procedure TQuery.BindParams(AQuery: TSQLQuery);
 var
   I: Integer;
@@ -183,7 +193,12 @@ begin
   begin
     TargetParam := AQuery.Params.FindParam(FParams[I].Name);
     if TargetParam <> nil then
-      TargetParam.Value := FParams[I].Value;
+    begin
+      if FParams[I].IsNull then
+        TargetParam.Clear
+      else
+        TSQLCriteriaHelper.AssignParamVariant(TargetParam, FParams[I].Value);
+    end;
   end;
 end;
 
@@ -194,7 +209,7 @@ begin
   P := FParams.FindParam(AName);
   if P = nil then
     P := FParams.CreateParam(ftUnknown, AName, ptInput);
-  P.Value := AValue;
+  TSQLCriteriaHelper.AssignParamVariant(P, AValue);
   Result := Self;
 end;
 
@@ -302,36 +317,30 @@ end;
 function TQuery.Where(const AField: string; const AValue: Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AValue, FConn.Dialect))
+    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, CurrentDialect))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FConn.Dialect));
+    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.Where(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FConn.Dialect))
+    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, CurrentDialect))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FConn.Dialect));
+    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.Where(const AField: string; const AOpStr: string; const AValue: Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect))
+    Result := Where(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, CurrentDialect))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
+    Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.Where(const ACondition: TDeltaCondition): TQuery;
-var
-  Dialect: TDatabaseDialect;
 begin
-  if FConn <> nil then
-    Dialect := FConn.Dialect
-  else
-    Dialect := ddPostgreSQL;
-  Result := Where(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
+  Result := Where(TSQLCriteriaHelper.ConditionToSQL(ACondition, FParams, CurrentDialect));
 end;
 
 function TQuery.AndWhere(const Value: string): TQuery;
@@ -346,28 +355,22 @@ end;
 
 function TQuery.AndWhere(const AField: string; const AValue: Variant): TQuery;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FConn.Dialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.AndWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FConn.Dialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.AndWhere(const AField: string; const AOpStr: string; const AValue: Variant): TQuery;
 begin
-  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
+  Result := AndWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.AndWhere(const ACondition: TDeltaCondition): TQuery;
-var
-  Dialect: TDatabaseDialect;
 begin
-  if FConn <> nil then
-    Dialect := FConn.Dialect
-  else
-    Dialect := ddPostgreSQL;
-  Result := AndWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
+  Result := AndWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, FParams, CurrentDialect));
 end;
 
 function TQuery.OrWhere(const Value: string): TQuery;
@@ -382,52 +385,46 @@ end;
 
 function TQuery.OrWhere(const AField: string; const AValue: Variant): TQuery;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FConn.Dialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.OrWhere(const AField: string; AOp: TComparisonOp; const AValue: Variant): TQuery;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FConn.Dialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOp, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.OrWhere(const AField: string; const AOpStr: string; const AValue: Variant): TQuery;
 begin
-  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FConn.Dialect));
+  Result := OrWhere(TSQLCriteriaHelper.BuildCondition(AField, AOpStr, AValue, FParams, CurrentDialect));
 end;
 
 function TQuery.OrWhere(const ACondition: TDeltaCondition): TQuery;
-var
-  Dialect: TDatabaseDialect;
 begin
-  if FConn <> nil then
-    Dialect := FConn.Dialect
-  else
-    Dialect := ddPostgreSQL;
-  Result := OrWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, Dialect));
+  Result := OrWhere(TSQLCriteriaHelper.ConditionToSQL(ACondition, FParams, CurrentDialect));
 end;
 
 function TQuery.WhereBetween(const AField: string; const AVal1, AVal2: Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FConn.Dialect))
+    Result := Where(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FParams, CurrentDialect))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FConn.Dialect));
+    Result := AndWhere(TSQLCriteriaHelper.BuildBetween(AField, AVal1, AVal2, FParams, CurrentDialect));
 end;
 
 function TQuery.WhereIn(const AField: string; const AValues: array of Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FConn.Dialect, False))
+    Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, CurrentDialect, False))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildIn(AField, AValues, FConn.Dialect, False));
+    Result := AndWhere(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, CurrentDialect, False));
 end;
 
 function TQuery.WhereNotIn(const AField: string; const AValues: array of Variant): TQuery;
 begin
   if FFilter.IsEmpty then
-    Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FConn.Dialect, True))
+    Result := Where(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, CurrentDialect, True))
   else
-    Result := AndWhere(TSQLCriteriaHelper.BuildIn(AField, AValues, FConn.Dialect, True));
+    Result := AndWhere(TSQLCriteriaHelper.BuildIn(AField, AValues, FParams, CurrentDialect, True));
 end;
 
 function TQuery.WhereNull(const AField: string): TQuery;
@@ -1048,8 +1045,10 @@ begin
   try
     DS.SQL.Text := TDMSQLBuilder.CreateDelete(
       AModel,
-      AConn.Dialect
+      AConn.Dialect,
+      TDMSQLBuilder.WhereClausePK(AModel, True)
     );
+    ToDatasetParams(AModel, DS);
     DS.ExecSQL;
     Result := DS.RowsAffected > 0;
     if Result then
@@ -1063,11 +1062,15 @@ class function TDelete.ExecById(AConn: IDeltaORMEngine; AModelClass: TDeltaModel
   const AId: Variant): Boolean;
 var
   Q: TQuery;
+  PKFieldName: string;
 begin
+  PKFieldName := TRTTICache.GetModelMetadata(AModelClass).PKFieldName;
+  if PKFieldName.IsEmpty then
+    PKFieldName := 'id';
   Q := TQuery.Create(AConn);
   try
     Q.SetModel(AModelClass);
-    Q.Where('id = :__pk_id');
+    Q.Where(PKFieldName + ' = :__pk_id');
     Q.Param('__pk_id', AId);
     Result := Q.Delete;
   finally
@@ -1095,7 +1098,7 @@ begin
     DS.SQL.Text := TDMSQLBuilder.CreateUpdate(
       AModel,
       AConn.Dialect,
-      TDMSQLBuilder.WhereClausePK(AModel)
+      TDMSQLBuilder.WhereClausePK(AModel, True)
     );
     ToDatasetParams(AModel, DS);
 
@@ -1126,7 +1129,7 @@ begin
     DS.SQL.Text := TDMSQLBuilder.CreateUpdateReturning(
       AModel,
       AConn.Dialect,
-      TDMSQLBuilder.WhereClausePK(AModel)
+      TDMSQLBuilder.WhereClausePK(AModel, True)
     );
     ToDatasetParams(AModel, DS);
 
@@ -1156,7 +1159,7 @@ begin
   SQL := TDMSQLBuilder.CreatePartialUpdate(
     AModel,
     AConn.Dialect,
-    TDMSQLBuilder.WhereClausePK(AModel)
+    TDMSQLBuilder.WhereClausePK(AModel, True)
   );
   if SQL.IsEmpty then
     Exit(False);
@@ -1198,7 +1201,7 @@ begin
   SQL := TDMSQLBuilder.CreatePartialUpdateReturning(
     AModel,
     AConn.Dialect,
-    TDMSQLBuilder.WhereClausePK(AModel)
+    TDMSQLBuilder.WhereClausePK(AModel, True)
   );
   if SQL.IsEmpty then
     Exit(nil);
