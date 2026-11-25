@@ -289,6 +289,8 @@ List := Query
   .All;
 ```
 
+> **Security:** prefer `:parameters` with `.Param(...)` for user-supplied values. The `Where(Field, Value)` shortcuts inline the value as an escaped literal; on MySQL/MariaDB backslashes are doubled as well (`TSQLCriteriaHelper.QuoteString`), assuming the default mode without `NO_BACKSLASH_ESCAPES`. `OrderBy(string)` and `Where(string)` take raw SQL: never pass client text without validating it against the model fields.
+
 ### Pagination and Limits
 ```pascal
 // Direct Limit and Offset

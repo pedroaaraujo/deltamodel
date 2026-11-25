@@ -289,6 +289,8 @@ List := Query
   .All;
 ```
 
+> **Seguridad:** prefiera `:parametros` con `.Param(...)` para valores provenientes del usuario. Los atajos `Where(Campo, Valor)` incrustan el valor como literal escapado; en MySQL/MariaDB la barra invertida también se duplica (`TSQLCriteriaHelper.QuoteString`), asumiendo el modo por defecto sin `NO_BACKSLASH_ESCAPES`. `OrderBy(string)` y `Where(string)` reciben SQL crudo: nunca reenvíe texto del cliente sin validarlo contra los campos del modelo.
+
 ### Paginación y Límites
 ```pascal
 // Limit y Offset directos

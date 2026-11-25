@@ -960,6 +960,17 @@ end;
 { Test 5: DDL Generator Across Dialects                                        }
 {==============================================================================}
 
+procedure TestStringLiteralEscaping;
+begin
+  Suite('4b. Escape de literais por dialeto');
+  AssertEquals('''a''''b''', TSQLCriteriaHelper.QuoteString('a''b', ddPostgreSQL), 'Aspa simples duplicada (PostgreSQL)');
+  AssertEquals('''a\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', ddPostgreSQL), 'Barra invertida preservada fora do MySQL');
+  AssertEquals('''a\\''''b''', TSQLCriteriaHelper.QuoteString('a\''b', ddMySQL), 'Barra invertida duplicada no MySQL/MariaDB');
+  AssertEquals('name = ''x\\'''' OR 1=1 -- ''',
+    TSQLCriteriaHelper.BuildCondition('name', opEqual, 'x\'' OR 1=1 -- ', ddMySQL),
+    'Payload com barra invertida não encerra literal no MySQL');
+end;
+
 procedure TestDDLGenerator;
 var
   Prod: TProductModel;
@@ -3157,6 +3168,7 @@ begin
     TestValidators;
     TestSerialization;
     TestSwaggerSchema;
+    TestStringLiteralEscaping;
     TestDDLGenerator;
     TestModelLifecycleHooks;
     TestORMCRUDAndQueries;

@@ -58,6 +58,7 @@ type
     class function OpToString(AOp: TComparisonOp; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
     class function StringToOp(const AOpStr: string): TComparisonOp; static;
     class function JoinTypeToString(AJoinType: TJoinType): string; static;
+    class function QuoteString(const AValue: string; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
     class function FormatValue(const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static;
     class function BuildCondition(const AField: string; AOp: TComparisonOp; const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
     class function BuildCondition(const AField: string; const AOpStr: string; const AValue: Variant; ADialect: TDatabaseDialect = ddPostgreSQL): string; static; overload;
@@ -229,6 +230,17 @@ begin
   end;
 end;
 
+class function TSQLCriteriaHelper.QuoteString(const AValue: string;
+  ADialect: TDatabaseDialect): string;
+begin
+  { MySQL/MariaDB interpretam barra invertida como escape em literais (modo
+    padrão, sem NO_BACKSLASH_ESCAPES). Sem duplicá-la, "\'" encerraria o literal. }
+  if ADialect = ddMySQL then
+    Result := QuotedStr(StringReplace(AValue, '\', '\\', [rfReplaceAll]))
+  else
+    Result := QuotedStr(AValue);
+end;
+
 class function TSQLCriteriaHelper.FormatValue(const AValue: Variant;
   ADialect: TDatabaseDialect): string;
 var
@@ -276,8 +288,8 @@ begin
       Exit(QuotedStr(FormatDateTime('yyyy-mm-dd hh:nn:ss', DT)));
   end;
 
-  // Default: string with escaped quotes
-  Result := QuotedStr(VarToStr(AValue));
+  // Default: string with escaped quotes (dialect-aware)
+  Result := QuoteString(VarToStr(AValue), ADialect);
 end;
 
 class function TSQLCriteriaHelper.BuildCondition(const AField: string;

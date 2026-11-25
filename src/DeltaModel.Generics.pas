@@ -9,7 +9,7 @@ interface
 uses
   Classes, SysUtils, DB, Variants, TypInfo,
   DeltaModel, DeltaModel.Fields, DeltaModel.Metadata, DeltaModel.JsonStreamer,
-  DeltaModel.ORM.Interfaces, DeltaModel.ORM.DML;
+  DeltaModel.ORM.Interfaces, DeltaModel.ORM.Types, DeltaModel.ORM.DML;
 
 procedure RegisterSchemaFlyweight(AModel: TDeltaModel);
 procedure UnregisterSchemaFlyweight(AModel: TDeltaModel);
@@ -607,7 +607,7 @@ begin
             if VarIsNumeric(ParentPKVal) then
               IdListStr := IdListStr + VarToStr(ParentPKVal)
             else
-              IdListStr := IdListStr + QuotedStr(VarToStr(ParentPKVal));
+              IdListStr := IdListStr + TSQLCriteriaHelper.QuoteString(VarToStr(ParentPKVal), FEngine.Dialect);
           end;
         end;
 
