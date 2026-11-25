@@ -23,6 +23,15 @@ Código em Free Pascal, modo ObjFPC; fontes em `src`, programas de teste em `tes
 - Compatibilidade de auto incremento não implica suporte a todos os tipos de
   Firebird 2.5: por exemplo, esse servidor não possui o tipo SQL `BOOLEAN`.
 
+## Metadados e schema fluente
+
+- `ConfigureSchema` pode citar propriedades `TDF*`; elas continuam sendo
+  `TDeltaField` em `TModelMetadata` (o passo de primitivos ignora classes).
+- Do schema fluente, um `TDF*` com opções próprias recebe só as marcas
+  estruturais `DELTA_STRUCTURAL_DB_OPTIONS` (PK, AutoInc, Unique, Index);
+  `dboInsert`/`dboUpdate` são decididos pelo campo.
+- `TDeltaConnectionPool` faz rollback ao liberar a conexão: escritas exigem `Commit`.
+
 ## Validação e documentação
 
 Compile com `-FE` e `-FU` apontando a `/tmp`, sem alterar binários rastreados.
